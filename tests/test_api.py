@@ -1101,14 +1101,19 @@ def test_a_key_protects_everything_except_health_and_criteria(settings):
         assert client.get("/api/documents", headers={"X-API-Key": "s3cret"}).status_code == 200
 
 
-def test_metrics_are_declared_and_honestly_unavailable(client):
-    """Documented and 503 beats absent: the OpenAPI document is a deliverable
-    and the UI is written against it before the store exists."""
-    for path in ("/api/metrics/summary", "/api/metrics/timeseries", "/api/metrics/runs",
-                 "/api/metrics/runs/x/spans"):
-        response = client.get(path)
-        assert response.status_code == 503, path
-        assert response.json()["error"]["code"] == "metrics_unavailable"
+def test_the_metrics_queries_answer_and_the_waterfall_still_does_not(client):
+    """Phase 1 of the metric store: the three query endpoints return JSON over
+    an empty database rather than 503, and the one that needs a table nobody
+    has built keeps answering honestly.
+
+    Documented and 503 beats absent -- the OpenAPI document is a deliverable
+    and the UI is written against it -- so the waterfall stays declared."""
+    for path in ("/api/metrics/summary", "/api/metrics/timeseries", "/api/metrics/runs"):
+        assert client.get(path).status_code == 200, path
+
+    response = client.get("/api/metrics/runs/x/spans")
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "metrics_unavailable"
 
 
 # --------------------------------------------------------------------------

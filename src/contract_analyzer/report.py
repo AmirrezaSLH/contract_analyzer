@@ -331,16 +331,29 @@ def _run_one(
         return None
 
     own = connect(target, same_thread=False) if isinstance(target, str) else None
+    on_event = emit.for_criterion(criterion.id)
     try:
-        return analyze_criterion(
+        started = time.perf_counter()
+        outcome = analyze_criterion(
             criterion,
             own if own is not None else target,
             embedder,
             settings,
             document_id=document_id,
             client=client,
-            on_event=emit.for_criterion(criterion.id),
+            on_event=on_event,
         )
+        result = outcome.result
+        # Timed out here rather than inside the Analyzer: what a reviewer means
+        # by "how long did criterion 3 take" is the whole of it, and this is the
+        # frame that sees the whole of it. When the Router lands in front of the
+        # Analyzer, the whole of it grows an evaluation and possibly a revision,
+        # and this timing and this event move in there with it.
+        result.latency_s = round(time.perf_counter() - started, 3)
+        on_event({"type": "result", "surface": "analysis", "criterion": criterion.id,
+                  "state": result.compliance_state, "confidence": result.confidence,
+                  "needs_review": result.needs_review, "latency_s": result.latency_s})
+        return result
     finally:
         if own is not None:
             own.close()

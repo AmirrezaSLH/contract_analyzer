@@ -1,12 +1,25 @@
 """The agent loop: `while stop_reason == "tool_use"`, with three counters.
 
-This is the whole of the "Router Agent". The model is given the system
-prompt, the task's messages and the two tool definitions; while it asks for
-tools, each call is executed and its result appended; when it stops asking,
-the surface's `finisher` produces the final turn from the conversation and
-the evidence ledger. No framework: a LangGraph would hide exactly the part
-that has to be walked through in the log during the demo, and would bring a
-second retry layer against the project's one-transport rule.
+This is the **Analyzer**'s engine (`docs/agents/`). The model is given the
+system prompt, the task's messages and the two tool definitions; while it
+asks for tools, each call is executed and its result appended; when it stops
+asking, the surface's `finisher` produces the final turn from the
+conversation and the evidence ledger. No framework: a LangGraph would hide
+exactly the part that has to be walked through in the log during the demo,
+and would bring a second retry layer against the project's one-transport
+rule.
+
+The *retrieval routing* the assignment asks a router for happens here, and
+deliberately stays here: the model picks each query, each mode and each
+cross-reference to follow, one turn at a time, and every choice is a logged
+`agent.tool` span. A plan-once router upstream would be a plan the executor
+cannot question. What sits above this loop is `router.py`, which owns the
+conversation *between* agents -- when the Analyzer has said enough, what the
+Evaluator gets to see, and whether the answer goes back for another round.
+
+`resume_agent` is how it goes back: the same conversation, the same ledger,
+the same dedupe table, with the tool budget raised by a delta rather than
+reset.
 
 **Not getting stuck is enforced by counters, not prompts.**
 
@@ -178,7 +191,6 @@ def run_agent(
     """
     settings = settings or get_settings()
     client = client or get_client(settings)
-    emit = on_event or (lambda event: None)
     run = AgentRun(
         surface=task.surface,
         model=model or settings.answer_model,
@@ -187,9 +199,64 @@ def run_agent(
         evidence=tools.evidence,
         tool_calls=tools.calls,
     )
+    return _drive(
+        run, task, tools=tools, finisher=finisher, settings=settings, client=client,
+        on_event=on_event, resumed=False,
+    )
+
+
+def resume_agent(
+    run: AgentRun,
+    task: AgentTask,
+    *,
+    tools: ContractTools,
+    finisher: Callable[[AgentRun], T] | None = None,
+    settings: Settings | None = None,
+    client: Any = None,
+    on_event: OnEvent | None = None,
+) -> AgentRun:
+    """Re-enter the loop on a conversation that already exists.
+
+    The Analyzer's `research` revision is the only caller: the Router has
+    asked for more searching, and starting a *fresh* run would throw away the
+    evidence ledger, the dedupe table and the prompt-cached prefix that make
+    the second leg cheap. `task.messages` are appended to the run rather than
+    replacing it, and `task.max_tool_calls` is an *absolute* ceiling counted
+    against `tools.calls`, which already holds what the first leg spent -- so
+    a revision grants a delta and cannot reset the budget to a fresh eight.
+
+    `run.ended_by` is overwritten by this leg: it answers "why did the model
+    stop *this* time", and the result's `rounds` is what says a revision
+    happened at all.
+    """
+    settings = settings or get_settings()
+    client = client or get_client(settings)
+    run.messages.extend(task.messages)
+    return _drive(
+        run, task, tools=tools, finisher=finisher, settings=settings, client=client,
+        on_event=on_event, resumed=True,
+    )
+
+
+def _drive(
+    run: AgentRun,
+    task: AgentTask,
+    *,
+    tools: ContractTools,
+    finisher: Callable[[AgentRun], T] | None,
+    settings: Settings,
+    client: Any,
+    on_event: OnEvent | None,
+    resumed: bool,
+) -> AgentRun:
+    """The loop itself, over a run that is either fresh or already underway."""
+    emit = on_event or (lambda event: None)
     definitions = tools.definitions()
 
-    with span("agent.run", log, surface=task.surface, max_tool_calls=task.max_tool_calls) as bag:
+    with span(
+        "agent.run", log, surface=task.surface, max_tool_calls=task.max_tool_calls,
+        resumed=resumed,
+    ) as bag:
         while True:
             run.turns += 1
             message = call_model(
@@ -264,4 +331,12 @@ def run_agent(
     return run
 
 
-__all__ = ["AgentRun", "AgentTask", "call_model", "content_params", "run_agent", "text_of"]
+__all__ = [
+    "AgentRun",
+    "AgentTask",
+    "call_model",
+    "content_params",
+    "resume_agent",
+    "run_agent",
+    "text_of",
+]

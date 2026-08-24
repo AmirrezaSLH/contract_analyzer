@@ -158,6 +158,10 @@ class Settings(BaseSettings):
     #: Rounds of structural self-correction before a bad quote is dropped and
     #: the result flagged `needs_review`.
     structure_fix_rounds: int = Field(default=2, ge=0)
+    #: Tool calls a `research` revision may add *on top of what the first leg
+    #: already spent*. A delta, not a fresh allowance: the Router asked for a
+    #: specific gap to be searched for, not for the criterion to be rerun.
+    research_extra_tool_calls: int = Field(default=3, ge=0)
     #: Criteria analysed in parallel inside one document run. Five criteria at
     #: five workers is ~60 s wall clock instead of ~190 s sequential. It is
     #: also the outbound rate limit: with the API's `api_workers` jobs in

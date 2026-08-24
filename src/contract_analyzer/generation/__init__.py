@@ -17,7 +17,18 @@ not one. The loop, the tools, the client, the prompt library and the caps are
 shared. See docs/generation.md.
 """
 
+from .analysis import analyze_criterion
+from .chat import AnswerResult, chat
 from .client import AnswerUnavailable, Usage, get_client
 from .prompts import PromptLibrary, get_prompts
 
-__all__ = ["AnswerUnavailable", "PromptLibrary", "Usage", "get_client", "get_prompts"]
+__all__ = [
+    "AnswerResult",
+    "AnswerUnavailable",
+    "PromptLibrary",
+    "Usage",
+    "analyze_criterion",
+    "chat",
+    "get_client",
+    "get_prompts",
+]

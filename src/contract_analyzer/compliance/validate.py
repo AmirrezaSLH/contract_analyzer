@@ -24,10 +24,13 @@ import re
 import unicodedata
 from collections.abc import Iterable
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
-from ..generation.tools import Evidence
 from .criteria import Criterion
 from .schemas import MAX_QUOTE_CHARS, ComplianceDraft, SubRequirementStatus
+
+if TYPE_CHECKING:  # the ledger's type only; importing it at runtime would be circular
+    from ..generation.tools import Evidence
 
 
 @dataclass(frozen=True)

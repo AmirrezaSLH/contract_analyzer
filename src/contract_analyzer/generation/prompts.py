@@ -30,6 +30,7 @@ REQUIRED_KEYS: frozenset[str] = frozenset(
         "chat.system",
         "chat.no_context",
         "analysis.system",
+        "analysis.user",
         "analysis.finish",
         "analysis.fix_structure",
     }

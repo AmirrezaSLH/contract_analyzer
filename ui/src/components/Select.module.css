@@ -1,0 +1,87 @@
+.wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  position: relative;
+}
+
+.labelRow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.help {
+  color: var(--faint-3);
+  display: inline-flex;
+}
+
+.trigger {
+  border: 1px solid var(--border-ctl);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  padding: 9px 13px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+}
+
+.value {
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The shared right-pointing chevron, turned down. One glyph rotated by its
+ * callers is the whole icon budget for this: a second path would be a ninth
+ * icon, and there are eight. */
+.chevron {
+  color: var(--hairline);
+  transform: rotate(90deg);
+  transition: transform 0.15s ease;
+}
+
+.chevronOpen {
+  transform: rotate(-90deg);
+}
+
+.menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 5px;
+  z-index: 5;
+  background: var(--surface);
+  border: 1px solid var(--border-ctl);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-menu);
+  padding: 5px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.option {
+  font-size: 14px;
+  padding: 8px 10px;
+  border-radius: var(--r-xs);
+  text-align: left;
+  color: var(--ink-2);
+  width: 100%;
+}
+
+.option:hover,
+.active {
+  background: var(--sidebar);
+}
+
+.picked {
+  background: var(--sidebar);
+  font-weight: 600;
+  color: var(--ink);
+}

@@ -70,6 +70,7 @@
 
 .activeChevron {
   color: var(--hairline);
+  transform: rotate(90deg);
 }
 
 .meta {

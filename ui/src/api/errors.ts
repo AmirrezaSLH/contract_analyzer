@@ -144,6 +144,21 @@ const TABLE: Record<string, Row> = {
     retry: null,
   },
 
+  // -- codes this front end mints itself -----------------------------------
+  // Not from the API. They describe things that happen to a *browser*, which
+  // the API has no way to observe: a stream that stopped, an upload the user
+  // navigated away from.
+  stream_incomplete: {
+    placement: "inline",
+    title: "The answer stopped before it finished.",
+    retry: "Ask again",
+  },
+  upload_aborted: {
+    placement: "inline",
+    title: "The upload was cancelled.",
+    retry: null,
+  },
+
   // -- upstream and infrastructure -----------------------------------------
   upstream_failure: {
     placement: "replaces-card",

@@ -1,0 +1,244 @@
+.shell {
+  display: flex;
+  min-height: 100vh;
+  background: var(--canvas);
+}
+
+/* -- sidebar ---------------------------------------------------------------
+ * The third plane: warmer than the canvas, which is warmer than the cards.
+ * 336px, padding 32px 24px, internal gap 26px. */
+.sidebar {
+  width: var(--sidebar-w);
+  flex-shrink: 0;
+  background: var(--sidebar);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+  padding: 32px 24px;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+}
+
+.brand {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.brandName {
+  font-family: var(--serif);
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.brandSub {
+  font-size: 12px;
+  color: var(--muted-2);
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* The active document, always on screen. A user never has to wonder what they
+ * are asking about. */
+.active {
+  border: 1px solid var(--border-ctl);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  padding: 10px 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  width: 100%;
+}
+
+.activeName {
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activeChevron {
+  color: var(--hairline);
+}
+
+.meta {
+  font-size: 12px;
+  color: var(--muted-2);
+}
+
+.navGroup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-group);
+}
+
+.navRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  margin: 0 -10px;
+  border-radius: var(--r-sm);
+  width: calc(100% + 20px);
+}
+
+.navRow:hover {
+  background: var(--nav-sel);
+}
+
+.navSelected {
+  background: var(--nav-sel);
+}
+
+.navCount {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted-2);
+}
+
+.navChevron {
+  color: var(--hairline);
+}
+
+.docs {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.docRow {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  text-align: left;
+  color: var(--muted);
+  width: 100%;
+}
+
+.docRow:hover {
+  background: var(--surface-sel);
+}
+
+.docSelected,
+.docSelected:hover {
+  background: var(--nav-sel);
+  color: var(--ink);
+}
+
+.docName {
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.docSub {
+  font-size: 11px;
+  color: var(--muted-2);
+}
+
+.foot {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-group);
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+}
+
+/* The trace id is always visible. It is what makes the log walkthrough
+ * possible: read it here, grep .run/app.jsonl for it. */
+.trace {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted-2);
+}
+
+.traceValue {
+  font-family: var(--mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* -- main ------------------------------------------------------------------ */
+.main {
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 36px 56px 40px;
+  gap: var(--gap-block);
+  min-width: 0;
+}
+
+.head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.headText {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.title {
+  font-family: var(--serif);
+  font-size: 30px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+
+.subtitle {
+  font-size: 13px;
+  color: var(--muted-2);
+}
+
+.headActions {
+  display: flex;
+  gap: var(--gap-group);
+  flex-shrink: 0;
+}
+
+/* -- tabs ------------------------------------------------------------------
+ * Views *of the selected document*, which is why they render only on the two
+ * routes that have one. Upload and the library are application pages and have
+ * no tab bar at all. */
+.tabs {
+  display: flex;
+  gap: 28px;
+  border-bottom: 1px solid var(--border);
+}
+
+.tab {
+  font-size: 14px;
+  padding-bottom: 10px;
+  color: var(--muted-2);
+}
+
+.tabActive {
+  color: var(--ink);
+  font-weight: 600;
+  border-bottom: 2px solid var(--accent);
+  margin-bottom: -1px;
+}

@@ -1,0 +1,34 @@
+/* One 11px square per sub-requirement.
+ *
+ * Shape carries the distinction, not only colour: `not_determined` is dashed
+ * on purpose, because "we could not tell" must not read as "we checked and it
+ * is absent". That is also what makes the four legible in greyscale. */
+.marker {
+  width: 11px;
+  height: 11px;
+  border-radius: 2px;
+  display: block;
+  flex-shrink: 0;
+  margin-top: 4px;
+}
+
+.met {
+  background: var(--fc-fg);
+}
+
+/* The one documented place a gradient is written inline-ish: both stops are
+ * tokens, so no literal hex appears. */
+.partial {
+  background: linear-gradient(135deg, var(--pc-marker) 50%, var(--surface) 50%);
+  border: 1px solid var(--pc-marker);
+}
+
+.missing {
+  background: var(--surface);
+  border: 1.5px solid var(--nc-fg);
+}
+
+.not_determined {
+  background: var(--surface);
+  border: 1.5px dashed var(--faint-3);
+}

@@ -1,0 +1,106 @@
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: var(--r-md);
+  font-family: var(--sans);
+  font-weight: 600;
+  white-space: nowrap;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+
+.button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+/* -- variants -------------------------------------------------------------- */
+
+.primary {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.secondary {
+  border: 1px solid var(--border-ctl);
+  background: var(--surface);
+  color: var(--ink-2);
+}
+.secondary:hover:not(:disabled) {
+  border-color: var(--muted);
+}
+
+/* A link that happens to be a button: the "Show all N quotes" disclosure and
+ * anything else that is an action but not a control. */
+.tertiary {
+  color: var(--accent);
+  font-size: 13px;
+}
+.tertiary:hover:not(:disabled) {
+  color: var(--accent-hover);
+}
+
+.destructive {
+  background: var(--nc-fg);
+  color: var(--on-accent);
+}
+.destructive:hover:not(:disabled) {
+  background: #7a2626;
+}
+
+/* -- sizes ----------------------------------------------------------------- */
+
+.lg {
+  padding: 11px 22px;
+  font-size: 14px;
+}
+.lg.secondary {
+  padding: 10px 20px;
+}
+
+.md {
+  padding: 10px 17px;
+  font-size: 13px;
+}
+.md.secondary {
+  padding: 9px 16px;
+}
+
+.sm {
+  border-radius: var(--r-sm);
+  padding: 7px 14px;
+  font-size: 12px;
+}
+.sm.secondary {
+  padding: 6px 12px;
+}
+
+/* The delete icon button in the library: square, and a lighter outline than a
+ * labelled control, because it sits inside a row rather than beside one. */
+.icon {
+  border: 1px solid var(--border-card);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--faint);
+  padding: 6px 9px;
+}
+.icon:hover:not(:disabled) {
+  border-color: var(--nc-br);
+  color: var(--nc-fg);
+}
+
+.block {
+  width: 100%;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.tertiary.lg,
+.tertiary.md,
+.tertiary.sm {
+  padding: 0;
+}

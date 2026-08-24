@@ -1,0 +1,21 @@
+/* Every white surface in the product.
+ *
+ * `--surface` on `--canvas`, outlined in `--border-card`. This is the two-
+ * surface rule made into a component: if a thing is a card it is this, and a
+ * styled <div> in a view that should have been this is how the token
+ * discipline erodes. */
+.card {
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border-card);
+  border-radius: var(--r-md);
+}
+
+.lg {
+  border-radius: var(--r-lg);
+}
+
+.selected {
+  background: var(--surface-sel);
+}

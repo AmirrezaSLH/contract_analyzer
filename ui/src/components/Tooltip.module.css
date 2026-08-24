@@ -1,0 +1,33 @@
+.wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tip {
+  position: absolute;
+  bottom: calc(100% + 9px);
+  left: -4px;
+  width: 268px;
+  z-index: 20;
+  background: var(--tooltip-bg);
+  color: var(--tooltip-fg);
+  border-radius: var(--r-md);
+  padding: 10px 13px;
+  box-shadow: var(--shadow-tip);
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.55;
+  letter-spacing: 0;
+  text-transform: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.12s ease;
+}
+
+.open {
+  opacity: 1;
+  visibility: visible;
+}

@@ -1,0 +1,14 @@
+/* The micro label: 11px/700 uppercase at 0.07em.
+ *
+ * `--muted-2`, not the prototype's #9A9082, which measures 2.96:1 on the
+ * canvas. The hierarchy against a 13px/400 meta line is carried by the
+ * typography, which is more separation than the half-stop of contrast gave. */
+.label {
+  font-family: var(--sans);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--muted-2);
+  line-height: 1.4;
+}

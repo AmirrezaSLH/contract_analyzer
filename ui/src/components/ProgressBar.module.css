@@ -1,0 +1,39 @@
+.track {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--divider);
+  overflow: hidden;
+  position: relative;
+}
+
+.fill {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+
+/* The indeterminate variant: the retrieval trail's 120x3 bar. */
+.thin {
+  height: 3px;
+  border-radius: 2px;
+  width: 120px;
+}
+
+.slider {
+  width: 30px;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--rule-quote);
+  animation: ca-slide 1.6s ease-in-out infinite;
+}
+
+/* Reduced motion: a still 30% fill rather than a stopped animation sitting
+ * wherever the first frame happened to leave it. */
+@media (prefers-reduced-motion: reduce) {
+  .slider {
+    animation: none;
+    width: 30%;
+    transform: none;
+  }
+}

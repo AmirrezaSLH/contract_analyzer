@@ -151,3 +151,160 @@ def ingested_sample(tmp_path_factory) -> Corpus:
         decoy_token=DECOY_TOKEN,
         decoy_path=decoy_path,
     )
+
+
+# --------------------------------------------------------------------------
+# A scripted Anthropic API: canned SSE through MockTransport, real SDK on top
+# --------------------------------------------------------------------------
+
+
+def sse_message(
+    blocks: list[dict],
+    *,
+    stop_reason: str = "end_turn",
+    input_tokens: int = 100,
+    output_tokens: int = 20,
+    model: str = "claude-opus-5",
+) -> str:
+    """The SSE body for one streamed message.
+
+    `blocks` are final content blocks: `{"type": "text", "text": ..., "citations": [...]}`
+    or `{"type": "tool_use", "id": ..., "name": ..., "input": {...}}`. They are
+    emitted the way the API streams them -- text as deltas, tool input as
+    `input_json_delta`, citations as `citations_delta` -- so the SDK's own
+    assembly is what the tests exercise.
+    """
+    import json
+
+    def event(name: str, payload: dict) -> str:
+        return f"event: {name}\ndata: {json.dumps(payload)}\n\n"
+
+    out = event(
+        "message_start",
+        {
+            "type": "message_start",
+            "message": {
+                "id": "msg_test",
+                "type": "message",
+                "role": "assistant",
+                "model": model,
+                "content": [],
+                "stop_reason": None,
+                "stop_sequence": None,
+                "usage": {"input_tokens": input_tokens, "output_tokens": 1},
+            },
+        },
+    )
+    for index, block in enumerate(blocks):
+        if block["type"] == "text":
+            out += event(
+                "content_block_start",
+                {"type": "content_block_start", "index": index,
+                 "content_block": {"type": "text", "text": ""}},
+            )
+            text = block["text"]
+            for start in range(0, len(text), 7):
+                out += event(
+                    "content_block_delta",
+                    {"type": "content_block_delta", "index": index,
+                     "delta": {"type": "text_delta", "text": text[start : start + 7]}},
+                )
+            for citation in block.get("citations") or []:
+                out += event(
+                    "content_block_delta",
+                    {"type": "content_block_delta", "index": index,
+                     "delta": {"type": "citations_delta", "citation": citation}},
+                )
+        elif block["type"] == "tool_use":
+            out += event(
+                "content_block_start",
+                {"type": "content_block_start", "index": index,
+                 "content_block": {"type": "tool_use", "id": block["id"],
+                                   "name": block["name"], "input": {}}},
+            )
+            out += event(
+                "content_block_delta",
+                {"type": "content_block_delta", "index": index,
+                 "delta": {"type": "input_json_delta",
+                           "partial_json": json.dumps(block["input"])}},
+            )
+        else:
+            raise ValueError(block["type"])
+        out += event("content_block_stop", {"type": "content_block_stop", "index": index})
+    out += event(
+        "message_delta",
+        {"type": "message_delta",
+         "delta": {"type": "message_delta", "stop_reason": stop_reason, "stop_sequence": None},
+         "usage": {"output_tokens": output_tokens}},
+    )
+    out += event("message_stop", {"type": "message_stop"})
+    return out
+
+
+class ScriptedAPI:
+    """Each request pops the next scripted outcome: an SSE body, a status int, or an exception.
+
+    Every request's JSON body is kept in `requests` so a test can assert on
+    exactly what the SDK sent -- tools, output_config, document blocks.
+    """
+
+    def __init__(self, *outcomes) -> None:
+        self.outcomes = list(outcomes)
+        self.requests: list[dict] = []
+
+    def __call__(self, request):
+        import json
+
+        import httpx2 as httpx
+
+        self.requests.append(json.loads(request.content or b"{}"))
+        if not self.outcomes:
+            raise AssertionError("the script ran out of responses")
+        outcome = self.outcomes.pop(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        if isinstance(outcome, int):
+            return httpx.Response(
+                outcome,
+                json={"type": "error", "error": {"type": "error", "message": f"HTTP {outcome}"}},
+            )
+        return httpx.Response(
+            200, headers={"content-type": "text/event-stream"}, content=outcome.encode()
+        )
+
+    @property
+    def calls(self) -> int:
+        return len(self.requests)
+
+
+def scripted_client(api: ScriptedAPI, *, retries: int = 0):
+    """A real `anthropic.Anthropic` on the project's transport, over the script."""
+    import httpx2 as httpx
+    from anthropic import Anthropic
+
+    from contract_analyzer.http_client import build_http_client
+
+    http = build_http_client(transport=httpx.MockTransport(api), retries=retries, backoff_base=0.0)
+    return Anthropic(api_key="test-key", http_client=http, max_retries=0)
+
+
+def make_chunk(chunk_id: int, text: str, *, section: str = "6.6 Password Management Standard",
+               page: str = "9", document_id: int = 1, element_type: str = "paragraph",
+               payload: str | None = None):
+    """A `RetrievedChunk` with no database behind it."""
+    from contract_analyzer.retrieval.base import RetrievedChunk
+
+    return RetrievedChunk(
+        chunk_id=chunk_id,
+        document_id=document_id,
+        ordinal=chunk_id,
+        content=text,
+        filename="Sample Contract.pdf",
+        page=int(page),
+        page_label=page,
+        section=section,
+        section_path=["6. Identity and Access Management", section],
+        element_type=element_type,
+        payload=payload,
+        spine_source="outline",
+    )

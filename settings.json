@@ -1,5 +1,6 @@
 {
   "answer_model": "claude-sonnet-5",
+  "analysis_model": "claude-sonnet-5",
   "answer_max_tokens": 8000,
   "chat_effort": "low",
   "analysis_effort": "medium",

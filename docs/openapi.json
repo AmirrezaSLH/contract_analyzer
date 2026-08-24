@@ -1008,6 +1008,10 @@
             "title": "Analyses Running",
             "type": "integer"
           },
+          "analysis_model": {
+            "title": "Analysis Model",
+            "type": "string"
+          },
           "analysis_workers": {
             "default": 5,
             "title": "Analysis Workers",
@@ -1090,7 +1094,8 @@
           "version",
           "embedder",
           "embedding_model",
-          "answer_model"
+          "answer_model",
+          "analysis_model"
         ],
         "title": "Health",
         "type": "object"

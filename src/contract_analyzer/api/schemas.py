@@ -58,6 +58,8 @@ class Health(BaseModel):
     embedder: str
     embedding_model: str
     answer_model: str
+    #: The model the compliance analysis uses. Independent of `answer_model`.
+    analysis_model: str
     #: The models `POST /chat` will accept. A client renders its picker from
     #: this rather than from a list of its own, so the choices it offers are
     #: exactly the choices that will be honoured.

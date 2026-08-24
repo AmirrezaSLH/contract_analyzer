@@ -34,6 +34,7 @@ below, and `settings.json` only ever needs the fields in the second table.
 | Group | Field | Default | Notes |
 |---|---|---|---|
 | Generation | `answer_model` | `claude-sonnet-5` | chat/citation model |
+| | `analysis_model` | `claude-sonnet-5` | compliance analysis (five criterion runs); independent of chat |
 | | `answer_max_tokens` | 8000 | streaming, so generous |
 | | `chat_effort` | `low` | `output_config.effort` for the chat loop and finisher |
 | | `analysis_effort` | `medium` | the same for the compliance analysis; where to spend |

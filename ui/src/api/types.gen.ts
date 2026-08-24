@@ -793,6 +793,8 @@ export interface components {
              * @default 0
              */
             analyses_running: number;
+            /** Analysis Model */
+            analysis_model: string;
             /**
              * Analysis Workers
              * @default 5

@@ -98,6 +98,10 @@ export function App() {
             <span>answer model</span>
             <span className={styles.deploymentValue}>{health.data?.answer_model ?? "—"}</span>
           </div>
+          <div className={styles.deployment}>
+            <span>analysis model</span>
+            <span className={styles.deploymentValue}>{health.data?.analysis_model ?? "—"}</span>
+          </div>
         </div>
       </nav>
 

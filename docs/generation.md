@@ -36,7 +36,8 @@ module:
 | Wants | a validated `ComplianceResult` | a streamed answer with verbatim quotes |
 | Request | `output_config.format` = the draft schema; citations off; the tool definitions kept with `tool_choice: none` (same `tools → system` prefix as the loop, for caching); the ledger *not* re-sent (it is already in the conversation as tool results) | one document block per ledger entry, citations on, no tools, no `format` |
 | Quotes | written by the model, **verified deterministically** against the ledger | **extracted by the API** from the passages sent (`char_location`), so verbatim by construction |
-| Effort | `ANALYSIS_EFFORT` (medium) | `CHAT_EFFORT` (low) |
+| Effort | `analysis_effort` (medium) | `chat_effort` (low) |
+| Model | `analysis_model` | `answer_model` (overridable per question) |
 
 ## The loop (`agent.py`)
 

@@ -42,6 +42,7 @@ def health(settings: SettingsDep, conn: ConnDep, runner: RunnerDep) -> Health:
         embedder=settings.embedding_provider,
         embedding_model=settings.resolved_embedding_model,
         answer_model=settings.answer_model,
+        analysis_model=settings.analysis_model,
         chat_models=list(settings.chat_models),
         retrieval_mode=settings.retrieval_mode,
         retrieval_top_k=settings.retrieval_top_k,

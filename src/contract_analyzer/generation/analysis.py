@@ -106,7 +106,7 @@ def analyze_criterion(
         started = time.perf_counter()
         run = run_agent(
             task, tools=tools, finisher=finisher, settings=settings, client=client,
-            on_event=on_event,
+            model=settings.analysis_model, on_event=on_event,
         )
         result: ComplianceResult = run.result
         # Timed here rather than inside `finish_analysis`: what a reviewer means

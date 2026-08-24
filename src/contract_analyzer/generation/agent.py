@@ -170,10 +170,11 @@ def run_agent(
     """Drive the loop, then hand the run to `finisher`. Raises before any request
     if there is no key (`AnswerUnavailable`).
 
-    `model` overrides `settings.answer_model` for this run and nothing else --
-    the caller that passes it is answering one question, not reconfiguring the
-    process. It is recorded on the run, so `AgentRun.model` is always the model
-    that actually answered rather than the one that was configured.
+    `model` is this run's model and nothing else -- analysis passes
+    `settings.analysis_model`, chat passes a per-question override or
+    `settings.answer_model`. It is recorded on the run, so `AgentRun.model`
+    is always the model that actually answered rather than the configured
+    default.
     """
     settings = settings or get_settings()
     client = client or get_client(settings)

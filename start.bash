@@ -200,7 +200,8 @@ import json, sys, urllib.request
 host, port = sys.argv[1], sys.argv[2]
 with urllib.request.urlopen(f"http://{host}:{port}/health", timeout=3) as r:
     h = json.load(r)
-print(f"           {h['embedder']} embeddings · {h['answer_model']} · "
+print(f"           {h['embedder']} embeddings · chat {h['answer_model']} · "
+      f"analysis {h.get('analysis_model', h['answer_model'])} · "
       f"{h['documents']} document(s)"
       + ("" if h.get("key_present") else "\n           \033[33m!\033[0m ANTHROPIC_API_KEY is "
          "not set: upload and the library work, analysis and chat do not."))

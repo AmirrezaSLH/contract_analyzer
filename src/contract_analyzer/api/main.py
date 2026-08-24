@@ -149,6 +149,7 @@ def create_app(
                 "db": str(settings.db_path),
                 "embedder": settings.embedding_provider,
                 "answer_model": settings.answer_model,
+                "analysis_model": settings.analysis_model,
                 "key_present": bool(settings.anthropic_key),
                 "auth_required": bool(settings.api_key_value),
                 "api_workers": settings.api_workers,

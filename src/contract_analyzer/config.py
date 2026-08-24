@@ -125,6 +125,11 @@ class Settings(BaseSettings):
 
     # Generation
     answer_model: str = "claude-sonnet-5"
+    #: The compliance analysis: five criterion runs, each with a tool loop and
+    #: a structured finisher. Independent of `answer_model` so an experiment
+    #: can cheapen (or spend on) analysis without moving chat, and the other
+    #: way around. Not an allowlist -- nothing outside this process picks it.
+    analysis_model: str = "claude-sonnet-5"
     #: Models a *client* may ask for on `POST /chat`. An allowlist, not a
     #: suggestion: chat is open when API_KEY is unset, and a free-text model id
     #: on an open endpoint is a request to spend money on an arbitrary model.

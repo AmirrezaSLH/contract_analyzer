@@ -3,9 +3,8 @@
 `Dockerfile`, `docker-compose.yml`, `docker/entrypoint.sh`, `.dockerignore` --
 a build-and-run foundation for the whole project. One image: a Node stage
 builds the React bundle, the Python runtime serves it at `/` next to the API
-on `BACKEND_PORT` (8100). The `mcp` verb is wired and not yet implemented; it
-exits with a message naming the missing module rather than an `ImportError`
-from inside its runner.
+on `BACKEND_PORT` (8100). The `mcp` verb runs the MCP connector from the same
+image, as a second service that reaches the API over the compose network.
 
 ## Stages
 
@@ -43,7 +42,7 @@ arrive empty) and then dispatches:
 | Verb | Runs | State |
 |---|---|---|
 | `api` | `uvicorn contract_analyzer.api.main:app` on `BACKEND_PORT` (8100); UI at `/` | works |
-| `mcp` | `python -m contract_analyzer.mcp.server` (stdio) | Phase C |
+| `mcp` | `python -m mcp_connector`; `MCP_TRANSPORT` picks stdio or HTTP on `MCP_PORT` (8102) | works |
 | `test` | `pytest -q` | works |
 | `lint` | `ruff check src tests scripts` | works |
 | `shell` | `bash` | works |
@@ -54,8 +53,16 @@ arrive empty) and then dispatches:
 | Service | Image stage | Ports | Started by `up` |
 |---|---|---|---|
 | `api` | runtime | `BACKEND_PORT` (8100) | yes |
+| `mcp` | runtime | `MCP_PORT` (8102) | yes, after `api` is healthy |
 | `tools` | dev | – | no (profile `tools`) |
 
+* **The `mcp` service mounts nothing.** `x-app` gives every service the `data/`
+  and `.run/` bind mounts; the connector overrides `volumes` to `[]`, because it
+  reaches the API over `CA_API_URL` and has no database to open. An empty mount
+  list makes that structural rather than a promise in a comment. It also runs
+  the HTTP transport rather than stdio: a container's stdin is not where a
+  desktop client is. See
+  [MCP-Connector/README.md](../MCP-Connector/README.md).
 * **One origin.** The API serves the bundle. There is no second UI container
   and no `FRONTEND_PORT` mapping. `api_cors_origins` stays empty because the
   browser never leaves that origin. `FRONTEND_PORT` is still in `.env` for

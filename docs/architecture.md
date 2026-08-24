@@ -34,7 +34,7 @@ flowchart LR
     end
     subgraph Later["Phase C -- surfaces"]
         API[FastAPI] --> UI[React UI + KPI]
-        API --> MCP[MCP server]
+        API --> MCP[MCP connector<br/>MCP-Connector/]
     end
     CH -.-> API
     JSON -.-> API
@@ -75,8 +75,8 @@ Two modules cut across everything and were built first:
 | `metrics/` | `runs` / `spans` / `criterion_results`, and the KPI queries | -- | next |
 | `evaluator` | the critic pass over each result | -- | next |
 | `ui/` | the React front end (repo-root Vite app): upload, library, analysis, chat -- a client of `/api` like any other | [ui.md](ui.md) | done, tested |
-| `mcp/` | the fourth surface | -- | Phase C |
-| `Dockerfile`, `docker-compose.yml`, `docker/` | build and run the whole thing in a container | [docker.md](docker.md) | `api` (and the UI it serves) live; the `mcp` verb awaits Phase C |
+| `MCP-Connector/` | the fourth surface: seven MCP tools over the HTTP API, importing nothing from this package | [MCP-Connector/README.md](../MCP-Connector/README.md) | done, tested |
+| `Dockerfile`, `docker-compose.yml`, `docker/` | build and run the whole thing in a container | [docker.md](docker.md) | `api` (and the UI it serves) and `mcp` both live |
 
 ## Data flow, end to end (Phase A)
 
@@ -190,6 +190,13 @@ inside it. See [docker.md](docker.md).
 
 ## Change log of this document
 
+* 2026-08-24 -- The MCP surface, in `MCP-Connector/`. Seven tools over the HTTP
+  API: `get_started`, `list_criteria`, `upload_contract`, `list_contracts`,
+  `analyze_compliance`, `get_analysis`, `search_contract`. The host generates
+  conversation and we generate compliance, which is why `POST /chat` is not a
+  tool and `POST /documents/{id}/search` is a new route. The package imports
+  nothing from `contract_analyzer`; `X-Surface` records which client asked for
+  a run. 443 tests. Metrics store and evaluator pending.
 * 2026-08-24 -- Streamlit front end removed. `ui/` at the repo root is the
   React app; FastAPI serves the bundle. One origin, one port for a demo.
 * Checkpoint 6 (2026-08-24): the document runner and the HTTP API. `report.py`

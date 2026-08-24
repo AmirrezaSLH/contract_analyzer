@@ -53,7 +53,8 @@ criteria_requested, criteria_completed, criteria_skipped, error, report_json,
 created_at, started_at, completed_at,
 latency_s, cost_usd, input_tokens, output_tokens, tool_calls, needs_review,
 capped, mean_confidence, quotes_total, quotes_verified,
-evaluator_accepted, evaluator_revised, evaluator_fallback
+evaluator_accepted, evaluator_revised, evaluator_fallback, evaluator_unevaluated,
+evaluator_cost_usd
 """
 
 
@@ -93,9 +94,14 @@ class AnalysisRecord:
     mean_confidence: float | None = None
     quotes_total: int | None = None
     quotes_verified: int | None = None
+    #: How the Router closed each criterion out. `None` on a row written before
+    #: the Evaluator existed, which is why they are nullable rather than 0 --
+    #: "no criterion was accepted" and "nobody was asked" are different facts.
     evaluator_accepted: int | None = None
     evaluator_revised: int | None = None
     evaluator_fallback: int | None = None
+    evaluator_unevaluated: int | None = None
+    evaluator_cost_usd: float | None = None
 
     @property
     def live(self) -> bool:
@@ -219,7 +225,9 @@ def finish_analysis(
             "UPDATE analyses SET status = ?, error = ?, report_json = ?, completed_at = ?, "
             "criteria_completed = ?, criteria_skipped = ?, latency_s = ?, cost_usd = ?, "
             "input_tokens = ?, output_tokens = ?, tool_calls = ?, needs_review = ?, "
-            "capped = ?, mean_confidence = ?, quotes_total = ?, quotes_verified = ? "
+            "capped = ?, mean_confidence = ?, quotes_total = ?, quotes_verified = ?, "
+            "evaluator_accepted = ?, evaluator_revised = ?, evaluator_fallback = ?, "
+            "evaluator_unevaluated = ?, evaluator_cost_usd = ? "
             "WHERE analysis_id = ?",
             (
                 report.status,
@@ -238,6 +246,11 @@ def finish_analysis(
                 totals.mean_confidence,
                 len(quotes),
                 sum(1 for quote in quotes if quote.verified),
+                totals.accepted,
+                totals.revised,
+                totals.fallback,
+                totals.unevaluated,
+                totals.evaluator_cost_usd,
                 analysis_id,
             ),
         )

@@ -29,19 +29,34 @@ changing the schema.
 from __future__ import annotations
 
 import sqlite3
-import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from typing import Any
 
 from pydantic import ValidationError
 
 from ..compliance.criteria import Criterion
-from ..compliance.schemas import ComplianceDraft, ComplianceResult, ResolvedQuote
+from ..compliance.schemas import (
+    ComplianceDraft,
+    ComplianceResult,
+    ResolvedQuote,
+    RevisionRequest,
+    SubRequirementResult,
+)
 from ..compliance.validate import StructuralError, quote_in_chunk, validate_structure
 from ..config import Settings, get_settings
 from ..embeddings.base import Embedder
 from ..logger import get_logger, span
-from .agent import AgentRun, AgentTask, OnEvent, call_model, content_params, run_agent, text_of
+from .agent import (
+    AgentRun,
+    AgentTask,
+    OnEvent,
+    call_model,
+    content_params,
+    resume_agent,
+    run_agent,
+    text_of,
+)
 from .client import Usage, get_client
 from .prompts import get_prompts
 from .tools import ContractTools, Evidence
@@ -57,9 +72,50 @@ RETRY_STOPS = frozenset({"max_tokens", "refusal"})
 CONFIDENCE_FLOOR, CONFIDENCE_CEILING = 0.05, 0.95
 REVIEW_CAP = 0.5
 
+#: What the score is multiplied by when the critic reads the evidence as a
+#: different compliance state. Not zero: two careful readers disagreeing means
+#: the answer is uncertain, not that the analyst's is wrong.
+STATE_DISAGREEMENT = 0.6
+
 
 class AnalysisFailed(RuntimeError):
     """The finisher could not obtain a draft at all (truncated or refused twice)."""
+
+
+@dataclass
+class AnalysisOutcome:
+    """One Analyzer round, kept rather than discarded.
+
+    This function used to return the result and throw away everything that
+    produced it. The Router needs the rest: the **ledger**, to slice the
+    cited passages out of for the Evaluator's request; the **conversation**,
+    to continue on a redraft round; the **live tools**, to search again on a
+    research round without resetting the budget or re-burning the index.
+    Nothing here is recomputed -- it is the run, kept.
+
+    `result.confidence` at this point is the Analyzer's own estimate. The
+    Router recomposes it once the critic has spoken (`router.finalize`); a
+    result that never reaches a Router keeps the analyst's number, which is
+    what it always was.
+    """
+
+    criterion: Criterion
+    result: ComplianceResult
+    run: AgentRun
+    tools: ContractTools
+    #: The run's system prompt, kept so a revision's request has the identical
+    #: `tools -> system` prefix and hits the prompt cache.
+    system: str
+    #: Revision rounds spent. 0 is the first draft.
+    rounds: int = 0
+
+    @property
+    def evidence(self) -> Evidence:
+        return self.run.evidence
+
+    @property
+    def messages(self) -> list[dict[str, Any]]:
+        return self.run.messages
 
 
 def analyze_criterion(
@@ -71,9 +127,17 @@ def analyze_criterion(
     document_id: int,
     client: Any = None,
     on_event: OnEvent | None = None,
-) -> ComplianceResult:
-    """Assess one contract against one criterion. Raises `AnswerUnavailable`
-    before any request if there is no key."""
+) -> AnalysisOutcome:
+    """The Analyzer, round 0: assess one contract against one criterion.
+
+    Raises `AnswerUnavailable` before any request if there is no key, and
+    `AnalysisFailed` when no draft ever arrived.
+
+    Timing and the `result` event belong to whoever owns the whole criterion
+    timeline -- with a Router in front, that is the Router, because a
+    criterion now takes an evaluation and possibly a revision after this
+    returns. This function times and announces nothing.
+    """
     settings = settings or get_settings()
     client = client or get_client(settings)
     prompts = get_prompts(settings)
@@ -103,29 +167,22 @@ def analyze_criterion(
         )
 
     with span("analysis.criterion", log, criterion=criterion.id, document_id=document_id) as bag:
-        started = time.perf_counter()
         run = run_agent(
             task, tools=tools, finisher=finisher, settings=settings, client=client,
             model=settings.analysis_model, on_event=on_event,
         )
         result: ComplianceResult = run.result
-        # Timed here rather than inside `finish_analysis`: what a reviewer means
-        # by "how long did criterion 3 take" is the whole of it -- the agent's
-        # searches and the structured finisher -- and only this frame sees both.
-        result.latency_s = round(time.perf_counter() - started, 3)
-        if on_event is not None:
-            on_event({"type": "result", "surface": "analysis", "criterion": criterion.id,
-                      "state": result.compliance_state, "confidence": result.confidence,
-                      "needs_review": result.needs_review, "latency_s": result.latency_s})
         bag.update(
-            latency_s=result.latency_s,
             state=result.compliance_state,
             confidence=result.confidence,
             needs_review=result.needs_review,
             structure_rounds=result.structure_rounds,
+            ended_by=run.ended_by,
             cost_usd=result.cost_usd,
         )
-    return result
+    return AnalysisOutcome(
+        criterion=criterion, result=result, run=run, tools=tools, system=system
+    )
 
 
 def finish_analysis(
@@ -145,7 +202,38 @@ def finish_analysis(
     blocks in the conversation always have their definitions alongside.
     """
     prompts = get_prompts(settings)
-    messages = list(run.messages) + [{"role": "user", "content": prompts.get("analysis.finish")}]
+    return _finish(
+        run, prompts.get("analysis.finish"), criterion=criterion, settings=settings,
+        client=client, system=system, tools=tools, on_event=on_event,
+    )
+
+
+def _finish(
+    run: AgentRun,
+    opening: str,
+    *,
+    criterion: Criterion,
+    settings: Settings,
+    client: Any,
+    system: str,
+    tools: list[dict[str, Any]],
+    on_event: Callable[[dict[str, Any]], None],
+) -> ComplianceResult:
+    """Draft, validate, correct, resolve -- from `opening` as the user turn.
+
+    Two callers, one machinery. `finish_analysis` opens with "you have
+    finished searching, produce the assessment"; a revision opens with the
+    Router's findings. Both then correct *structure* against `validate.py`
+    for up to `structure_fix_rounds`, because a revision's draft can be as
+    malformed as a first one.
+
+    The conversation is written back to `run.messages` including the draft
+    that ended it. That is what makes a revision cheap and honest: the next
+    round continues the real conversation -- same prefix, same cache, same
+    evidence -- instead of a reconstruction of it.
+    """
+    prompts = get_prompts(settings)
+    messages = list(run.messages) + [{"role": "user", "content": opening}]
     rounds = 0
     while True:
         run.turns += 1
@@ -176,11 +264,94 @@ def finish_analysis(
             f"the model never produced a parseable draft for {criterion.id}: "
             + "; ".join(str(e) for e in errors)
         )
-    # The `result` event is *not* emitted here. It is emitted by
-    # `analyze_criterion`, one frame out, because that is the only frame that
-    # knows how long the criterion took -- and a progress row that has to be
-    # told the verdict now and the latency later is two events for one fact.
+    run.messages = messages + [{"role": "assistant", "content": content_params(message)}]
+    # The `result` event is *not* emitted here. The Router emits it, because
+    # only the Router knows how long the criterion took and how it ended -- and
+    # a progress row told the verdict now and the latency later is two events
+    # for one fact.
     return build_result(draft, errors, run, criterion=criterion, structure_rounds=rounds)
+
+
+def revise(
+    outcome: AnalysisOutcome,
+    revision: RevisionRequest,
+    *,
+    settings: Settings | None = None,
+    client: Any = None,
+    on_event: OnEvent | None = None,
+) -> AnalysisOutcome:
+    """Another round on the same conversation, in the mode the Router chose.
+
+    * **redraft** -- the findings go in as one user turn and the finisher runs
+      again with `tool_choice: none`. One structured call. This is the right
+      move when the evidence is all there and the reading of it is what was
+      disputed.
+    * **research** -- the findings go in *with tools enabled* and the loop is
+      re-entered with `research_extra_tool_calls` granted on top of what was
+      already spent, then the finisher runs. This is the right move when a
+      sub-requirement was called missing without ever being searched for: a
+      redraft over evidence that was never retrieved can only relabel, not
+      learn.
+
+    The ledger, the dedupe table and the token budget carry over in both
+    modes, so a repeated query is answered from the ledger at zero retrieval
+    cost and a revision cannot re-burn the index.
+    """
+    settings = settings or get_settings()
+    client = client or get_client(settings)
+    prompts = get_prompts(settings)
+    emit = on_event or (lambda event: None)
+    criterion, run, tools = outcome.criterion, outcome.run, outcome.tools
+    feedback = prompts.format("analysis.revise", findings=revision.text())
+    definitions = tools.definitions()
+    spent = len(tools.calls)
+
+    with span(
+        "analysis.revise", log, criterion=criterion.id, mode=revision.mode,
+        round=revision.round,
+    ) as bag:
+        emit({
+            "type": "revising", "surface": "analysis", "mode": revision.mode,
+            "round": revision.round, "reasons": revision.reason_codes,
+        })
+        if revision.mode == "research":
+            granted = settings.research_extra_tool_calls
+            run = resume_agent(
+                run,
+                AgentTask(
+                    surface="analysis",
+                    system=outcome.system,
+                    messages=[{"role": "user", "content": feedback}],
+                    effort=settings.analysis_effort,
+                    # Absolute, counted against calls already made: a delta,
+                    # never a fresh allowance.
+                    max_tool_calls=spent + granted,
+                ),
+                tools=tools,
+                settings=settings,
+                client=client,
+                on_event=on_event,
+            )
+            result = finish_analysis(
+                run, criterion=criterion, settings=settings, client=client,
+                system=outcome.system, tools=definitions, on_event=emit,
+            )
+        else:
+            result = _finish(
+                run, feedback, criterion=criterion, settings=settings, client=client,
+                system=outcome.system, tools=definitions, on_event=emit,
+            )
+        bag.update(
+            extra_tool_calls=len(tools.calls) - spent,
+            state=result.compliance_state,
+            needs_review=result.needs_review,
+            structure_rounds=result.structure_rounds,
+            ended_by=run.ended_by,
+        )
+    return AnalysisOutcome(
+        criterion=criterion, result=result, run=run, tools=tools,
+        system=outcome.system, rounds=revision.round,
+    )
 
 
 def _draft_call(
@@ -264,7 +435,7 @@ def build_result(
     ]
     claimed = len(draft.relevant_quotes)
     verified = sum(1 for q in kept if q.verified)
-    not_determined = sum(1 for s in sub_requirements if s.status == "not_determined")
+    not_determined = undetermined_count(sub_requirements, criterion)
     confidence, components = compute_confidence(
         draft.raw_confidence,
         verified=verified,
@@ -296,6 +467,25 @@ def build_result(
     )
 
 
+def undetermined_count(
+    sub_requirements: Sequence[SubRequirementResult], criterion: Criterion
+) -> int:
+    """Sub-requirements the run settled nothing about.
+
+    The ones marked `not_determined`, plus the ones the draft *omitted
+    entirely*. A degenerate draft that assessed one sub-requirement of seven
+    has settled one, not seven -- the `ids` structural error already flags the
+    omission, but the confidence's coverage term has to count it too, or a
+    result missing six sub-requirements reports `coverage: 1.0` and the
+    component lies about exactly the run it matters most for.
+    """
+    expected = set(criterion.sub_requirement_ids())
+    present = {sub.id for sub in sub_requirements}
+    absent = len(expected - present)
+    not_determined = sum(1 for sub in sub_requirements if sub.status == "not_determined")
+    return not_determined + absent
+
+
 def compute_confidence(
     raw: float,
     *,
@@ -305,24 +495,71 @@ def compute_confidence(
     total: int,
     needs_review: bool,
     ended_by: str,
+    critic: float | None = None,
+    support_ratio: float | None = None,
+    state_agreed: bool = True,
 ) -> tuple[float, dict[str, float]]:
-    """confidence = raw x (verified/claimed) x (1 - not_determined/total),
-    capped at 0.5 on `needs_review` or a capped run, clamped to [0.05, 0.95]."""
+    """A heuristic score, each term a sentence, every term stored.
+
+        confidence = min(raw, critic)                 two estimates, take the pessimist
+                   x quote_term                       did the evidence carry the claim
+                   x (1 - not_determined / total)     how much of the criterion was settled
+                   x (1.0 if the critic agrees on the state else 0.6)
+
+    capped at 0.5 when the result needs review or a counter ended the run,
+    clamped to [0.05, 0.95] because nothing here is certain either way.
+
+    **This is not a calibrated probability and the UI must not call it one.**
+    Calibration is a property measured over labelled results; until those
+    labels exist no formula is calibrated, whatever it looks like. What this
+    function does instead is keep every term separately in
+    `confidence_components`, so a later phase can fit the *combination*
+    against real labels without changing the schema or re-running anything.
+    See `plan_implement_docs/AGENT_PLAN_01/05_confidence_plan.md`.
+
+    The critic's terms are optional so the old three-term call still works:
+    a result with no critic keeps the analyst's estimate, which is what it
+    always was, and its components say so by omitting the critic keys.
+
+    `quote_term` is the critic's *support* ratio when there is one, and the
+    verbatim ratio otherwise. Verbatim-ness was always a proxy for support --
+    it is what could be checked without a reader. Now that a reader judges
+    support directly, the proxy steps aside; it stays a hard gate upstream in
+    `validate.py`, where a non-verbatim quote is dropped before it can be
+    judged at all.
+    """
     raw = min(1.0, max(0.0, raw))
-    quote_term = verified / claimed if claimed else 1.0
+    verbatim_ratio = verified / claimed if claimed else 1.0
+    quote_term = verbatim_ratio if support_ratio is None else support_ratio
     coverage = 1.0 - not_determined / total if total else 1.0
-    value = raw * quote_term * coverage
+    estimate = raw if critic is None else min(raw, min(1.0, max(0.0, critic)))
+    agreement = 1.0 if state_agreed else STATE_DISAGREEMENT
+    value = estimate * quote_term * coverage * agreement
     capped = needs_review or ended_by == "cap"
     if capped:
         value = min(value, REVIEW_CAP)
     value = min(CONFIDENCE_CEILING, max(CONFIDENCE_FLOOR, value))
-    return round(value, 3), {
+    components = {
         "raw": raw,
         "quote_term": round(quote_term, 3),
         "coverage": round(coverage, 3),
         "cap": REVIEW_CAP if capped else 1.0,
     }
+    if critic is not None:
+        # Present only when a critic actually spoke, so the components can
+        # never be read as "the critic agreed" about a run nobody criticised.
+        components["critic"] = round(min(1.0, max(0.0, critic)), 3)
+        components["agreement"] = agreement
+    return round(value, 3), components
 
 
-__all__ = ["AnalysisFailed", "analyze_criterion", "build_result", "compute_confidence",
-           "finish_analysis"]
+__all__ = [
+    "AnalysisFailed",
+    "AnalysisOutcome",
+    "analyze_criterion",
+    "build_result",
+    "compute_confidence",
+    "finish_analysis",
+    "revise",
+    "undetermined_count",
+]

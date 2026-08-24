@@ -177,12 +177,18 @@ CREATE TABLE IF NOT EXISTS analyses (
     quotes_total       INTEGER,
     quotes_verified    INTEGER,
 
-    -- Declared now, NULL until the evaluator lands. Declaring them costs
-    -- nothing and removes an ALTER TABLE from the middle of a later step --
-    -- the same argument as `cross_criterion_notes` on the report.
-    evaluator_accepted INTEGER,
-    evaluator_revised  INTEGER,
-    evaluator_fallback INTEGER
+    -- How the Router closed each criterion out, and what the critic cost.
+    -- The first three were declared before the Evaluator existed, on the
+    -- argument that declaring a column costs nothing and removes an ALTER
+    -- TABLE from the middle of a later step. That held for three of the five;
+    -- the last two arrive by guarded ALTER in `db.apply_schema`, because
+    -- `CREATE TABLE IF NOT EXISTS` cannot add a column to a database that is
+    -- already there -- which is what every existing demo database is.
+    evaluator_accepted    INTEGER,
+    evaluator_revised     INTEGER,
+    evaluator_fallback    INTEGER,
+    evaluator_unevaluated INTEGER,
+    evaluator_cost_usd    REAL
 );
 
 CREATE INDEX IF NOT EXISTS idx_analyses_document ON analyses (document_id, created_at DESC);

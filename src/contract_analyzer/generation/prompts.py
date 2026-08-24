@@ -23,7 +23,7 @@ from ..config import Settings, get_settings
 SUPPORTED_VERSION = 1
 
 #: Every key generation needs. Checked on load so the failure is early and
-#: names the file. Phase B's evaluator adds `evaluator.*` here.
+#: names the file. The Evaluator's own keys are added beside these.
 REQUIRED_KEYS: frozenset[str] = frozenset(
     {
         "agent.system",
@@ -33,6 +33,9 @@ REQUIRED_KEYS: frozenset[str] = frozenset(
         "analysis.user",
         "analysis.finish",
         "analysis.fix_structure",
+        "analysis.revise",
+        "evaluator.system",
+        "evaluator.user",
     }
 )
 

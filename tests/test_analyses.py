@@ -168,10 +168,16 @@ def test_the_derived_columns_are_filled_from_the_report(settings, conn, searches
     assert record.quotes_total == len(quotes) > 0
     assert record.quotes_verified == sum(1 for q in quotes if q.verified)
 
-    # Declared, and honestly empty until the evaluator lands.
-    assert record.evaluator_accepted is None
-    assert record.evaluator_revised is None
-    assert record.evaluator_fallback is None
+    # The Evaluator has landed, so the columns reserved for it are no longer
+    # empty. They stay *nullable* rather than defaulting to 0, because a row
+    # written before any of this existed must keep saying "nobody was asked"
+    # rather than "nothing was accepted" -- those are different facts and the
+    # KPI page has to be able to tell them apart.
+    assert record.evaluator_accepted == report.totals.accepted == len(report.results)
+    assert record.evaluator_revised == report.totals.revised == 0
+    assert record.evaluator_fallback == report.totals.fallback == 0
+    assert record.evaluator_unevaluated == report.totals.unevaluated == 0
+    assert record.evaluator_cost_usd == report.totals.evaluator_cost_usd > 0
 
 
 def test_a_cancelled_run_persists_its_partial_report_and_its_skipped_ids(settings, conn, searches):

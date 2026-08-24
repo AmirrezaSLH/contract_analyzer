@@ -338,8 +338,11 @@ UI / MCP ── X-Trace-Id ──► middleware: trace_context(id or new) ──
                                             │  copy_context().run
                                             └─► worker: trace_context(trace_id)
                                                      │  copy_context().run  ×5
-                                                     └─► analyze_criterion → agent.call
-                                                                           → agent.tool
+                                                     └─► route_criterion → analysis.criterion
+                                                                         → agent.call
+                                                                         → agent.tool
+                                                                         → evaluator.critic
+                                                                         → analysis.revise
 response ◄── X-Trace-Id ──┘
 ```
 

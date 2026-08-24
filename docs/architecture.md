@@ -10,9 +10,16 @@ the repository, not the intended one.
 Given a PDF contract, decide for each of five compliance requirements (password
 management, IT asset management, training & background checks, data-in-transit
 encryption, network authentication & authorization) whether the contract is
-**Fully / Partially / Non-Compliant**, with a calibrated confidence, verbatim
-quotes with section references, and a rationale -- and let a reviewer ask
-free-form questions over the same contract with cited answers.
+**Fully / Partially / Non-Compliant**, with a heuristic confidence score
+(*uncalibrated* -- see [agents/confidence.md](agents/confidence.md) for why
+that word matters and what it would take to drop it), verbatim quotes with
+section references, and a rationale -- and let a reviewer ask free-form
+questions over the same contract with cited answers.
+
+Each verdict is produced by three agents rather than one call: an **Analyzer**
+that searches and drafts, an **Evaluator** that is shown the quotes and the
+claims and nothing else, and a **Router** that runs them both and decides
+whether the answer is ready. See [agents/](agents/README.md).
 
 ## Layers
 
@@ -29,8 +36,12 @@ flowchart LR
         A --> CH[chat finisher<br/>citations]
         A --> AN[analysis finisher<br/>structured + validated]
     end
-    subgraph Analysis["Phase B -- agentic analyzer"]
-        AN --> Evaluator --> JSON[validated JSON]
+    subgraph Analysis["Phase B -- the three agents"]
+        AN --> RTR[Router]
+        RTR -->|claims + cited passages| EVL[Evaluator]
+        EVL -->|findings| RTR
+        RTR -->|revise, bounded| AN
+        RTR --> JSON[validated JSON<br/>+ verdict · confidence]
     end
     subgraph Later["Phase C -- surfaces"]
         API[FastAPI] --> UI[React UI + KPI]
@@ -68,12 +79,14 @@ Two modules cut across everything and were built first:
 | `embeddings/` | OpenAI / local / fake embedders | [ingestion.md](ingestion.md) | done, tested |
 | `retrieval/` | vector KNN + BM25 fused with RRF, per document | [retrieval.md](retrieval.md) | done, tested on the sample contract |
 | `generation/` | one tool-using agent loop; analysis finisher (structured, validated) and chat finisher (streamed, cited) | [generation.md](generation.md) | done, tested offline against the real SDK |
+| `generation/router.py` | the Router: invokes the Analyzer and the Evaluator, decides `accept`/`revise`/`fallback`, composes the confidence, cross-criterion pass | [agents/router.md](agents/router.md) | done, tested |
+| `generation/evaluator.py` | the Evaluator: deterministic pre-checks, then a critic call over quotes and claims only | [agents/evaluator.md](agents/evaluator.md) | done, tested |
 | `compliance/` | the five criteria with sub-requirements, the result schema, the structural validator | [compliance.md](compliance.md) | done, tested |
 | `documents.py` | the document catalogue: list, get, outline, delete | [storage.md](storage.md#the-document-catalogue-documentspy) | done, tested |
-| `report.py` | five criteria over one contract, in parallel, as one `AnalysisReport` | [compliance.md](compliance.md#the-document-runner-reportpy-at-the-package-root) | done, tested |
+| `report.py` | the harness: five criteria over one contract, in parallel, as one `AnalysisReport`. Not an agent -- threads, connections and the analyses row | [compliance.md](compliance.md#the-document-runner-reportpy-at-the-package-root) | done, tested |
 | `api/` | the HTTP surface: upload, analyses as jobs, streamed cited chat | [api.md](api.md) | done, tested; `/metrics/*` declared and 503 until the store lands |
 | `metrics/` | `runs` / `spans` / `criterion_results`, and the KPI queries | -- | next |
-| `evaluator` | the critic pass over each result | -- | next |
+| `evaluator` | the critic pass over each result | [agents/](agents/README.md) | done, tested |
 | `ui/` | the React front end (repo-root Vite app): upload, library, analysis, chat -- a client of `/api` like any other | [ui.md](ui.md) | done, tested |
 | `MCP-Connector/` | the fourth surface: seven MCP tools over the HTTP API, importing nothing from this package | [mcp.md](mcp.md) | done, tested |
 | `Dockerfile`, `docker-compose.yml`, `docker/` | build and run the whole thing in a container | [docker.md](docker.md) | `api` (and the UI it serves) and `mcp` both live |

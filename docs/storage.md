@@ -48,6 +48,38 @@ built with a different model than the one in the process (the guard lives in
   request is handed to a worker thread. It is not a licence for concurrent
   use of one connection.
 
+## The document catalogue (`documents.py`)
+
+`db.py` opens the database, `ingest/` fills it, `retrieval/` ranks what is in
+it. `documents.py` is the fourth thing a surface needs and none of those
+provide: the queries that let a client bind a session to one contract before
+any question is asked. Nothing here ranks, so it is not in `retrieval/`;
+nothing here opens a connection, so it is not in `db.py`.
+
+* `list_documents(conn, limit=None)` -- every document, newest first, each with
+  its chunk count. `ingested_at` has one-second resolution, so `id` breaks the
+  tie and two uploads in the same second still come back in order.
+* `get_document(conn, id)` -- one `Document`, or `None`. Not an exception:
+  every caller turns "no such id" into its own answer (a 404, a skip, a
+  prompt).
+* `document_sections(conn, id)` -- the outline as a list of `Section`s, in
+  document order, built **from the chunks rather than from the parser**. A
+  section that produced no chunk is not in the index, and offering it in a
+  picker would be a promise retrieval cannot keep. Consecutive chunks sharing a
+  breadcrumb collapse into one entry whose `page_display` spans all of them,
+  formatted exactly like a citation's (`9`, or `9-10`).
+* `delete_document(conn, id, remove_file=True)` -- one statement. `chunks`
+  cascades from `documents` and the `chunks_ad` trigger takes the FTS and vec
+  rows with it; the raw file goes too, unless it has wandered outside the
+  project root, in which case it is left alone. Returns `False` for an unknown
+  id so a caller can answer 404 without a second query.
+
+SQLite only *promises* that a trigger fires for a direct delete -- for rows
+removed by a foreign-key action the manual makes it depend on
+`recursive_triggers`, which is off by default. It does fire on the versions
+this project runs against; the test asserts the outcome rather than trusting
+the mechanism.
+
 ## The `Chunk` record (`models.py`)
 
 `Chunk` is a frozen dataclass mirroring the `chunks` columns minus

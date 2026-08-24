@@ -93,6 +93,24 @@ def test_quote_matching_folds_case_quotes_dashes_and_whitespace():
     assert codes(d) == []
 
 
+def test_a_table_row_quoted_as_prose_is_verbatim():
+    """A model quoting a requirement row drops the pipes and the padding."""
+    grid = ("|ID|Requirement|Frequency|\n|---|---|---|\n"
+            "| GOV-01 | Security governance program | Annually |")
+    ev = Evidence()
+    ev.register([make_chunk(1, ROTATION),
+                 make_chunk(2, "ignored", section="Exhibit G", element_type="table",
+                            payload=grid)])
+    d = draft(relevant_quotes=[
+        {"text": "rotated at least every ninety (90) days", "evidence_id": "E1"},
+        {"text": "GOV-01 Security governance program Annually", "evidence_id": "E2"},
+    ])
+    assert validate_structure(d, ev, CRITERION) == []
+    assert normalize_quote("| GOV-01 | Security governance program |") == normalize_quote(
+        "GOV-01 Security governance program"
+    )
+
+
 def test_a_changed_word_is_not_verbatim():
     d = draft(relevant_quotes=[
         {"text": "rotated at least every sixty (60) days", "evidence_id": "E1"},

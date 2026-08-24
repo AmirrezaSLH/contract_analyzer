@@ -2,6 +2,6 @@
 the response`; anything a handler would otherwise decide for itself lives a
 layer down, where the CLI can reach it too."""
 
-from . import analyses, chat, documents, health, metrics
+from . import analyses, chat, documents, health, logs, metrics
 
-__all__ = ["analyses", "chat", "documents", "health", "metrics"]
+__all__ = ["analyses", "chat", "documents", "health", "logs", "metrics"]

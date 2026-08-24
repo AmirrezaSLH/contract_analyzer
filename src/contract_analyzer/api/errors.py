@@ -95,6 +95,17 @@ def no_api_key() -> ApiError:
     )
 
 
+def logs_unavailable() -> ApiError:
+    """The live console hub was not installed. A process that skipped its
+    lifespan, not a running API with nothing to say."""
+    return ApiError(
+        status.HTTP_503_SERVICE_UNAVAILABLE,
+        "logs_unavailable",
+        "The live log stream is not available in this process.",
+        "The same lines are on stderr and in .run/app.jsonl.",
+    )
+
+
 def metrics_unavailable() -> ApiError:
     """The KPI store could not be built. Not the same thing as an empty
     dashboard: no rows in the window is a `200` with zeroes on it."""
@@ -242,6 +253,7 @@ __all__ = [
     "document_not_found",
     "from_ingest_error",
     "install",
+    "logs_unavailable",
     "no_api_key",
     "unauthorized",
 ]

@@ -33,7 +33,14 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from conftest import ScriptedAPI, make_chunk, scripted_client, sse_message, write_decoy_contract
+from conftest import (
+    ScriptedAPI,
+    critic_turn,
+    make_chunk,
+    scripted_client,
+    sse_message,
+    write_decoy_contract,
+)
 from contract_analyzer.analyses import get_analysis, queue_analysis
 from contract_analyzer.api.main import create_app
 from contract_analyzer.compliance import get_criteria
@@ -187,11 +194,14 @@ def draft_for(criterion, quote="rotate credentials") -> str:
 
 
 def analysis_turns(criterion, quote="rotate credentials") -> list[str]:
+    """Search, stop, draft, and the critic's findings on the draft -- the four
+    requests one criterion makes now that every result is evaluated."""
     return [
         sse_message([{"type": "tool_use", "id": "t1", "name": "search_contract",
                       "input": {"query": criterion.requirement}}], stop_reason="tool_use"),
         sse_message([{"type": "text", "text": "Enough."}]),
         sse_message([{"type": "text", "text": draft_for(criterion, quote)}]),
+        critic_turn(criterion),
     ]
 
 
@@ -797,6 +807,36 @@ def test_the_stream_reports_every_criterion_and_then_closes(client, api, searche
     # Every tool call says which criterion made it: five parallel runs would be
     # unattributable otherwise.
     assert {t["criterion"] for t in tool_calls} == {c.id for c in CRITERIA}
+
+    # The critic is a phase a subscriber can see, not a silence in the middle
+    # of the run: five `evaluating` events and five `decision` events, each
+    # tagged with the criterion whose draft was being read.
+    evaluating = [data for name, data in events if name == "evaluating"]
+    decisions = [data for name, data in events if name == "decision"]
+    assert {e["criterion"] for e in evaluating} == {c.id for c in CRITERIA}
+    assert {d["verdict"] for d in decisions} == {"accept"}
+    assert "revising" not in names  # nothing was disputed, so nothing was redone
+
+
+def test_the_verdict_and_the_rounds_reach_the_wire(client, api, searches, small_pdf):
+    """A client that only knows `needs_review` cannot say *why* a criterion
+    needs one. `verdict` is what distinguishes an accepted result from one that
+    ran out of rounds and one the critic never managed to read."""
+    document_id = upload(client, small_pdf).json()["document_id"]
+    api.outcomes.extend(full_analysis())
+    analysis_id = client.post(
+        "/api/analyses", json={"document_id": document_id}
+    ).json()["analysis_id"]
+    body = poll(client, analysis_id)
+
+    assert [c["verdict"] for c in body["criteria"]] == ["accept"] * 5
+    assert [c["rounds"] for c in body["criteria"]] == [0] * 5
+    assert body["totals"]["accepted"] == 5
+    assert body["totals"]["evaluator_cost_usd"] > 0
+    result = body["report"]["results"][0]
+    assert result["verdict"] == "accept"
+    assert result["evaluator_findings"]["state_agreement"] == "agree"
+    assert result["confidence_components"]["critic"] == 0.85
 
 
 def test_subscribing_after_the_job_finished_replays_and_closes(client, api, searches, small_pdf):

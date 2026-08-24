@@ -237,6 +237,24 @@ def test_confidence_formula(kw, expected):
     assert components["cap"] == 1.0
 
 
+def test_an_omitted_sub_requirement_counts_as_unsettled():
+    """Found by a live run: a degenerate redraft kept one sub-requirement of
+    seven and reported `coverage: 1.0`, because only statuses *present* were
+    counted. A sub-requirement the draft never mentioned is not settled."""
+    from contract_analyzer.compliance.schemas import SubRequirementResult
+
+    only_rotation = [SubRequirementResult(
+        id="rotation", requirement="Rotation", status="met", quote_indexes=[0]
+    )]
+    assert AN.undetermined_count(only_rotation, CRITERION) == 1  # no_default is absent
+
+    with_not_determined = only_rotation + [SubRequirementResult(
+        id="no_default", requirement="Defaults", status="not_determined", quote_indexes=[]
+    )]
+    assert AN.undetermined_count(with_not_determined, CRITERION) == 1
+    assert AN.undetermined_count([], CRITERION) == 2
+
+
 def test_confidence_is_capped_on_review_or_a_capped_run_and_never_reaches_one():
     full = dict(verified=2, claimed=2, not_determined=0, total=2)
     assert AN.compute_confidence(1.0, needs_review=False, ended_by="model", **full)[0] == 0.95
@@ -286,6 +304,13 @@ def loop_prefix():
 
 
 def analyze(api: ScriptedAPI, s: Settings | None = None, events=None):
+    """The Analyzer's result. `analyze_criterion` returns the whole run now --
+    the ledger and conversation the Router needs -- so these tests, which are
+    about the draft and the correction rounds, take `.result` off it."""
+    return outcome(api, s, events).result
+
+
+def outcome(api: ScriptedAPI, s: Settings | None = None, events=None):
     s = s or settings()
     return AN.analyze_criterion(
         CRITERION, None, object(), s, document_id=3, client=scripted_client(api),
@@ -306,7 +331,12 @@ def test_a_clean_draft_needs_no_correction_and_the_finisher_request_is_structure
     assert [q.page_display for q in result.relevant_quotes] == ["9", "10"]
     assert result.tool_calls == 1 and result.ended_by == "model"
     assert result.usage["input_tokens"] == 700 and result.cost_usd > 0
-    assert events[-1]["type"] == "result"
+    # The Analyzer does not announce a verdict. The layer that owns the whole
+    # criterion timeline does -- today the harness, and the Router once it sits
+    # in front -- because a result event carrying the verdict now and the
+    # latency later would be two events for one fact. `test_report.py` asserts
+    # the event still reaches a caller.
+    assert [e["type"] for e in events] == ["tool_call", "text"]
 
     finisher = api.requests[2]
     assert finisher["output_config"]["format"]["type"] == "json_schema"

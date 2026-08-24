@@ -30,7 +30,7 @@ import time
 
 import pytest
 
-from conftest import ScriptedAPI, make_chunk, scripted_client, sse_message
+from conftest import ScriptedAPI, critic_turn, make_chunk, scripted_client, sse_message
 from contract_analyzer.compliance import get_criteria
 from contract_analyzer.config import Settings
 from contract_analyzer.db import get_db
@@ -126,7 +126,8 @@ def draft_for(criterion) -> str:
 
 
 def turns_for(criterion) -> list[str]:
-    """One search, one "done", one draft -- the three requests a criterion makes."""
+    """The four requests a criterion makes: one search, one "done", one draft,
+    and the critic's findings on it."""
     return [
         sse_message(
             [{"type": "tool_use", "id": "toolu_1", "name": "search_contract",
@@ -135,6 +136,7 @@ def turns_for(criterion) -> list[str]:
         ),
         sse_message([{"type": "text", "text": "I have what I need."}]),
         sse_message([{"type": "text", "text": draft_for(criterion)}]),
+        critic_turn(criterion),
     ]
 
 
@@ -172,7 +174,12 @@ def test_totals_sum_the_run(settings, conn, searches):
     assert report.totals.cost_usd == pytest.approx(sum(r.cost_usd for r in report.results))
     assert report.totals.tool_calls == 5  # one search each
     assert report.totals.needs_review == 0 and report.totals.capped == 0
-    assert report.totals.mean_confidence == pytest.approx(0.9)
+    # 0.9 was the analyst's own estimate; 0.85 is what survives meeting a
+    # critic that agrees. `min(analyst, critic)` -- two independent estimates
+    # of one event, and the pessimist is the honest fusion.
+    assert report.totals.mean_confidence == pytest.approx(0.85)
+    assert report.totals.accepted == 5 and report.totals.revised == 0
+    assert report.totals.evaluator_cost_usd > 0
     assert report.totals.latency_s > 0
 
 
@@ -264,10 +271,11 @@ def test_the_callback_is_never_called_concurrently(settings, conn, searches):
 
 
 def same_answer_script() -> ScriptedAPI:
-    """A script whose every response is the *same* -- a search, a stop, then a
-    draft for whichever criterion asked. Order-independent, so five threads can
-    race for it. `compliance_question` still has to match, so the draft is
-    chosen by looking at what the request asked about."""
+    """A script whose every response is the *same* -- a search, a stop, a draft
+    for whichever criterion asked, then that draft's evaluation.
+    Order-independent, so five threads can race for it. `compliance_question`
+    still has to match, so the reply is chosen by looking at what the request
+    asked about."""
 
     class ByCriterion(ScriptedAPI):
         def __init__(self):
@@ -280,6 +288,16 @@ def same_answer_script() -> ScriptedAPI:
             body = json.loads(request.content or b"{}")
             with self._lock:
                 self.requests.append(body)
+            if "tools" not in body:
+                # The critic: one turn, no tools, ever. It is the only request
+                # in the run that carries no tool definitions, which is what
+                # makes it identifiable without reading the prompt.
+                criterion = _criterion_of(body["messages"][0]["content"])
+                content = critic_turn(criterion)
+                return httpx.Response(
+                    200, headers={"content-type": "text/event-stream"},
+                    content=content.encode(),
+                )
             criterion = _criterion_of(body["system"])
             if not any(m["role"] == "user" and isinstance(m["content"], list)
                        for m in body["messages"]):
@@ -295,11 +313,13 @@ def same_answer_script() -> ScriptedAPI:
     return ByCriterion()
 
 
-def _criterion_of(system: str):
+def _criterion_of(text: str):
+    """Which criterion a request is about -- the analyst's system prompt and the
+    critic's JSON request both carry the question verbatim."""
     for criterion in CRITERIA:
-        if criterion.question in system:
+        if criterion.question in text:
             return criterion
-    raise AssertionError("no criterion in the system prompt")
+    raise AssertionError("no criterion in the request")
 
 
 def test_five_criteria_run_in_parallel(settings, conn, searches):

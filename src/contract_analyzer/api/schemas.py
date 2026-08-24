@@ -255,6 +255,13 @@ class CriterionProgress(BaseModel):
     #: Wall-clock seconds, once this criterion is `done`. The five run in
     #: parallel, so these do not sum to `totals.latency_s`.
     latency_s: float | None = None
+    #: How the Router closed this criterion out: `accept` when the critic found
+    #: nothing open, `fallback` when the rounds ran out with findings still
+    #: standing, `unevaluated` when the critic could not be made to answer.
+    #: `needs_review` is true for all but the first; this says which it was.
+    verdict: Literal["accept", "fallback", "unevaluated"] | None = None
+    #: Revision rounds the Router spent. 0 means the first draft stood.
+    rounds: int | None = None
 
 
 class Progress(BaseModel):

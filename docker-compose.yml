@@ -31,8 +31,9 @@ x-app: &app
   volumes:
     - ./data:/app/data
     - ./.run:/app/.run
-  # No `restart:` here: `ui` is still unimplemented and a restart policy would
-  # turn its "not implemented yet" exit into a loop. `api` sets its own below.
+  # Both servers set `restart: unless-stopped` on themselves below. It is not
+  # in the anchor because `tools` is a one-off container and restarting a
+  # finished pytest run is not a policy anyone wants.
 
 services:
   # The HTTP API: the only process that touches the database and the model.
@@ -57,17 +58,29 @@ services:
       retries: 3
       start_period: 20s
 
-  # The Streamlit front end. Also Phase C.
+  # The Streamlit front end: four surfaces over the API, and a client of it
+  # like any other. It holds no logic, opens no database and calls no model --
+  # `CA_API_URL` is the whole of its configuration.
   ui:
     <<: *app
     command: ["ui"]
+    # Safe to restart: it holds nothing that a reload loses except a browser
+    # session's own view state, which the ids in the API outlive.
+    restart: unless-stopped
     ports:
       - "${UI_PORT:-8501}:8501"
     environment:
       <<: *env
+      # Over the compose network, so there is no cross-origin request and
+      # `api_cors_origins` stays empty -- the Streamlit *server* makes these
+      # calls, not the browser.
       CA_API_URL: http://api:8000
     depends_on:
-      - api
+      api:
+        # Not just "started": the UI calls GET /health on its first render, and
+        # a UI that boots into "the API is not reachable" is a worse first
+        # impression than one that waits three seconds.
+        condition: service_healthy
 
   # One-off container for the things that are not servers: pytest, ruff, the
   # ingest/search/chat CLIs, a shell. Built from the dev stage, never started

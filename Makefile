@@ -2,7 +2,7 @@
 
 PYTHON ?= .venv/bin/python
 
-.PHONY: help venv ingest reingest search chat analyze api openapi test lint fmt logs \
+.PHONY: help venv ingest reingest search chat analyze api ui openapi test lint fmt logs \
 	docker-build docker-up docker-down docker-logs docker-shell docker-test
 
 help:  ## List the targets
@@ -29,6 +29,10 @@ analyze:  ## The five criteria over one contract: make analyze F=path.pdf
 
 api:  ## Run the HTTP API locally on :8000 (reload on edit)
 	$(PYTHON) -m uvicorn contract_analyzer.api.main:app --reload --port $(or $(PORT),8000)
+
+ui:  ## Run the Streamlit front end on :8501 against a local API
+	CA_API_URL=$(or $(API_URL),http://localhost:8000) \
+	$(PYTHON) -m streamlit run src/contract_analyzer/ui/app.py --server.port $(or $(UI_PORT),8501)
 
 openapi:  ## Re-export docs/openapi.json, the connector specification
 	$(PYTHON) scripts/export_openapi.py

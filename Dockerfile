@@ -39,9 +39,11 @@ RUN python -m venv "$VIRTUAL_ENV"
 COPY pyproject.toml ./
 RUN mkdir -p src/contract_analyzer && touch src/contract_analyzer/__init__.py
 
-# The HTTP surface is in the runtime image; the ~800 MB `local` embedder is
-# not. Override to add it: `--build-arg EXTRAS="[api,local]"`.
-ARG EXTRAS="[api]"
+# The HTTP surface and the Streamlit UI are both in the runtime image -- one
+# image serves both compose services, and the entrypoint's verb picks which.
+# The ~800 MB `local` embedder is not. Override to add it:
+#   --build-arg EXTRAS="[api,ui,local]"
+ARG EXTRAS="[api,ui]"
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --upgrade pip && pip install -e ".${EXTRAS}"
 
@@ -66,8 +68,7 @@ RUN chmod +x /usr/local/bin/entrypoint \
 
 USER app
 
-# 8000 FastAPI (live), 8501 Streamlit (Phase C -- the entrypoint says which
-# module is missing instead of dying on an ImportError).
+# 8000 FastAPI, 8501 Streamlit. Both live; the entrypoint verb chooses.
 EXPOSE 8000 8501
 
 ENTRYPOINT ["entrypoint"]

@@ -1,0 +1,193 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+}
+
+/* The drop zone is the whole page until something is uploaded. */
+.zone {
+  border: 2px dashed var(--border-ctl);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  padding: 46px 32px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+
+.zone:hover,
+.zoneOver {
+  border-color: var(--accent);
+  background: var(--surface-sel);
+}
+
+.zoneIcon {
+  color: var(--faint-3);
+}
+
+.zoneTitle {
+  font-family: var(--serif);
+  font-size: 19px;
+  font-weight: 600;
+}
+
+.zoneLimit {
+  font-size: 13px;
+  color: var(--muted-2);
+}
+
+.browse {
+  border: 1px solid var(--border-ctl);
+  border-radius: var(--r-md);
+  background: var(--surface-ctl);
+  padding: 8px 18px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.hiddenInput {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* -- while uploading -------------------------------------------------------
+ * A determinate bar, because a 25 MB PDF over a slow link is fifteen seconds
+ * of nothing otherwise. */
+.progress {
+  gap: 14px;
+  padding: 34px 32px;
+  align-items: stretch;
+}
+
+.progressHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
+}
+
+.progressName {
+  font-family: var(--serif);
+  font-size: 17px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.progressBytes {
+  font-size: 13px;
+  color: var(--muted-2);
+  white-space: nowrap;
+}
+
+.progressNote {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* -- the result card -------------------------------------------------------
+ * Not a toast. It persists, because the document id it carries is what the
+ * user needs next. */
+.resultHead {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 22px;
+  border-bottom: 1px solid var(--divider);
+}
+
+.dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--fc-fg);
+  display: block;
+  flex-shrink: 0;
+}
+
+.resultTitle {
+  font-family: var(--serif);
+  font-size: 18px;
+  font-weight: 600;
+  flex-grow: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.resultElapsed {
+  font-size: 13px;
+  color: var(--muted-2);
+  white-space: nowrap;
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 20px;
+  padding: 20px 22px;
+}
+
+.fact {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.factValue {
+  font-family: var(--serif);
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.resultActions {
+  display: flex;
+  gap: 12px;
+  padding: 0 22px 22px;
+}
+
+/* -- the explainer strip ---------------------------------------------------
+ * The only explanatory copy in the product, and it is here because upload is
+ * where a first-time user is most lost. Four sentences. Do not let it grow. */
+.explainer {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.steps {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.step {
+  padding: 16px 18px;
+  gap: 6px;
+}
+
+.stepTitle {
+  font-family: var(--serif);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.stepBody {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+.inlineError {
+  margin-top: -12px;
+}

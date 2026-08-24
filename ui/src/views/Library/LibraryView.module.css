@@ -1,0 +1,90 @@
+/* One row per document, on a bordered card.
+ *
+ * The column template is written once and used by the header and every row,
+ * because two copies of a grid definition is how a table stops lining up. */
+.table {
+  overflow: hidden;
+}
+
+.header,
+.row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 76px 88px 96px 180px 150px;
+  gap: 16px;
+  align-items: center;
+}
+
+.header {
+  padding: 13px 22px;
+  border-bottom: 1px solid var(--border-card);
+}
+
+.right {
+  text-align: right;
+}
+
+.row {
+  padding: 17px 22px;
+  border-bottom: 1px solid var(--divider-2);
+}
+
+.rowSelected {
+  background: var(--surface-sel);
+}
+
+.name {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  text-align: left;
+}
+
+.nameText {
+  font-family: var(--serif);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.added {
+  font-size: 12px;
+  color: var(--muted-2);
+}
+
+.cell {
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+/* The isolation guarantee, in the user's terms. It is a library invariant
+ * rather than a UI convention, and this is where it is said out loud. */
+.note {
+  padding: 16px 22px;
+  font-size: 13px;
+  color: var(--muted-2);
+}
+
+.empty {
+  padding: 40px 22px;
+}
+
+.dialogList {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.dialogError {
+  margin-top: 4px;
+}

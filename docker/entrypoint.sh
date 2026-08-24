@@ -34,13 +34,14 @@ case "$verb" in
         require uvicorn "the HTTP API"
         require contract_analyzer.api "the HTTP API"
         exec uvicorn contract_analyzer.api.main:app \
-            --host "${API_HOST:-0.0.0.0}" --port "${API_PORT:-8000}" "$@"
+            --host "${API_HOST:-0.0.0.0}" \
+            --port "${BACKEND_PORT:-${API_PORT:-8100}}" "$@"
         ;;
     ui)
         require streamlit "the Streamlit UI"
         exec streamlit run src/contract_analyzer/ui/app.py \
             --server.address "${UI_HOST:-0.0.0.0}" \
-            --server.port "${UI_PORT:-8501}" \
+            --server.port "${FRONTEND_PORT:-${UI_PORT:-8101}}" \
             --server.headless true "$@"
         ;;
     mcp)

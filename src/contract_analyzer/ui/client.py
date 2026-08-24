@@ -32,6 +32,8 @@ from typing import Any
 
 import httpx2 as httpx
 
+from contract_analyzer.config import get_settings
+
 #: Long enough for an upload to be parsed, chunked and embedded before the
 #: connection is given up on -- that is seconds of blocking work in the API's
 #: threadpool, and it is the one request here that is not fast.
@@ -108,7 +110,11 @@ class ApiClient:
         api_key: str | None = None,
         transport: Any = None,
     ) -> None:
-        self.base_url = (base_url or os.getenv("CA_API_URL", "http://localhost:8000")).rstrip("/")
+        if not base_url:
+            base_url = os.getenv("CA_API_URL")
+        if not base_url:
+            base_url = f"http://localhost:{get_settings().backend_port}"
+        self.base_url = base_url.rstrip("/")
         self.api_key = api_key if api_key is not None else os.getenv("API_KEY")
         # A seam, not configuration. The views are tested against a stub of
         # this class, which means the plumbing below -- header merging, the

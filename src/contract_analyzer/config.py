@@ -4,8 +4,8 @@ Everything the pipeline needs to be told rather than to infer lives here,
 split by *why* a value is set rather than by what it controls:
 
 - **`.env`** -- secrets and paths that differ between environments (a local
-  checkout vs. the Docker container vs. CI): API keys, `DB_PATH`, `RAW_DIR`,
-  `ASSETS_DIR`, `LOG_FILE`. See `.env.example`.
+  checkout vs. the Docker container vs. CI): API keys, bind ports, `DB_PATH`,
+  `RAW_DIR`, `ASSETS_DIR`, `LOG_FILE`. See `.env.example`.
 - **`settings.json`** -- tuning parameters: the same value everywhere a given
   checkout runs, versioned with the code. Everything else lives here.
 - Field defaults on `Settings` below, as the last fallback for either file.
@@ -111,6 +111,13 @@ class Settings(BaseSettings):
     #: demo; a deployment sets it. A secret, so it lives here and not in
     #: settings.json -- see docs/api.md on what production would use instead.
     api_key: SecretStr | None = None
+    #: Host ports. The API process also serves the built front end, so
+    #: `BACKEND_PORT` is the only one a demo needs; `FRONTEND_PORT` is the Vite
+    #: dev server (`./start.bash --dev`, `make ui-dev`). Launchers -- this
+    #: package does not bind a socket itself -- read the same fields uvicorn
+    #: and Vite do, so a moved port cannot drift between Python and the shell.
+    backend_port: int = Field(default=8100, gt=0, lt=65536)
+    frontend_port: int = Field(default=8101, gt=0, lt=65536)
 
     # ===== settings.json: tuning parameters =================================
     # Same value everywhere a given checkout runs, so these are versioned with

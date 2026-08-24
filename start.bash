@@ -1,25 +1,30 @@
 #!/usr/bin/env bash
-# Start the whole app and follow its logs: the HTTP API on 8000, the Streamlit
-# UI on 8501.
+# Start the whole app and follow its logs.
 #
-#   ./start.bash          both, logs streaming, Ctrl-C stops them
+#   ./start.bash          the HTTP API (and the built front end it serves)
+#   ./start.bash --dev    plus the Vite dev server, proxying /api at the API
 #   ./start.bash --detach start and return, leaving them running
-#   API_PORT=9000 ./start.bash
 #
-# **Ctrl-C is the way out.** The trap stops both servers before this script
+# Ports come from `.env` (`BACKEND_PORT`, `FRONTEND_PORT`); see .env.example.
+# Process env overrides the file. One process serves both in the default
+# path: the front end is a static bundle the API builds and mounts, so the
+# browser only ever talks to BACKEND_PORT. FRONTEND_PORT is Vite, and only
+# with `--dev`.
+#
+# **Ctrl-C is the way out.** The trap stops the servers before this script
 # exits, so the normal path leaves nothing behind and ./stop.bash is a safety
 # net rather than a step -- for the times the trap cannot run, which is a
 # `kill -9`, a closed terminal, or a `--detach` from earlier.
 #
-# Three things this does that `make api & make ui &` does not:
+# Three things this does that `make api & make ui-dev &` does not:
 #
 #   * **Each server gets its own process group** (`setsid`), and the group id
-#     is what goes in the pidfile. uvicorn and streamlit both spawn children,
-#     and killing the parent alone leaves those children holding the port --
+#     is what goes in the pidfile. uvicorn and Vite both spawn children, and
+#     killing the parent alone leaves those children holding the port --
 #     which is the usual way a restart fails with "address already in use".
-#   * **The UI is not started until the API answers /health.** The UI calls it
-#     on its first render, and a UI that boots into "the API is not reachable"
-#     is a worse first impression than three seconds of waiting.
+#   * **Vite is not started until the API answers /health.** The proxy
+#     forwards `/api` at it, and a UI that boots into a dead proxy is a worse
+#     first impression than three seconds of waiting.
 #   * **Either server exiting on its own stops the other.** Half the app
 #     running is not a state worth leaving a demo in, and a log that has simply
 #     stopped scrolling is not an obvious symptom.
@@ -33,10 +38,23 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 
+# One key at a time: `source .env` would evaluate an API key containing `#`
+# or `$` as a shell expression.
+dotenv() {
+    local key=$1
+    sed -n "s/^${key}=//p" "$ROOT/.env" 2>/dev/null | tail -1
+}
+
 PYTHON="${PYTHON:-$ROOT/.venv/bin/python}"
 API_HOST="${API_HOST:-127.0.0.1}"
-API_PORT="${API_PORT:-8000}"
-UI_PORT="${UI_PORT:-8501}"
+if [[ -z "${BACKEND_PORT:-}" ]]; then
+    BACKEND_PORT="$(dotenv BACKEND_PORT)"
+fi
+BACKEND_PORT="${BACKEND_PORT:-8100}"
+if [[ -z "${FRONTEND_PORT:-}" ]]; then
+    FRONTEND_PORT="$(dotenv FRONTEND_PORT)"
+fi
+FRONTEND_PORT="${FRONTEND_PORT:-8101}"
 RUN_DIR="$ROOT/.run"
 API_PID_FILE="$RUN_DIR/api.pid"
 UI_PID_FILE="$RUN_DIR/ui.pid"
@@ -48,11 +66,14 @@ UI_LOG="$RUN_DIR/ui.log"
 HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-45}"
 
 DETACH=0
-case "${1:-}" in
-    --detach|-d) DETACH=1 ;;
-    "") ;;
-    *) printf 'usage: %s [--detach]\n' "$0" >&2; exit 2 ;;
-esac
+DEV=0
+for arg in "$@"; do
+    case "$arg" in
+        --detach|-d) DETACH=1 ;;
+        --dev) DEV=1 ;;
+        *) printf 'usage: %s [--detach] [--dev]\n' "$0" >&2; exit 2 ;;
+    esac
+done
 
 bold() { printf '\033[1m%s\033[0m\n' "$*"; }
 info() { printf '  %s\n' "$*"; }
@@ -64,13 +85,13 @@ die()  { printf '\033[31m✗\033[0m %s\n' "$*" >&2; exit 1; }
 
 [[ -x "$PYTHON" ]] || die "No interpreter at $PYTHON. Run 'make venv' first, or set PYTHON=."
 
-missing=()
-"$PYTHON" -c 'import uvicorn' 2>/dev/null || missing+=("uvicorn — pip install -e '.[api]'")
-"$PYTHON" -c 'import streamlit' 2>/dev/null || missing+=("streamlit — pip install -e '.[ui]'")
-if ((${#missing[@]})); then
-    printf '\033[31m✗\033[0m Missing dependencies:\n' >&2
-    printf '    %s\n' "${missing[@]}" >&2
-    die "Install them, or run 'make venv' for everything."
+"$PYTHON" -c 'import uvicorn' 2>/dev/null \
+    || die "uvicorn is not installed. pip install -e '.[api]', or run 'make venv'."
+
+if ((DEV)); then
+    command -v npm >/dev/null 2>&1 || die "npm is not on PATH. Needed for --dev."
+    [[ -f "$ROOT/ui/package.json" ]] || die "No ui/package.json. This checkout has no front end."
+    [[ -d "$ROOT/ui/node_modules" ]] || die "ui/node_modules is missing. Run 'make ui-install' first."
 fi
 
 port_owner() {
@@ -84,7 +105,9 @@ port_owner() {
 
 # A port already in use is almost always this app still running from last time,
 # so say so rather than letting uvicorn fail with a bare OSError.
-for spec in "API:$API_PORT" "UI:$UI_PORT"; do
+ports_to_claim=("API:$BACKEND_PORT")
+((DEV)) && ports_to_claim+=("UI:$FRONTEND_PORT")
+for spec in "${ports_to_claim[@]}"; do
     name=${spec%%:*} port=${spec##*:}
     owner=$(port_owner "$port" || true)
     if [[ -n "$owner" ]]; then
@@ -111,12 +134,13 @@ bold "Starting Contract Analyzer"
 
 api_pid=$(spawn "$API_PID_FILE" "$API_LOG" \
     "$PYTHON" -m uvicorn contract_analyzer.api.main:app \
-    --host "$API_HOST" --port "$API_PORT")
+    --host "$API_HOST" --port "$BACKEND_PORT")
 
 # From here on a failure must not leave a half-started app behind, so the
 # cleanup path is armed before the second server exists.
 FOLLOWERS=()
 shutting_down=0
+ui_pid=""
 
 stop_all() {
     (($#)) && true
@@ -148,7 +172,7 @@ info "API      pid $api_pid  ->  $API_LOG"
 # Poll /health rather than sleeping: the import cost varies enough that any
 # fixed sleep is either too short on a cold cache or wasted every other time.
 deadline=$((SECONDS + HEALTH_TIMEOUT))
-until "$PYTHON" - "$API_HOST" "$API_PORT" <<'PY' 2>/dev/null
+until "$PYTHON" - "$API_HOST" "$BACKEND_PORT" <<'PY' 2>/dev/null
 import sys, urllib.request
 host, port = sys.argv[1], sys.argv[2]
 with urllib.request.urlopen(f"http://{host}:{port}/health", timeout=2) as r:
@@ -162,17 +186,16 @@ do
         exit 1
     fi
     ((SECONDS < deadline)) || {
-        warn "The API did not answer /health within ${HEALTH_TIMEOUT}s; starting the UI anyway."
+        warn "The API did not answer /health within ${HEALTH_TIMEOUT}s; continuing anyway."
         break
     }
     sleep 0.5
 done
-ok "API      http://$API_HOST:$API_PORT  (docs at /docs)"
+ok "API      http://$API_HOST:$BACKEND_PORT  (docs at /docs, UI at /)"
 
-# The API's own report of how it is configured, which is also what the UI reads
-# on its first render. Printing it here means a missing key is visible now
-# rather than three clicks later.
-"$PYTHON" - "$API_HOST" "$API_PORT" <<'PY' 2>/dev/null || true
+# The API's own report of how it is configured. Printing it here means a
+# missing key is visible now rather than three clicks later.
+"$PYTHON" - "$API_HOST" "$BACKEND_PORT" <<'PY' 2>/dev/null || true
 import json, sys, urllib.request
 host, port = sys.argv[1], sys.argv[2]
 with urllib.request.urlopen(f"http://{host}:{port}/health", timeout=3) as r:
@@ -183,36 +206,40 @@ print(f"           {h['embedder']} embeddings · {h['answer_model']} · "
          "not set: upload and the library work, analysis and chat do not."))
 PY
 
-ui_pid=$(spawn "$UI_PID_FILE" "$UI_LOG" \
-    env CA_API_URL="http://$API_HOST:$API_PORT" \
-    "$PYTHON" -m streamlit run src/contract_analyzer/ui/app.py \
-    --server.port "$UI_PORT" --server.headless true)
-info "UI       pid $ui_pid  ->  $UI_LOG"
+if ((DEV)); then
+    ui_pid=$(spawn "$UI_PID_FILE" "$UI_LOG" \
+        env npm --prefix "$ROOT/ui" run dev)
+    info "UI       pid $ui_pid  ->  $UI_LOG"
 
-deadline=$((SECONDS + 30))
-until [[ -n "$(port_owner "$UI_PORT")" ]]; do
-    if ! kill -0 "$ui_pid" 2>/dev/null; then
-        printf '\n\033[31m✗\033[0m The UI exited during startup. Last lines of %s:\n\n' "$UI_LOG" >&2
-        tail -20 "$UI_LOG" >&2
-        rm -f "$UI_PID_FILE"
-        exit 1
-    fi
-    ((SECONDS < deadline)) || { warn "The UI has not opened port $UI_PORT yet; check $UI_LOG."; break; }
-    sleep 0.5
-done
-ok "UI       http://localhost:$UI_PORT"
+    deadline=$((SECONDS + 30))
+    until [[ -n "$(port_owner "$FRONTEND_PORT")" ]]; do
+        if ! kill -0 "$ui_pid" 2>/dev/null; then
+            printf '\n\033[31m✗\033[0m The UI exited during startup. Last lines of %s:\n\n' "$UI_LOG" >&2
+            tail -20 "$UI_LOG" >&2
+            rm -f "$UI_PID_FILE"
+            exit 1
+        fi
+        ((SECONDS < deadline)) || { warn "The UI has not opened port $FRONTEND_PORT yet; check $UI_LOG."; break; }
+        sleep 0.5
+    done
+    ok "UI       http://localhost:$FRONTEND_PORT  (proxies /api -> :$BACKEND_PORT)"
+fi
 
 # -- detached ---------------------------------------------------------------
 
 if ((DETACH)); then
     echo
     bold "Running in the background."
-    info "Logs:  tail -f $UI_LOG $API_LOG"
+    if ((DEV)); then
+        info "Logs:  tail -f $UI_LOG $API_LOG"
+    else
+        info "Logs:  tail -f $API_LOG"
+    fi
     info "Stop:  ./stop.bash"
     exit 0
 fi
 
-# -- foreground: follow both logs ------------------------------------------
+# -- foreground: follow logs ------------------------------------------------
 
 # One follower per file, each prefixed, so two streams interleave and stay
 # attributable. `setsid` again, and for the same reason: this is a `tail`
@@ -231,10 +258,10 @@ follow() {
 }
 
 echo
-bold "Logs. Ctrl-C stops both servers."
+bold "Logs. Ctrl-C stops the servers."
 echo
 follow api 36 "$API_LOG"   # cyan
-follow ui  35 "$UI_LOG"    # magenta
+((DEV)) && follow ui  35 "$UI_LOG"    # magenta
 
 # The main wait. Polling rather than `wait` on the followers: what this needs to
 # notice is a *server* exiting, and the servers are not children of this shell
@@ -242,10 +269,10 @@ follow ui  35 "$UI_LOG"    # magenta
 # demo in, so either one going down takes the other with it.
 while :; do
     if ! kill -0 "$api_pid" 2>/dev/null; then
-        printf '\n\033[31m✗\033[0m The API exited. Stopping the UI.\n' >&2
+        printf '\n\033[31m✗\033[0m The API exited.\n' >&2
         break
     fi
-    if ! kill -0 "$ui_pid" 2>/dev/null; then
+    if [[ -n "$ui_pid" ]] && ! kill -0 "$ui_pid" 2>/dev/null; then
         printf '\n\033[31m✗\033[0m The UI exited. Stopping the API.\n' >&2
         break
     fi

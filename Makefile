@@ -10,8 +10,8 @@ PYTHON ?= .venv/bin/python
 # line as a make assignment -- and an API key containing a '#' or a '$' is not
 # a make expression.
 dotenv = $(shell sed -n 's/^$(1)=//p' .env 2>/dev/null | tail -1)
-BACKEND_PORT ?= $(or $(call dotenv,BACKEND_PORT),8000)
-FRONTEND_PORT ?= $(or $(call dotenv,FRONTEND_PORT),5173)
+BACKEND_PORT ?= $(or $(call dotenv,BACKEND_PORT),8100)
+FRONTEND_PORT ?= $(or $(call dotenv,FRONTEND_PORT),8101)
 export BACKEND_PORT FRONTEND_PORT
 
 .PHONY: help venv ingest reingest search chat analyze api openapi test lint fmt logs \

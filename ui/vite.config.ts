@@ -8,8 +8,8 @@ import react from "@vitejs/plugin-react";
 // nothing the first time someone moves the API.
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, "..", "");
-  const backend = env.BACKEND_PORT || "8000";
-  const frontend = Number(env.FRONTEND_PORT || 5173);
+  const backend = env.BACKEND_PORT || "8100";
+  const frontend = Number(env.FRONTEND_PORT || 8101);
 
   return {
     plugins: [react()],

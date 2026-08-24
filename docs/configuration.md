@@ -20,6 +20,8 @@ below, and `settings.json` only ever needs the fields in the second table.
 
 | Field (env var) | Default | Notes |
 |---|---|---|
+| `BACKEND_PORT` | `8100` | Host port for the HTTP API (and the built UI it serves). `./start.bash`, `make api`, Docker. |
+| `FRONTEND_PORT` | `8101` | Vite dev server only: `./start.bash --dev`, `make ui-dev`. Unused in production. |
 | `ANTHROPIC_API_KEY` | – | `SecretStr`; never printed |
 | `OPENAI_API_KEY` | – | `SecretStr` |
 | `DB_PATH` | `data/contracts.db` | |

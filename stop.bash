@@ -7,7 +7,7 @@
 # Three passes, because a pidfile is not the whole story:
 #
 #   1. **The process groups in `.run/*.pid`**, written by start.bash. Signalling
-#      the group rather than the pid is what takes uvicorn's and streamlit's
+#      the group rather than the pid is what takes uvicorn's and Vite's
 #      children with it.
 #   2. **A scan for orphans**: anything matching this project's command lines
 #      whose working directory is *this* checkout. A crashed start.bash, a
@@ -18,7 +18,7 @@
 #      is still listening is the only failure a user actually notices.
 #
 # **The cwd check in pass 2 is the safety rail.** Matching `uvicorn` or
-# `streamlit` on a command line alone would kill a colleague's unrelated server,
+# `vite` on a command line alone would kill a colleague's unrelated server,
 # or a second checkout of this repo. A process is only a candidate if its
 # command line names *this project's* modules AND its working directory is this
 # directory. Anything that matches the pattern but lives elsewhere is reported
@@ -29,9 +29,22 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 
+# One key at a time: `source .env` would evaluate an API key containing `#`
+# or `$` as a shell expression.
+dotenv() {
+    local key=$1
+    sed -n "s/^${key}=//p" "$ROOT/.env" 2>/dev/null | tail -1
+}
+
 RUN_DIR="$ROOT/.run"
-API_PORT="${API_PORT:-8000}"
-UI_PORT="${UI_PORT:-8501}"
+if [[ -z "${BACKEND_PORT:-}" ]]; then
+    BACKEND_PORT="$(dotenv BACKEND_PORT)"
+fi
+BACKEND_PORT="${BACKEND_PORT:-8100}"
+if [[ -z "${FRONTEND_PORT:-}" ]]; then
+    FRONTEND_PORT="$(dotenv FRONTEND_PORT)"
+fi
+FRONTEND_PORT="${FRONTEND_PORT:-8101}"
 #: Seconds between SIGTERM and SIGKILL. uvicorn's shutdown marks jobs in
 #: flight as failed and closes the database rather than leaving rows saying
 #: `running`, so it is worth waiting for.
@@ -49,6 +62,8 @@ DRY=0
 PATTERNS=(
     'python[0-9.]* +-m +uvicorn +contract_analyzer\.api\.main:app'
     'python[0-9.]* +-m +streamlit +run +.*contract_analyzer/ui/app\.py'
+    # Vite via `npm run dev` in ui/: the bin path contains this checkout.
+    "node .+${ROOT//./\\.}/ui/.+vite"
 )
 
 bold()  { printf '\033[1m%s\033[0m\n' "$*"; }
@@ -75,6 +90,12 @@ is_self() {
         [[ "$pid" == "$mine" ]] && return 0
     done
     return 1
+}
+
+# Vite's cwd is ui/, uvicorn's is the project root. Both are this checkout.
+ours() {
+    local dir=$1
+    [[ "$dir" == "$ROOT" || "$dir" == "$ROOT/ui" ]]
 }
 
 # The working directory of a pid, or empty when it cannot be read (another
@@ -147,7 +168,7 @@ for name in api ui; do
         info "$name: pidfile names this shell's own group; ignoring it"
     elif kill -0 "-$pgid" 2>/dev/null || kill -0 "$pgid" 2>/dev/null; then
         # The negated pgid signals every process in the group, which is how
-        # uvicorn's reloader children and streamlit's server go too.
+        # uvicorn's reloader children and Vite's children go too.
         signal_and_wait "-$pgid" "$name (process group $pgid)" "$pgid"
     else
         info "$name: pidfile named $pgid, which is not running (stale)"
@@ -170,7 +191,7 @@ for pattern in "${PATTERNS[@]}"; do
         [[ -n "${seen[$pid]:-}" ]] && continue
         seen[$pid]=1
         pid_cwd=$(cwd_of "$pid")
-        if [[ "$pid_cwd" == "$ROOT" ]]; then
+        if ours "$pid_cwd"; then
             strays+=("$pid")
         elif [[ -z "$pid_cwd" ]]; then
             # Cannot prove it is ours, so it is not touched. Reported, because
@@ -211,13 +232,13 @@ port_owner() {
     fi
 }
 
-for spec in "API:$API_PORT" "UI:$UI_PORT"; do
+for spec in "API:$BACKEND_PORT" "UI:$FRONTEND_PORT"; do
     name=${spec%%:*} port=${spec##*:}
     owner=$(port_owner "$port" || true)
     [[ -n "$owner" ]] || continue
     is_self "$owner" && continue
     pid_cwd=$(cwd_of "$owner")
-    if [[ "$pid_cwd" == "$ROOT" ]]; then
+    if ours "$pid_cwd"; then
         signal_and_wait "$owner" "$name on port $port (pid $owner, still listening)"
     else
         warn "port $port is held by pid $owner, which is not this app — left alone"
@@ -239,7 +260,7 @@ fi
 # returns success is worse than one that does neither.
 status=0
 if ((!DRY)); then
-    for spec in "API:$API_PORT" "UI:$UI_PORT"; do
+    for spec in "API:$BACKEND_PORT" "UI:$FRONTEND_PORT"; do
         name=${spec%%:*} port=${spec##*:}
         owner=$(port_owner "$port" || true)
         if [[ -n "$owner" ]]; then

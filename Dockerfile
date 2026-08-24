@@ -68,8 +68,8 @@ RUN chmod +x /usr/local/bin/entrypoint \
 
 USER app
 
-# 8000 FastAPI, 8501 Streamlit. Both live; the entrypoint verb chooses.
-EXPOSE 8000 8501
+# 8100 FastAPI (and the built UI). 8101 is the Vite / Streamlit host mapping.
+EXPOSE 8100 8101
 
 ENTRYPOINT ["entrypoint"]
 CMD ["api"]

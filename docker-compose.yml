@@ -13,6 +13,8 @@ x-env: &env
   RAW_DIR: /app/data/raw
   ASSETS_DIR: /app/data/assets
   LOG_FILE: /app/.run/app.jsonl
+  BACKEND_PORT: ${BACKEND_PORT:-8100}
+  FRONTEND_PORT: ${FRONTEND_PORT:-8101}
 
 x-app: &app
   build:
@@ -46,13 +48,13 @@ services:
     # loses them -- GET /analyses/{id} says so in its 404 hint.
     restart: unless-stopped
     ports:
-      - "${API_PORT:-8000}:8000"
+      - "${BACKEND_PORT:-8100}:${BACKEND_PORT:-8100}"
     healthcheck:
       test:
         - CMD
         - python
         - -c
-        - "import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()"
+        - "import os, urllib.request; urllib.request.urlopen('http://localhost:' + os.environ.get('BACKEND_PORT', '8100') + '/health').read()"
       interval: 30s
       timeout: 5s
       retries: 3
@@ -68,13 +70,13 @@ services:
     # session's own view state, which the ids in the API outlive.
     restart: unless-stopped
     ports:
-      - "${UI_PORT:-8501}:8501"
+      - "${FRONTEND_PORT:-8101}:${FRONTEND_PORT:-8101}"
     environment:
       <<: *env
       # Over the compose network, so there is no cross-origin request and
       # `api_cors_origins` stays empty -- the Streamlit *server* makes these
       # calls, not the browser.
-      CA_API_URL: http://api:8000
+      CA_API_URL: http://api:${BACKEND_PORT:-8100}
     depends_on:
       api:
         # Not just "started": the UI calls GET /health on its first render, and

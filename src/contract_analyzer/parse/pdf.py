@@ -8,8 +8,10 @@ order their dependencies require:
 3. per page, claim table and figure regions, then extract the text that is left;
 4. pin outline entries to the headings actually rendered, so a section starts
    where its title does and not at the top of the page;
-5. rejoin the lines a PDF hands out as separate blocks into paragraphs,
-   including across a page break;
+5. find the document's clause enumerators and corroborate them by sequence,
+   split any element that holds two clauses, then rejoin the lines a PDF
+   hands out as separate blocks into paragraphs -- including across a page
+   break, but never across a corroborated clause boundary;
 6. assign sections and reading order to every element.
 
 Step 3's ordering is the one that matters most: text inside a table or figure
@@ -20,7 +22,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import pymupdf
@@ -32,6 +34,7 @@ from .blocks import (
     profile_document,
 )
 from .elements import Element, FigureElement, TableElement
+from .enumerators import EnumeratorLattice
 from .outline import Section, assign_sections, build_spine, locate_headings, page_labels
 
 #: Three or more spaced dots: a table-of-contents row. Those are full width and
@@ -44,10 +47,11 @@ _DOT_LEADER = re.compile(r"\.\s?\.\s?\.")
 #: without it Sparks's bibliography merges into a single 16,000-token element.
 _MAX_PARAGRAPH_CHARS = 4000
 
-#: LaTeX's \parindent is 18pt in both corpus files, so a line starting within
-#: this much of the margin is in the text column -- either its first line or a
-#: continuation. Anything further right is not prose being wrapped.
-_INDENT = 24.0
+#: Slack around the measured paragraph indent when testing whether a line
+#: sits in the text column. The indent itself is measured per document
+#: (`DocumentProfile.paragraph_indent`); a document that does not indent gets
+#: no slack at all, so its indented blocks are not mistaken for prose.
+_INDENT_SLACK = 6.0
 
 #: Vertical distance between two lines of the same paragraph, in points. The
 #: widest measured on this corpus is 32pt (double-spaced 12pt text); anything
@@ -187,7 +191,9 @@ def parse_pdf(
             page_elements.sort(key=lambda e: (round(e.bbox[1] / 3), e.bbox[0]))
             content.extend(page_elements)
 
-        content = join_wrapped_lines(content, profile)
+        lattice = EnumeratorLattice.from_elements(content)
+        content = split_welded(content, lattice)
+        content = join_wrapped_lines(content, profile, lattice=lattice)
         assign_sections(content, spine)
         assign_sections(furniture, spine)
         _label_uncaptioned_figures(content)
@@ -199,7 +205,43 @@ def parse_pdf(
         doc.close()
 
 
-def join_wrapped_lines(elements: list[Element], profile: DocumentProfile) -> list[Element]:
+def split_welded(elements: list[Element], lattice: EnumeratorLattice) -> list[Element]:
+    """Split a paragraph that holds more than one clause.
+
+    A single extracted block occasionally contains two numbered clauses when
+    the typesetter left no vertical gap between them. Each corroborated
+    sectional enumerator inside the text starts a new element. The fragments
+    inherit the host's horizontal extent and are given a vertical position in
+    proportion to where their text begins, which keeps them in reading order
+    and lets a section spine be pinned to them.
+    """
+    out: list[Element] = []
+    for element in elements:
+        if element.type != "paragraph":
+            out.append(element)
+            continue
+        cuts = lattice.positions(element.text)
+        if not cuts:
+            out.append(element)
+            continue
+        x0, y0, x1, y1 = element.bbox
+        height = y1 - y0
+        bounds = [0, *cuts, len(element.text)]
+        for start, end in zip(bounds, bounds[1:], strict=False):
+            text = element.text[start:end].strip()
+            if not text:
+                continue
+            top = y0 + height * start / len(element.text)
+            bottom = y0 + height * end / len(element.text)
+            out.append(replace(element, text=text, bbox=(x0, top, x1, bottom)))
+    return out
+
+
+def join_wrapped_lines(
+    elements: list[Element],
+    profile: DocumentProfile,
+    lattice: EnumeratorLattice | None = None,
+) -> list[Element]:
     """Rebuild paragraphs from the lines a PDF hands out as separate blocks.
 
     PyMuPDF groups lines into a block only when their spacing is tight, so a
@@ -216,6 +258,11 @@ def join_wrapped_lines(elements: list[Element], profile: DocumentProfile) -> lis
     paragraph instead. A heading, equation, table or figure between two lines
     ends the run, since the merge only ever considers adjacent paragraphs.
 
+    Geometry is not enough for a document that does not indent: a new clause
+    and a wrapped line then both start flush at the margin. The `lattice`
+    supplies the structural evidence -- a line that opens a corroborated
+    enumerator begins a clause, whatever the line before it looked like.
+
     The merged element keeps the *first* line's page index and label, because
     that is where a reader following the citation should look.
     """
@@ -223,7 +270,7 @@ def join_wrapped_lines(elements: list[Element], profile: DocumentProfile) -> lis
 
     for element in elements:
         prev = merged[-1] if merged else None
-        if prev is not None and _continues(prev, element, profile):
+        if prev is not None and _continues(prev, element, profile, lattice):
             # join_lines applies the document's own vocabulary to the hyphen at
             # the break, exactly as it does for lines within one block.
             prev.text = join_lines([prev.text, element.text], profile)
@@ -240,16 +287,25 @@ def join_wrapped_lines(elements: list[Element], profile: DocumentProfile) -> lis
     return merged
 
 
-def _continues(prev: Element, element: Element, profile: DocumentProfile) -> bool:
+def _continues(
+    prev: Element,
+    element: Element,
+    profile: DocumentProfile,
+    lattice: EnumeratorLattice | None = None,
+) -> bool:
     """Whether `element` is the next line of the paragraph `prev` started."""
     if prev.type != "paragraph" or element.type != "paragraph":
         return False
+    if lattice is not None and lattice.opens(element) is not None:
+        return False  # it opens a clause of its own, whatever the geometry says
     if not profile.reaches_text_width(prev.bbox[2]):
         return False  # the previous line stopped short: it ended its paragraph
-    if not profile.starts_at_text_left(prev.bbox[0], tolerance=_INDENT):
-        # The line being continued must itself sit in the text column, at the
-        # margin or one indent in. The right-hand half of a display equation
-        # also reaches the right margin -- starting at 336pt, it is not prose.
+    indent = profile.paragraph_indent + _INDENT_SLACK if profile.paragraph_indent else 2.0
+    if not profile.starts_at_text_left(prev.bbox[0], tolerance=indent):
+        # The line being continued must itself sit in the text column: at the
+        # margin, or one indent in if this document indents paragraphs. The
+        # right-hand half of a display equation also reaches the right margin
+        # -- starting at 336pt, it is not prose.
         return False
     if not profile.starts_at_text_left(element.bbox[0]):
         return False  # indented, so it opens a paragraph rather than continuing one
@@ -293,4 +349,4 @@ def _label_uncaptioned_figures(elements: list[Element]) -> None:
             element.text = f"Figure in {where} (page {element.page_label})"
 
 
-__all__ = ["ParsedDocument", "file_hash", "join_wrapped_lines", "parse_pdf"]
+__all__ = ["ParsedDocument", "file_hash", "join_wrapped_lines", "parse_pdf", "split_welded"]

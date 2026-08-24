@@ -117,6 +117,11 @@ class DocumentProfile:
     #: and should be dropped), Word does not (so it is part of the word and
     #: must be kept). See `infer_breaks_hyphenate`.
     breaks_hyphenate: bool = True
+    #: How far the first line of a paragraph is indented, in points, or 0.0
+    #: when the document does not indent (Word separates paragraphs with
+    #: space-after instead). Measured from the left-edge distribution of
+    #: full-width blocks; see `paragraph_indent`.
+    paragraph_indent: float = 0.0
     #: Digit-masked texts that recur in the header/footer bands.
     furniture_patterns: set[str] = field(default_factory=set)
 
@@ -261,6 +266,7 @@ def profile_document(doc: pymupdf.Document) -> DocumentProfile:
         page_count=doc.page_count,
         body_left=_text_left(edges, right),
         body_right=right,
+        paragraph_indent=paragraph_indent(edges, _text_left(edges, right), right),
         hyphenated=hyphenated,
         words=words,
         breaks_hyphenate=infer_breaks_hyphenate(breaks, hyphenated, words),
@@ -305,6 +311,44 @@ def infer_breaks_hyphenate(
         if hyphenated.get(f"{head}-{tail}".casefold(), 0):
             compound += 1
     return merged > compound
+
+
+#: A left-edge cluster must hold this share of the full-width blocks to count
+#: as the document's paragraph indent rather than a stray block quote.
+_INDENT_SHARE = 0.10
+_INDENT_MIN_BLOCKS = 3
+
+
+def paragraph_indent(
+    edges: Counter[tuple[float, float]], left: float, right: float, tolerance: float = 8.0
+) -> float:
+    """The first-line indent the document uses, or 0.0 if it does not indent.
+
+    A typesetter that indents paragraphs (LaTeX's ``\\parindent``) gives the
+    full-width blocks a bimodal left-edge distribution: most at the margin,
+    a second cluster one indent in. Word's default -- no indent, space after
+    each paragraph -- gives a single mode. The second mode is taken to be the
+    indent only if it is a convention (at least `_INDENT_SHARE` of the
+    full-width blocks) and lies within a quarter of the column width; a
+    single stray block is not evidence of anything.
+    """
+    if not left or not right:
+        return 0.0
+    offsets: Counter[float] = Counter()
+    total = 0
+    for (block_left, block_right), n in edges.items():
+        if abs(block_right - right) > tolerance:
+            continue
+        total += n
+        offset = block_left - left
+        if 2.0 < offset <= (right - left) / 4:
+            offsets[offset] += n
+    if not offsets:
+        return 0.0
+    offset, n = offsets.most_common(1)[0]
+    if n >= _INDENT_MIN_BLOCKS and n / total >= _INDENT_SHARE:
+        return offset
+    return 0.0
 
 
 def join_lines(lines: list[str], profile: DocumentProfile) -> str:
@@ -472,6 +516,7 @@ __all__ = [
     "infer_breaks_hyphenate",
     "join_lines",
     "normalize_ws",
+    "paragraph_indent",
     "profile_document",
     "text_blocks",
 ]

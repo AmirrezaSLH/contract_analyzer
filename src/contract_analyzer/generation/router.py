@@ -49,8 +49,14 @@ from ..config import Settings, get_settings
 from ..embeddings.base import Embedder
 from ..logger import get_logger, span
 from .agent import OnEvent
-from .analysis import AnalysisOutcome, analyze_criterion, compute_confidence, revise
-from .client import get_client
+from .analysis import (
+    AnalysisOutcome,
+    analyze_criterion,
+    compute_confidence,
+    revise,
+    undetermined_count,
+)
+from .client import Usage, get_client
 from .evaluator import (
     Evaluation,
     EvaluationFailed,
@@ -225,6 +231,8 @@ def route_criterion(
         )
         evaluation: Evaluation | None = None
         evaluator_cost = 0.0
+        evaluator_usage = Usage()
+        candidates: list[tuple[AnalysisOutcome, Evaluation]] = []
         decision = RouterDecision(verdict="unevaluated", round=0)
 
         for round_no in range(settings.router_max_rounds + 1):
@@ -237,7 +245,10 @@ def route_criterion(
                 )
             except EvaluationFailed as exc:
                 # Degradation, not failure. The Evaluator may lower what ships;
-                # it may not be the reason nothing ships.
+                # it may not be the reason nothing ships. The failed attempts
+                # are still booked: the money was spent, answer or not.
+                evaluator_cost += exc.cost_usd
+                evaluator_usage += exc.usage
                 log.warning(
                     "router.unevaluated",
                     extra={"criterion": criterion.id, "round": round_no, "error": str(exc)},
@@ -248,6 +259,8 @@ def route_criterion(
                 )
                 break
             evaluator_cost += evaluation.cost_usd
+            evaluator_usage += evaluation.usage
+            candidates.append((outcome, evaluation))
             decision = decide(evaluation.findings, round_no, settings)
             log.info(
                 "router.decision",
@@ -270,7 +283,32 @@ def route_criterion(
                 settings=settings, client=client, on_event=on_event,
             )
 
-        result = finalize(outcome, evaluation, decision, evaluator_cost_usd=evaluator_cost)
+        rounds_spent = outcome.rounds
+        if decision.verdict == "fallback" and candidates:
+            # Rounds are exhausted with findings still open, so *some* round
+            # ships flagged -- and it should be the best one, not the last one.
+            # A failed revision can come back worse than the draft it revised
+            # (a live run's redraft lost six sub-requirements to a degenerate
+            # draft); returning it just because it is newest would replace a
+            # mediocre result with a broken one.
+            outcome, evaluation = best_round(candidates)
+            if outcome.rounds != rounds_spent:
+                # An earlier round ships, but the whole loop was paid for. The
+                # run object is shared across rounds and holds every leg's
+                # spend; the earlier result's snapshot of it is stale.
+                outcome.result.usage = outcome.run.usage.as_dict()
+                outcome.result.cost_usd = outcome.run.cost_usd
+                outcome.result.tool_calls = len(outcome.run.tool_calls)
+                log.info(
+                    "router.shipped_earlier_round",
+                    extra={"criterion": criterion.id, "shipped_round": outcome.rounds,
+                           "rounds_spent": rounds_spent},
+                )
+        result = finalize(
+            outcome, evaluation, decision,
+            evaluator_cost_usd=evaluator_cost, evaluator_usage=evaluator_usage,
+            rounds=rounds_spent,
+        )
         result.latency_s = round(time.perf_counter() - started, 3)
         emit({"type": "result", "surface": "analysis", "criterion": criterion.id,
               "state": result.compliance_state, "confidence": result.confidence,
@@ -289,12 +327,36 @@ def route_criterion(
     return result
 
 
+def best_round(
+    candidates: Sequence[tuple[AnalysisOutcome, Evaluation]],
+) -> tuple[AnalysisOutcome, Evaluation]:
+    """The round to ship when rounds run out with findings still open.
+
+    Fewest unresolved structural errors first -- a round that lost quotes or
+    whole sub-requirements to surviving errors is broken in a way no critic
+    note offsets. Then the round the critic rated higher; then the later
+    round, which at least saw the instructions. Deterministic on purpose:
+    which round ships on a fallback is a process decision, and process
+    decisions in this module are tables.
+    """
+    return min(
+        candidates,
+        key=lambda pair: (
+            len(pair[0].result.unresolved_errors),
+            -pair[1].findings.critic_confidence,
+            -pair[0].rounds,
+        ),
+    )
+
+
 def finalize(
     outcome: AnalysisOutcome,
     evaluation: Evaluation | None,
     decision: RouterDecision,
     *,
     evaluator_cost_usd: float = 0.0,
+    evaluator_usage: Usage | None = None,
+    rounds: int | None = None,
 ) -> ComplianceResult:
     """Compose the confidence, attach the findings, record how it ended.
 
@@ -305,6 +367,12 @@ def finalize(
     Anything but `accept` sets `needs_review`, which caps the confidence at
     0.5 through the same term a structural failure uses. `verdict` is what
     distinguishes the three ways that can happen, so the UI can say which.
+
+    `rounds` is what the *loop* spent, not which round's draft ships: on a
+    best-of-rounds fallback those differ, and the KPI page's revise rate
+    counts the loop. The evaluator's tokens fold into `result.usage` the same
+    way its cost folds into `cost_usd` -- the totals answer for every request
+    the criterion made, whichever agent made it.
     """
     result = outcome.result
     verdict: Verdict = "accept" if decision.verdict == "accept" else decision.verdict
@@ -321,7 +389,7 @@ def finalize(
         result.raw_confidence,
         verified=sum(1 for q in result.relevant_quotes if q.verified),
         claimed=claimed,
-        not_determined=sum(1 for s in result.sub_requirements if s.status == "not_determined"),
+        not_determined=undetermined_count(result.sub_requirements, outcome.criterion),
         total=len(outcome.criterion.sub_requirements),
         needs_review=needs_review,
         ended_by=result.ended_by,
@@ -333,10 +401,13 @@ def finalize(
     result.confidence_components = components
     result.needs_review = needs_review
     result.verdict = verdict
-    result.rounds = outcome.rounds
+    result.rounds = outcome.rounds if rounds is None else rounds
     result.evaluator_findings = findings
     result.evaluator_cost_usd = round(evaluator_cost_usd, 6)
     result.cost_usd = round(result.cost_usd + evaluator_cost_usd, 6)
+    if evaluator_usage is not None:
+        for key, value in evaluator_usage.as_dict().items():
+            result.usage[key] = result.usage.get(key, 0) + value
     return result
 
 
@@ -390,6 +461,7 @@ def cross_criterion_check(results: Sequence[ComplianceResult]) -> list[str]:
 
 __all__ = [
     "RouterDecision",
+    "best_round",
     "build_evaluation_request",
     "cross_criterion_check",
     "decide",

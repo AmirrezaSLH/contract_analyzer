@@ -170,10 +170,12 @@ class Settings(BaseSettings):
     #: The critic reads a page of quotes and answers a fixed schema. That is
     #: reading, not deduction, so it does not need the analyst's effort.
     evaluator_effort: AnswerEffort = "medium"
-    #: The findings are a bounded structure -- a judgement per quote, one per
-    #: sub-requirement, a float and a note. A budget an order of magnitude
-    #: under the analyst's is generous, and a truncated critic is retried.
-    evaluator_max_tokens: int = Field(default=2000, gt=0)
+    #: The findings are a bounded structure, but a judgement per *(quote,
+    #: sub-requirement)* pair with a note each, plus thinking, outgrew 2000:
+    #: a live run truncated the critic on three criteria out of five, and a
+    #: truncation does not clear on retry the way load does. Half the
+    #: analyst's budget keeps the critic cheap without starving it.
+    evaluator_max_tokens: int = Field(default=4000, gt=0)
     #: Revision rounds the Router may spend after the first analysis. One is
     #: the honest default: it demonstrates the mechanism, and the KPI page's
     #: revise rate is what would justify raising it.

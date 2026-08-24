@@ -173,6 +173,30 @@ reason codes — the same payload as the `router.decision` log line.
   analyst's own estimate; 0.85 is what survives meeting a critic that *agrees*.
   Updated rather than loosened, per 04 §4.
 
+## Post-build fixes, from the first live audit (2026-08-24)
+
+The first audited run (`b585af10323d4621`) surfaced four defects; all four
+are fixed and pinned by tests:
+
+1. **`evaluator_max_tokens` 2000 → 4000.** The per-*(quote, sub-requirement)*
+   judging outgrew the old budget: the critic truncated on three criteria of
+   five, and two never got evaluated at all. Truncation is not load-shaped;
+   the retry ladder cannot fix a budget.
+2. **A failed critic's spend is booked.** `EvaluationFailed` now carries the
+   attempts' `Usage`; the Router folds it into `evaluator_cost_usd`,
+   `cost_usd` and `usage`. The audited run had spent ~$0.27 (24% of the real
+   bill) that no total reported.
+3. **Fallback ships the best round, not the last** (`router.best_round`):
+   fewest unresolved structural errors, then the critic's higher rating, then
+   the later round. The audited run's redraft came back degenerate -- a
+   garbled evidence id, six sub-requirements lost -- and replaced a complete
+   round-0 draft. `rounds` still records what the loop spent, and the
+   shipped result's usage is refreshed from the shared run.
+4. **Coverage counts omitted sub-requirements**
+   (`analysis.undetermined_count`): a draft that assessed one sub-requirement
+   of seven used to report `coverage: 1.0`. Absent now counts like
+   `not_determined`, in both `build_result` and `router.finalize`.
+
 ## Next, in order
 
 1. Step 7's UI half — the two progress states, the verdict badge, the findings

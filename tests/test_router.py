@@ -327,6 +327,58 @@ def test_findings_still_open_when_the_rounds_run_out_fall_back_flagged(searches)
     assert result.evaluator_findings is not None  # the reason is attached, not just the flag
 
 
+def test_a_fallback_ships_the_best_round_not_the_last(searches):
+    """Found by a live run: a redraft came back degenerate -- a garbled
+    evidence id, six sub-requirements lost -- and shipped anyway because it
+    was newest. The round with fewer unresolved errors is the one that ships;
+    the rounds spent stay on the result, because the loop was paid for."""
+    broken = json.loads(draft_json(state="Partially Compliant", vaulting="partial"))
+    broken["relevant_quotes"][1]["evidence_id"] = "E9"  # not a retrieved passage
+    disputed_round_0 = findings_json(
+        quote_support=[{"quote_index": 0, "sub_requirement_id": "rotation",
+                        "support": "contradicts", "note": "says the opposite"}],
+        critic_confidence=0.5,
+    )
+    disputed_round_1 = findings_json(
+        quote_support=[{"quote_index": 0, "sub_requirement_id": "rotation",
+                        "support": "contradicts", "note": "still the opposite"}],
+        critic_confidence=0.3,
+    )
+    api = ScriptedAPI(
+        *loop_turns(),
+        sse_message([{"type": "text", "text": draft_json()}]),
+        sse_message([{"type": "text", "text": disputed_round_0}]),
+        sse_message([{"type": "text", "text": json.dumps(broken)}]),
+        sse_message([{"type": "text", "text": disputed_round_1}]),
+    )
+    result = route(api, settings(structure_fix_rounds=0))
+
+    assert result.verdict == "fallback"
+    assert result.compliance_state == "Fully Compliant"  # round 0's draft, not the broken one
+    assert result.unresolved_errors == []
+    assert result.rounds == 1  # the revision still happened and is still counted
+    assert result.confidence_components["critic"] == 0.5  # round 0's critic, to match
+    assert result.needs_review
+
+
+def test_a_failed_critics_spend_is_still_booked(searches):
+    """The money is spent whether or not an answer arrives. Three unusable
+    critic attempts must show up in the criterion's cost and tokens, or the
+    KPI totals report a smaller bill than the one that was paid."""
+    api = ScriptedAPI(
+        *loop_turns(),
+        sse_message([{"type": "text", "text": draft_json()}]),
+        *[sse_message([{"type": "text", "text": "not findings"}],
+                      input_tokens=1200, output_tokens=300) for _ in range(3)],
+    )
+    result = route(api)
+
+    assert result.verdict == "unevaluated"
+    assert result.evaluator_cost_usd > 0
+    assert result.cost_usd > result.evaluator_cost_usd  # analysis + the failed critic
+    assert result.usage["input_tokens"] >= 3 * 1200
+
+
 def test_an_evaluator_that_cannot_answer_lowers_the_result_but_never_blocks_it(searches):
     """The whole failure strategy in one test. Three unusable critic answers,
     and the analysis still ships -- flagged `unevaluated`, capped, with the

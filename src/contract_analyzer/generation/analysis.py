@@ -29,7 +29,7 @@ changing the schema.
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -41,6 +41,7 @@ from ..compliance.schemas import (
     ComplianceResult,
     ResolvedQuote,
     RevisionRequest,
+    SubRequirementResult,
 )
 from ..compliance.validate import StructuralError, quote_in_chunk, validate_structure
 from ..config import Settings, get_settings
@@ -434,7 +435,7 @@ def build_result(
     ]
     claimed = len(draft.relevant_quotes)
     verified = sum(1 for q in kept if q.verified)
-    not_determined = sum(1 for s in sub_requirements if s.status == "not_determined")
+    not_determined = undetermined_count(sub_requirements, criterion)
     confidence, components = compute_confidence(
         draft.raw_confidence,
         verified=verified,
@@ -464,6 +465,25 @@ def build_result(
         cost_usd=run.cost_usd,
         model=run.model,
     )
+
+
+def undetermined_count(
+    sub_requirements: Sequence[SubRequirementResult], criterion: Criterion
+) -> int:
+    """Sub-requirements the run settled nothing about.
+
+    The ones marked `not_determined`, plus the ones the draft *omitted
+    entirely*. A degenerate draft that assessed one sub-requirement of seven
+    has settled one, not seven -- the `ids` structural error already flags the
+    omission, but the confidence's coverage term has to count it too, or a
+    result missing six sub-requirements reports `coverage: 1.0` and the
+    component lies about exactly the run it matters most for.
+    """
+    expected = set(criterion.sub_requirement_ids())
+    present = {sub.id for sub in sub_requirements}
+    absent = len(expected - present)
+    not_determined = sum(1 for sub in sub_requirements if sub.status == "not_determined")
+    return not_determined + absent
 
 
 def compute_confidence(
@@ -541,4 +561,5 @@ __all__ = [
     "compute_confidence",
     "finish_analysis",
     "revise",
+    "undetermined_count",
 ]

@@ -237,6 +237,24 @@ def test_confidence_formula(kw, expected):
     assert components["cap"] == 1.0
 
 
+def test_an_omitted_sub_requirement_counts_as_unsettled():
+    """Found by a live run: a degenerate redraft kept one sub-requirement of
+    seven and reported `coverage: 1.0`, because only statuses *present* were
+    counted. A sub-requirement the draft never mentioned is not settled."""
+    from contract_analyzer.compliance.schemas import SubRequirementResult
+
+    only_rotation = [SubRequirementResult(
+        id="rotation", requirement="Rotation", status="met", quote_indexes=[0]
+    )]
+    assert AN.undetermined_count(only_rotation, CRITERION) == 1  # no_default is absent
+
+    with_not_determined = only_rotation + [SubRequirementResult(
+        id="no_default", requirement="Defaults", status="not_determined", quote_indexes=[]
+    )]
+    assert AN.undetermined_count(with_not_determined, CRITERION) == 1
+    assert AN.undetermined_count([], CRITERION) == 2
+
+
 def test_confidence_is_capped_on_review_or_a_capped_run_and_never_reaches_one():
     full = dict(verified=2, claimed=2, not_determined=0, total=2)
     assert AN.compute_confidence(1.0, needs_review=False, ended_by="model", **full)[0] == 0.95

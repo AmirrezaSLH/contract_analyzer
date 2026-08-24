@@ -116,7 +116,21 @@ _WORD = re.compile(r"[a-z0-9]+")
 
 class EvaluationFailed(RuntimeError):
     """The critic could not be made to answer usably. The Router degrades; it
-    does not propagate -- a criterion nobody criticised still ships, flagged."""
+    does not propagate -- a criterion nobody criticised still ships, flagged.
+
+    Carries what the failed attempts cost, because the money was spent whether
+    or not an answer arrived: a run that swallows it reports totals that are
+    smaller than the bill, and the KPI page's first duty is to the bill.
+    """
+
+    def __init__(self, message: str, *, usage: Usage | None = None, model: str = "") -> None:
+        super().__init__(message)
+        self.usage = usage if usage is not None else Usage()
+        self.model = model
+
+    @property
+    def cost_usd(self) -> float:
+        return self.usage.cost(self.model) if self.model else 0.0
 
 
 @dataclass
@@ -433,7 +447,9 @@ def _critic(
                    cost_usd=usage.cost(settings.evaluator_model))
     raise EvaluationFailed(
         f"the critic did not answer usably for {request.criterion_id} after "
-        f"{CRITIC_ATTEMPTS} attempts: {reason}"
+        f"{CRITIC_ATTEMPTS} attempts: {reason}",
+        usage=usage,
+        model=settings.evaluator_model,
     )
 
 

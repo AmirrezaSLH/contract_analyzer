@@ -42,7 +42,12 @@ below, and `settings.json` only ever needs the fields in the second table.
 | | `analysis_max_tool_calls` | 8 | per criterion |
 | | `max_evidence_tokens` | 12000 | the evidence ledger's total per run |
 | | `structure_fix_rounds` | 2 | structural self-correction rounds before `needs_review` |
+| | `research_extra_tool_calls` | 3 | tool calls a `research` revision adds *on top of what was spent* -- a delta, not a fresh allowance |
 | | `prompts_path` | `src/…/generation/prompts.json` | the prompt library, validated on load |
+| Agents ([agents/](agents/README.md)) | `evaluator_model` | `""` → `analysis_model` | the critic's model; empty means the analyst's |
+| | `evaluator_effort` | `medium` | the critic reads a page and answers a schema |
+| | `evaluator_max_tokens` | 2000 | the findings are a bounded structure; a truncated critic is retried |
+| | `router_max_rounds` | 1 | revision rounds after the first analysis; 0 still evaluates, it just never asks for a redo |
 | HTTP | `http_timeout_seconds` | 60 | see http-client.md |
 | | `http_retries` | 3 | retries after the first attempt |
 | Logging | `log_level` | `INFO` | |

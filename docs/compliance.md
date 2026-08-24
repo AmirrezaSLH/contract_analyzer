@@ -80,8 +80,11 @@ formula -- is in [generation.md](generation.md#surface-1-analysis-analysispy).
 
 ## The document runner (`report.py`, at the package root)
 
-`analyze_criterion` answers one question; `analyze_document` is the layer that
-knows a *contract-level* analysis exists.
+`route_criterion` answers one question -- Analyzer, Evaluator and the Router
+that runs them, [agents/](agents/README.md). `analyze_document` is the layer
+that knows a *contract-level* analysis exists. It is the **harness**, not a
+fourth agent: threads, a connection per criterion, event serialisation and the
+analyses row.
 
 It lives at the top of the package, not in `compliance/`, because that is the
 layer it belongs to: it uses `compliance` for the criteria and the result schema
@@ -144,10 +147,12 @@ over the wire** -- no second schema between `scripts/analyze.py --out` and the
 API's `GET /analyses/{id}`. `results` are in criteria order rather than
 finishing order, so two runs of the same contract diff line by line.
 `AnalysisTotals` sums the run: latency, cost, tokens, tool calls, how many
-results need review, how many were stopped by a counter, and the mean
-confidence -- the KPI page's row for this analysis. `cross_criterion_notes` is
-present and empty until the evaluator's cross-criterion pass lands, so its
-arrival does not change the wire format.
+results need review, how many were stopped by a counter, the mean confidence,
+and how the Router closed each criterion out (`accepted`, `revised`,
+`fallback`, `unevaluated`, `evaluator_cost_usd`) -- the KPI page's row for this
+analysis. `cross_criterion_notes` is filled by the Router's fan-in pass
+([agents/router.md](agents/router.md)); the field was present and empty long
+before that pass existed, so its arrival changed no wire format.
 
 ### The CLI
 

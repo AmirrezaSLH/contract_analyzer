@@ -1,7 +1,10 @@
 # Generation
 
 What `src/contract_analyzer/generation/` does: one tool-using agent loop,
-two finishers. The model drives retrieval itself; the compliance analysis and
+two finishers. The analysis surface is also three agents around that loop --
+Analyzer, Evaluator, Router -- and those have their own folder,
+[agents/](agents/README.md). This page is the loop and the finishers; that one
+is the conversation between the agents. The model drives retrieval itself; the compliance analysis and
 the conversational chat share the loop, the tools, the client, the prompt
 library and the caps, and differ only in how the final turn is produced.
 Everything below is asserted offline by `tests/test_generation_core.py`,
@@ -12,11 +15,15 @@ Everything below is asserted offline by `tests/test_generation_core.py`,
 
 ```python
 from contract_analyzer.compliance import get_criterion
-from contract_analyzer.generation import analyze_criterion, chat
+from contract_analyzer.generation import chat, route_criterion
 
-result = analyze_criterion(get_criterion("network_auth"), conn, embedder, settings,
-                           document_id=doc_id)
+# route_criterion is the Analyzer, the Evaluator and the Router that runs
+# them -- see docs/agents/. `analyze_criterion` is still there and is the
+# Analyzer alone: it returns the whole run, not just the result.
+result = route_criterion(get_criterion("network_auth"), conn, embedder, settings,
+                         document_id=doc_id)
 result.compliance_state, result.confidence, result.needs_review
+result.verdict, result.rounds, result.evaluator_findings
 for q in result.relevant_quotes:
     q.text, q.section_ref, q.page_display, q.verified
 
@@ -135,9 +142,11 @@ finisher's document blocks are built from, and what the log records.
 ## Surface 1: analysis (`analysis.py`)
 
 `analyze_criterion(criterion, conn, embedder, settings, document_id=…)` --
-one run per criterion; Phase B runs the five in a thread pool. The system
-prompt carries the criterion, its sub-requirements and what each status
-means; the model searches; then:
+one **Analyzer** run per criterion, returning an `AnalysisOutcome` (the
+result, the ledger, the conversation and the live tools). The harness reaches
+it through `route_criterion`, which adds the critic and the revise decision;
+this section is the run itself. The system prompt carries the criterion, its
+sub-requirements and what each status means; the model searches; then:
 
 1. A structured call: `output_config={"format": ComplianceDraft, "effort": …}`.
 2. `validate_structure(draft, evidence, criterion)` -- pure Python, see
@@ -155,22 +164,29 @@ means; the model searches; then:
 Truncation (`max_tokens`) and `refusal` are retried once as plain retries;
 twice raises `AnalysisFailed`.
 
-### Confidence -- first design, deliberately simple
+### Confidence
+
+Composed by the Router, not here -- the analyst is one of two estimates that
+go into it, and this module no longer has the last word:
 
 ```
-confidence = raw_confidence
-             × (verified_quotes / claimed_quotes)          # 1.0 when no quotes were claimed
+confidence = min(raw_confidence, critic_confidence)
+             × quote_term                                   # critic-judged support
              × (1 − not_determined / total_sub_requirements)
+             × (1.0 if the critic agrees on the state else 0.6)
 capped at 0.5 when needs_review or ended_by == "cap"
 clamped to [0.05, 0.95]
 ```
 
-The model's own estimate, cut by the share of its quotes that were not
-verbatim, cut by the share of the criterion it could not find language for.
-The UI shows a bucket -- High ≥ 0.75, Medium ≥ 0.5, Low -- beside the number.
-The three terms and the cap are stored in `confidence_components`, so a later
-design (critic agreement, self-consistency voting, reviewer-override
-calibration) can be fitted without changing the schema. **To be revisited.**
+A result that never reaches a Router keeps the analyst's own three-term
+number, and its `confidence_components` omit the critic keys rather than
+inventing agreement. Every term is stored, so a later design can be fitted
+without changing the schema.
+
+**It is a heuristic score and it is not calibrated.** The buckets the UI shows
+(High ≥ 0.75, Medium ≥ 0.5, Low) are provisional labels, not probabilities.
+[agents/confidence.md](agents/confidence.md) says why that distinction is
+load-bearing and what it would take to earn the other word.
 
 ## Surface 2: chat (`chat.py`, `blocks.py`)
 
@@ -210,7 +226,9 @@ passages and tool traffic are not re-sent. The current turn re-retrieves, so
   data, validated on load: a missing key fails at startup naming the file and
   the keys it has. Keys: `agent.system` (shared), `chat.system`,
   `chat.no_context`, `analysis.system`, `analysis.user`, `analysis.finish`,
-  `analysis.fix_structure`. `PROMPTS_PATH` re-aims the package.
+  `analysis.fix_structure`, `analysis.revise` (the Router's findings, as one
+  turn), `evaluator.system` (the critic's rubric) and `evaluator.user` (the
+  request, as JSON). `PROMPTS_PATH` re-aims the package.
 * `pricing.py` -- USD per million tokens for the models this could be pointed
   at, cache reads at 0.1× and writes at 1.25×; an unknown model prices at
   zero and logs `pricing.unknown_model` once.
@@ -223,8 +241,13 @@ execution a `span("agent.tool", tool, mode, top_k, returned, new, retrieved,
 evidence_tokens, note|error)`; a run an `agent.run` span with the counters
 and `ended_by`; a criterion an `analysis.criterion` span with state,
 confidence and `needs_review`; a correction round an
-`analysis.structure_errors` line with the error codes. All under one
-`trace_id`, in `.run/app.jsonl`.
+`analysis.structure_errors` line with the error codes.
+
+Around all of that, the Router's own frames: `router.criterion` (verdict,
+rounds, latency, evaluator cost), `router.decision` (verdict, mode, reason
+codes), `evaluator.precheck` and `evaluator.critic`, and `analysis.revise`
+when a draft goes back. All under one `trace_id`, in `.run/app.jsonl` --
+see [agents/](agents/README.md#what-you-can-see-in-the-log).
 
 ## Open questions
 

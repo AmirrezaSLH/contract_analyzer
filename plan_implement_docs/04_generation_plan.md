@@ -1,6 +1,10 @@
 # Step 10 — one tool-using agent loop, two finishers
 
-**Status: draft for review, revised 2026-08-23.** Replaces the earlier draft
+**Status: implemented 2026-08-24** (`f3272e8`…`4181528`, commits 10a–10k as
+sequenced below; 281 tests green, lint clean). Deviations from the plan and
+the acceptance state are at the [end](#implementation-report).
+
+Originally: draft for review, revised 2026-08-23. Replaces the earlier draft
 of this file. The earlier draft planned generation as "retrieve once, then
 answer with citations". Discussion changed the shape: the model now **drives
 retrieval itself through tools**, and the same loop serves both the
@@ -397,20 +401,20 @@ Canned SSE / JSON through `MockTransport`, driving the real SDK.
 
 ## Acceptance
 
-- [ ] `make test` green, `make lint` clean, no module imports `logging`.
-- [ ] Every quote in a `ComplianceResult` is verbatim in the ledger chunk it
+- [x] `make test` green, `make lint` clean, no module imports `logging`.
+- [x] Every quote in a `ComplianceResult` is verbatim in the ledger chunk it
       names, or the result says `needs_review` — asserted offline.
-- [ ] Every chat citation's `cited_text` is verbatim in its chunk.
+- [x] Every chat citation's `cited_text` is verbatim in its chunk.
 - [ ] With a key: `analyze_criterion` on criterion 5 (auth & authz) over the
       sample contract returns a validated result; the log shows the tool
       calls with their modes and `top_k`, the finisher, and any correction
       round, all under one `trace_id`.
 - [ ] With a key: "Does the vendor have to use MFA?" answers from §6.2 with
       `p.4`; "for which accounts?" re-retrieves and stays cited.
-- [ ] A chat question the contract does not cover returns `chat.no_context`
+- [x] A chat question the contract does not cover returns `chat.no_context`
       after the loop's searches and no finisher call.
-- [ ] No path can reach a second contract's text.
-- [ ] `docs/generation.md` records the citations-vs-`format` 400 as the reason
+- [x] No path can reach a second contract's text.
+- [x] `docs/generation.md` records the citations-vs-`format` 400 as the reason
       for two finishers.
 
 ## Open questions
@@ -434,3 +438,70 @@ Canned SSE / JSON through `MockTransport`, driving the real SDK.
    all five would share retrieved evidence (6.x serves criteria 1 and 5).
    Recommendation: per criterion, and let Phase B's evaluator notice
    cross-criterion inconsistency if it matters.
+
+## Implementation report
+
+Commits, in the planned order, feature before test, `tests/` and this file
+as their own commits:
+
+| # | Commit | Note |
+|---|---|---|
+| 10a | `f3272e8` refactor(http) | `unwrap_http_failure()` returns the `HttpFailure` or `None`; `openai.py` switched |
+| 10b | `49d86e3` feat(generation) | client, prompts, pricing; settings renamed and added |
+| 10c | `c827da0` feat(generation) | tools + ledger |
+| 10d | `c8a480f` feat(generation) | the loop |
+| — | `944b59c` fix(generation) | found by 10e: `span("agent.tool", name=…)` shadowed `span`'s own `name` argument; the attribute is `tool=` |
+| 10e | `4015462` test | 32 tests; SSE harness in `conftest.py` |
+| 10f | `d27caf3` feat(compliance) | schemas, criteria with sub-requirements, validator |
+| 10g | `52dc60b` feat(generation) | analysis finisher, confidence |
+| 10h | `b2f82ce` test | 31 tests |
+| 10i | `bd66da3` feat(generation) | blocks, chat (amended once: an import cycle `validate → tools → generation/__init__ → analysis → validate`, broken with a `TYPE_CHECKING` import) |
+| 10j | `9e53958` test | 9 tests |
+| 10k | `4181528` docs | generation.md, compliance.md, configuration, http-client, architecture |
+
+### Deviations from the plan
+
+1. **Sub-requirements are authored, not inferred.** `criteria.json` gains an
+   `id` per criterion and a `sub_requirements` list with stable ids split
+   from each description's prose. The validator checks the draft's ids
+   against them exactly, which is what makes the derived-state rule
+   checkable. The plan left where sub-requirements come from unstated.
+2. **Two extra prompt keys**: `analysis.user` (the opening user turn) and
+   `analysis.finish` (the turn that asks for the structured draft). The plan
+   listed only `analysis.fix_structure` for the finisher.
+3. **`ToolCall.note` beside `ToolCall.error`.** A dedupe hit or a budget
+   refusal is informational (`duplicate`, `budget`) and is *not* sent back
+   as `is_error: true`; only bad input is. An error result would push the
+   model to retry the same call.
+4. **The chat finisher is a fresh request**, not the loop's conversation
+   plus blocks: history as text, then one user turn of document blocks and
+   the question. Re-sending the tool traffic would double the tokens the
+   ledger already costs, and the plan's test ("one document block per
+   ledger entry, the question last") is the request shape either way.
+5. **Every request is streamed**, loop calls included, via
+   `client.messages.stream(...).get_final_message()`. A long structured turn
+   then keeps bytes moving under the transport's 60 s read timeout instead
+   of racing it; nothing observes the loop's deltas.
+6. **Confidence output is rounded to 3 places** and `raw_confidence` is
+   clamped into [0, 1] before use (the validator also flags it). Otherwise
+   the formula is as planned, and `confidence_components` records the four
+   factors including the cap.
+7. **Structured-output schema carries no constraints.** No `ge`/`le`/
+   `max_length` on `ComplianceDraft` fields: constrained decoding does not
+   enforce them, so they live in the validator where a failure gets a name.
+8. **`ComplianceResult.unresolved_errors`** keeps the validator messages
+   that survived the rounds, so the UI can say *why* a result needs review.
+
+### Open questions, updated
+
+1–2 unchanged (refusal fallbacks skipped; prompt caching to measure in
+Phase B). 3: yes — history is replayed as text into the loop's task, so the
+first query sees the previous turn. 4: unchanged, placeholder by intent.
+5: per criterion, as recommended.
+
+### Not done here
+
+The "with a key" acceptance runs (criterion 5 end to end; the MFA follow-up
+pair). They need `ANTHROPIC_API_KEY` and an embedded corpus and cost money;
+they belong with the CLIs of steps 11–14, where the log walkthrough is
+produced.

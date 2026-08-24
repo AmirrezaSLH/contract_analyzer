@@ -3,9 +3,26 @@
   gap: 5px;
 }
 
+/* The label and its status chip share a baseline: the chip is a fact about the
+ * number below, not a second heading. */
+.head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 20px;
+}
+
 .value {
   font-family: var(--serif);
   font-size: 22px;
   font-weight: 600;
   line-height: 1.25;
+  letter-spacing: -0.01em;
+}
+
+.sub {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--muted-2);
 }

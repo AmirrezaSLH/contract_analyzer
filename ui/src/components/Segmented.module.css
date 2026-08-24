@@ -1,0 +1,41 @@
+/* The segmented control, as CSS shared by the two that exist.
+ *
+ * The App/KPI toggle owns the pattern -- a warm track, one raised white half
+ * -- and the KPI page's window selector is the same control with three
+ * options. This file is here so it is the same control and not two that drift:
+ * `composes` rather than a copy, per `02_kpi_page.md` §2.
+ *
+ * `--toggle-track` was measured, not chosen: the first value put --muted-2 at
+ * 3.73:1 on it, an AA failure for the 13px label. #ebe5db takes --muted to
+ * 4.52:1. That track sits only 1.08:1 off --sidebar, so the control carries a
+ * --border outline rather than relying on its fill to be seen -- which is also
+ * what keeps it visible on --canvas, where the window selector sits. */
+.track {
+  display: flex;
+  gap: 3px;
+  padding: 3px;
+  background: var(--toggle-track);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
+
+.option {
+  text-align: center;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: var(--r-sm);
+  color: var(--muted);
+}
+
+.option:hover {
+  color: var(--ink-body);
+}
+
+/* The raised one. White against the warm track is the whole affordance, so it
+ * must be --surface and not a tint of it. */
+.active,
+.active:hover {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow-raise);
+}

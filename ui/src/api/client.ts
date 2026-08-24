@@ -36,6 +36,23 @@ export type ComplianceState = ComplianceResult["compliance_state"];
 export type SubRequirementStatus = SubRequirementResult["status"];
 export type RetrievalMode = NonNullable<ChatRequest["retrieval_mode"]>;
 
+// -- the KPI page ----------------------------------------------------------
+// Typed like everything else, from the schema: the four `/metrics` handlers
+// carry pydantic response models precisely so this page is not the one part of
+// the front end typed by hand.
+export type MetricsSummary = Schemas["MetricsSummary"];
+export type MetricsBucket = Schemas["MetricsBucket"];
+export type RunRow = Schemas["RunRow"];
+export type SpanNode = Schemas["SpanNode"];
+export type EvaluatorSlot = Schemas["EvaluatorSlot"];
+
+/** The window selector's three options, and the only windows this UI asks for.
+ *  The **bucket is deliberately not a parameter here**: the server pairs them
+ *  (`windows.DEFAULT_BUCKETS` -- 24h/1h, 7d/6h, 30d/1d) so the API and the
+ *  design cannot drift, and thirty days of one-hour bars is 720 marks on a
+ *  900-pixel axis. */
+export type MetricsWindow = "24h" | "7d" | "30d";
+
 /** `AnalysisReport` types `results` as `ComplianceResult[] | undefined`, and
  *  `relevant_quotes` likewise. These narrow the optionality away once, here,
  *  rather than in every component that reads a report. */
@@ -161,6 +178,15 @@ export const api = {
 
   cancelAnalysis: (id: string, traceId?: string) =>
     request<AnalysisSummary>(`/analyses/${id}/cancel`, { method: "POST", traceId }),
+
+  metricsSummary: (window: MetricsWindow) =>
+    request<MetricsSummary>(`/metrics/summary?window=${window}`),
+
+  // No `bucket`: the server chooses it from the window. See `MetricsWindow`.
+  metricsTimeseries: (window: MetricsWindow) =>
+    request<MetricsBucket[]>(`/metrics/timeseries?window=${window}`),
+
+  metricsRuns: (limit = 50) => request<RunRow[]>(`/metrics/runs?limit=${limit}`),
 };
 
 // --------------------------------------------------------------------------

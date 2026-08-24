@@ -1,5 +1,508 @@
+/* The KPI page: four bands, one window.
+ *
+ * Every white surface here is a `Card`, so this file holds layout and the
+ * things a card does not have -- the meter bar, the chart chrome, the table
+ * grid. No colour literal appears in it; the chart hues are the chart-only
+ * tokens, which is the one part of the palette that never touches chrome. */
 .view {
   display: flex;
   flex-direction: column;
   gap: var(--gap-block);
+}
+
+/* -- the window selector row ---------------------------------------------- */
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.windows {
+  composes: track from "../../components/Segmented.module.css";
+}
+
+.window {
+  composes: option from "../../components/Segmented.module.css";
+  padding: 7px 15px;
+}
+
+.windowActive {
+  composes: active from "../../components/Segmented.module.css";
+}
+
+/* Refetching shows here and nowhere else: the numbers stay on screen. */
+.refreshed {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--muted-2);
+  font-variant-numeric: tabular-nums;
+}
+
+/* -- bands ---------------------------------------------------------------- */
+.band {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.bandHead {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.bandTitle {
+  font-family: var(--serif);
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.bandNote {
+  font-size: 12px;
+  color: var(--muted-2);
+}
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.meters {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.charts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+@media (max-width: 1180px) {
+  .tiles {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .tiles,
+  .meters,
+  .charts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  .tiles,
+  .meters,
+  .charts {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* -- a quality meter ------------------------------------------------------ */
+.meter {
+  padding: 17px 19px;
+  gap: 11px;
+}
+
+.meterHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.meterValue {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  flex-wrap: wrap;
+}
+
+.meterNumber {
+  font-family: var(--serif);
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.meterTarget {
+  font-size: 12px;
+  color: var(--muted-2);
+}
+
+/* The bar. `--divider` is the track, the fill is the status colour, and the
+ * tick is black -- the one thing on the bar that must be read before the
+ * fill, which is why it is not a tint of anything. */
+.bar {
+  position: relative;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--divider);
+}
+
+.fill {
+  height: 6px;
+  border-radius: 3px;
+}
+
+.fillGood {
+  background: var(--fc-fg);
+}
+
+.fillWarn {
+  background: var(--pc-fg);
+}
+
+.fillNeutral {
+  background: var(--faint-3);
+}
+
+.tick {
+  position: absolute;
+  top: -3px;
+  width: 2px;
+  height: 12px;
+  background: var(--chart-tick);
+  border-radius: 1px;
+  transform: translateX(-1px);
+}
+
+.meterNote {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted-2);
+}
+
+/* -- a chart -------------------------------------------------------------- */
+.chart {
+  padding: 17px 19px;
+  gap: 4px;
+}
+
+.chartHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.chartTitle {
+  font-family: var(--serif);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.chartSub {
+  font-size: 12px;
+  color: var(--muted-2);
+  margin-bottom: 6px;
+}
+
+.legend {
+  display: flex;
+  gap: 12px;
+}
+
+.legendItem {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--muted-2);
+}
+
+.swatch {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  display: block;
+}
+
+.swatch1 {
+  background: var(--chart-1);
+}
+
+.swatch2 {
+  background: var(--chart-2);
+}
+
+.gridline {
+  stroke: var(--chart-grid);
+  stroke-width: 1;
+}
+
+.axisLabel {
+  font-size: 9px;
+  fill: var(--muted-2);
+}
+
+.bar1 {
+  fill: var(--chart-1);
+}
+
+/* The current bucket. It is short because it is not over yet, so it is drawn
+ * lighter and its tooltip says "so far" -- the alternative is a reader seeing
+ * the present as a fall. */
+.barPartial {
+  fill: var(--chart-1);
+  opacity: 0.45;
+}
+
+/* An hour with no runs: a 2px stub, not nothing. The axis has to show the
+ * quiet hours or a busy night reads like a continuous one. */
+.barEmpty {
+  fill: var(--chart-empty);
+}
+
+.line1 {
+  stroke: var(--chart-1);
+}
+
+.line2 {
+  stroke: var(--chart-2);
+}
+
+.dot1 {
+  fill: var(--chart-1);
+}
+
+.dot2 {
+  fill: var(--chart-2);
+}
+
+.dot1,
+.dot2 {
+  stroke: var(--surface);
+  stroke-width: 2;
+}
+
+.seriesLabel1 {
+  font-size: 10px;
+  font-weight: 600;
+  fill: var(--chart-1);
+}
+
+.seriesLabel2 {
+  font-size: 10px;
+  font-weight: 600;
+  fill: var(--chart-2);
+}
+
+.chartEmpty {
+  font-size: 12px;
+  color: var(--muted-2);
+  padding: 22px 0 26px;
+}
+
+/* -- the runs table ------------------------------------------------------- */
+.table {
+  padding: 0;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 108px minmax(0, 1fr) 138px 84px 78px 132px;
+  gap: 14px;
+  padding: 13px 20px;
+  align-items: center;
+  border-bottom: 1px solid var(--divider-2);
+}
+
+.header {
+  composes: row;
+  border-bottom: 1px solid var(--border-card);
+}
+
+.cell {
+  font-size: 13px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.filename {
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.note {
+  padding: 14px 20px;
+  font-size: 13px;
+  color: var(--muted-2);
+  line-height: 1.55;
+}
+
+/* The trace id, and the reason this table exists: it is the join from a number
+ * on this page to the lines in `.run/app.jsonl` that produced it. Mono, and
+ * click to copy -- a reviewer is about to paste it into a grep. */
+.trace {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--muted-2);
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-radius: var(--r-xs);
+}
+
+.trace:hover {
+  color: var(--accent);
+}
+
+.traceCopied {
+  color: var(--fc-fg);
+}
+
+@media (max-width: 900px) {
+  .row {
+    grid-template-columns: 96px minmax(0, 1fr) 130px;
+  }
+
+  .rowWide {
+    display: none;
+  }
+}
+
+/* -- skeletons and states ------------------------------------------------- */
+/* The shell is already correct on first paint, so the loading state is the
+ * shape of the answer and never a full-page spinner. */
+.skeleton {
+  background: var(--divider-3);
+  border-radius: var(--r-xs);
+  height: 22px;
+  width: 60%;
+}
+
+.skeletonSub {
+  composes: skeleton;
+  height: 12px;
+  width: 80%;
+}
+
+.footnote {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--muted-2);
+}
+
+.mono {
+  font-family: var(--mono);
+}
+
+/* -- the cost breakdown --------------------------------------------------- */
+.costGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+@media (max-width: 900px) {
+  .costGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.costCard {
+  padding: 17px 19px;
+  gap: 11px;
+}
+
+.split {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+}
+
+.splitRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.splitLabel {
+  font-size: 12px;
+  color: var(--muted-2);
+}
+
+.splitValue {
+  margin: 0;
+  font-family: var(--serif);
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.shares {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.share {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.shareHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.shareName {
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shareValue {
+  font-family: var(--serif);
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.shareSub {
+  font-size: 12px;
+  color: var(--muted-2);
+}
+
+/* A share of one quantity, not a category: the same hue the cost chart uses,
+ * because a slice of spend and a bar of spend are the same fact. */
+.fillChart {
+  background: var(--chart-1);
+}
+
+/* Three charts across, at the width there is room for. Runs, latency and cost
+ * each keep an axis of their own -- there is no second y-scale on this page. */
+.charts3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+@media (max-width: 1180px) {
+  .charts3 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .charts3 {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }

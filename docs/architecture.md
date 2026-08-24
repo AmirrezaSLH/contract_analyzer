@@ -60,7 +60,7 @@ Two modules cut across everything and were built first:
 | `db.py`, `schema.sql` | SQLite + sqlite-vec + FTS5, one file | [storage.md](storage.md) | done |
 | `tokens.py` | tiktoken counts with an offline fallback | [storage.md](storage.md#token-counting) | done |
 | `models.py` | the `Chunk` record | [storage.md](storage.md#the-chunk-record) | done |
-| `parse/` | PDF → typed elements (headings, paragraphs, tables, figures) | [parsing.md](parsing.md) | copied; section spine for outline-less PDFs pending |
+| `parse/` | PDF → typed elements (headings, paragraphs, tables, figures), clause-level, with a synthesized section spine for outline-less PDFs | [parsing.md](parsing.md) | done, tested on the sample contract |
 | `ingest/` | elements → chunks → embeddings → rows | chunking.md, ingestion.md | pending |
 | `embeddings/` | OpenAI / local / fake embedders | ingestion.md | pending |
 | `retrieval/` | vector KNN + BM25 fused with RRF, per document | retrieval.md | pending |
@@ -133,3 +133,7 @@ inside it. See [docker.md](docker.md).
 * Checkpoint 1 (2026-08-23): foundation scaffold, logger, HTTP client, settings,
   storage, parser copied. Section spine, chunker, embeddings, retrieval,
   generation pending.
+* Checkpoint 2 (2026-08-23): parser hardened against the sample contract --
+  clause-level elements, synthesized section spine, hyphen resolution from
+  measured evidence, page-spanning tables stitched, page spans on merged
+  elements, measured furniture bands; 61 parser tests. Chunker onward pending.

@@ -2,9 +2,10 @@
 
 What `src/contract_analyzer/parse/` does, why it is built the way it is, and
 the contract it hands to the chunker. The numbers quoted throughout were
-measured on the sample contract in `assignment_details/Sample Contract.pdf`
+measured on the sample contract in `data/samples/Sample Contract.pdf`
 (a 21-page "Information Security and Technology Risk Addendum", produced by
-Word's PDF export).
+Word's PDF export) and are asserted by `tests/test_parse_elements.py` and
+`tests/test_parse_tables.py`.
 
 ## Purpose
 
@@ -15,9 +16,10 @@ is therefore a set of geometric heuristics over a bag of glyphs, and the
 heuristics are what separate one extractor from another.
 
 For compliance analysis the unit that matters is the clause: "6.6 Password
-Management Standard" has to arrive as one paragraph, the "Data Category |
-Included? | Examples | Special Handling" matrix on page 2 has to arrive as one
-table with its columns intact, and every finding has to cite the page a reader
+Management Standard" has to arrive as one paragraph with the breadcrumb that
+says where it sits, the "Data Category | Included? | Examples | Special
+Handling" matrix on page 2 has to arrive as one table with its columns intact
+and its identifiers unbroken, and every finding has to cite the page a reader
 will actually open. `parse_pdf()` returns an ordered list of typed
 **elements** rather than one string plus a page map, so downstream code packs
 meaning-bearing units instead of slicing a wall of text.
@@ -25,13 +27,37 @@ meaning-bearing units instead of slicing a wall of text.
 ```python
 from contract_analyzer.parse import parse_pdf
 
-parsed = parse_pdf("assignment_details/Sample Contract.pdf", assets_dir="data/assets")
+parsed = parse_pdf("data/samples/Sample Contract.pdf")
+parsed.spine_source        # "outline" | "headings" | "none"
 for element in parsed.elements:
-    element.type          # heading | paragraph | table | figure | caption | equation
-    element.page_index    # 0-based physical page -- for opening the file
-    element.page_label    # printed page number -- for display
-    element.section_path  # breadcrumb, once a section spine exists (see Known limitations)
+    element.type           # heading | paragraph | table | figure | caption | equation
+    element.page_index     # 0-based physical page -- for opening the file
+    element.page_label     # printed page number -- for display
+    element.page_span      # (first, last) physical page; equal unless it crosses a break
+    element.section_path   # ["6. Identity, ...", "6.6 Password Management Standard"]
 ```
+
+## The rule every heuristic is held to
+
+> **A decision may only use evidence the document supplies about itself.**
+
+The parser measures the document first -- body font size, text column,
+vocabulary, paragraph indent, hyphenation habit, text area -- and judges
+every block relative to those measurements. Where a measurement is not
+available the signal is structural (numbering that forms a coherent sequence)
+or lexical (a token attested in this document's own text). No threshold is a
+literal chosen because it happened to suit one file. Two corollaries recur:
+
+* **Corroboration over pattern-matching.** A regex says a string *looks like*
+  a clause number; whether it *is* one is decided by whether it takes its
+  place in a sequence with its siblings.
+* **Degrade, don't guess.** When the evidence is absent, record that it is
+  absent (`spine_source = "none"`) and leave the field empty. A wrong section
+  on a compliance citation is worse than a blank one.
+
+`plan_implement_docs/02_parser_hardening_plan.md` records the audit that led
+to this rule, the measurements behind each fix, and the shortcuts rejected
+because they would have overfitted the sample.
 
 ## Why PyMuPDF and a hand-written geometric parser
 
@@ -43,14 +69,14 @@ top of PyMuPDF for three reasons that matter in a compliance setting:
   A compliance finding that cites "p.7, clause 9.3" must be reproducible; a
   layout model with sampling in it, or an LLM asked to transcribe a page, is
   not.
-- **Fast.** A 21-page contract parses in well under a second. Unstructured
-  and Docling load layout-detection models that take longer than that to
-  start; LLM-OCR is a network round-trip per page and costs money.
-- **Inspectable.** Every decision is a named threshold in the code
-  (`HEADING_SIZE_MARGIN`, `MIN_FILL_RATE`, `_FOOTER_BAND`), and every dropped
-  block is kept in `ParsedDocument.furniture` rather than discarded. When the
-  parser gets something wrong, the reason is a number you can read, not a
-  weight inside a model.
+- **Fast.** A 21-page contract parses in 0.9 s. Unstructured and Docling load
+  layout-detection models that take longer than that to start; LLM-OCR is a
+  network round-trip per page and costs money.
+- **Inspectable.** Every decision is a named measurement on the
+  `DocumentProfile` or a named rule in the code, and every dropped block is
+  kept in `ParsedDocument.furniture` rather than discarded. When the parser
+  gets something wrong, the reason is a number you can read, not a weight
+  inside a model.
 
 PyMuPDF was chosen over pdfplumber + pypdf because it supplies the outline,
 page labels, table detection (`find_tables`), image extraction and page
@@ -68,9 +94,11 @@ construction is required.
 class Element:
     type: ElementType        # heading|paragraph|table|figure|caption|equation|furniture
     text: str                # what gets embedded and shown; never empty
-    page_index: int          # 0-based physical page -- for opening the file
+    page_index: int          # 0-based physical page where the element starts
     page_label: str          # printed page ("7") -- for display
-    bbox: BBox               # x0, y0, x1, y1 on the page
+    bbox: BBox               # x0, y0, x1, y1 on the page it starts on
+    page_end: int | None     # last physical page it touches, if not page_index
+    page_label_end: str
     section: str = ""        # filled by assign_sections()
     section_path: list[str]  # filled by assign_sections()
     order: int = -1          # filled by assign_sections()
@@ -79,7 +107,8 @@ class Element:
 `__post_init__` raises `ValueError` on empty text: an element with nothing to
 show is an extraction bug, and catching it at construction beats discovering
 it as a blank citation in a compliance report. `breadcrumb` renders
-`section_path` as `"6. Identity ... > 6.6 Password Management Standard"`.
+`section_path` as `"6. Identity ... > 6.6 Password Management Standard"`;
+`page_span` returns `(page_index, page_end or page_index)`.
 
 `TableElement` adds `markdown`, `rows`, `caption`, `caption_bbox`, and
 `quality: TableQuality` (`"ruled" | "recovered" | "text-fallback"`), with
@@ -93,6 +122,12 @@ open the file; the label is the number printed on the page, read from
 pages between the two. The sample contract carries no `/PageLabels`, so
 `page_labels()` falls back to the 1-based index and the two coincide; the
 field exists so the distinction survives when a contract *does* carry them.
+
+**`page_index` vs `page_end`.** An element that was rejoined or stitched
+across a page break starts on one page and ends on another. `page_index` keeps
+meaning "where it starts", so nothing that only knows one page breaks, and a
+citation that knows both renders `p.4-5` instead of sending the reviewer to
+a page the quoted obligation is not on. `Chunk` carries the same pair.
 
 The `furniture` type (page numbers, running headers) is produced by the
 classifier and then split out into `ParsedDocument.furniture`, not into the
@@ -114,20 +149,39 @@ flowchart TD
     F --> X[extract_text_elements<br/>exclude = claimed rects]
     X --> L[locate_headings]
     L --> S[split furniture, sort by y]
-    S --> J[join_wrapped_lines]
-    J --> G[assign_sections]
+    S --> ST[stitch_spanning_tables]
+    ST --> E[EnumeratorLattice.from_elements]
+    E --> SW[split_welded]
+    SW --> J[join_wrapped_lines<br/>with the lattice's veto]
+    J --> SY{outline?}
+    SY -- no --> SS[synthesize_spine]
+    SY -- yes --> G
+    SS --> G[assign_sections]
     G --> U[_label_uncaptioned_figures]
 ```
 
 **Document-wide passes, before any page is read.**
 
 1. `profile_document(doc) -> DocumentProfile` measures what a single page
-   cannot know about itself: the modal `body_size` (character-weighted, so a
-   three-word heading cannot outvote a paragraph), the text column's
-   `body_left` / `body_right`, the document's own vocabulary in `hyphenated`
-   and `words`, and `furniture_patterns` (digit-masked texts that recur in the
-   header/footer bands on at least `_REPEAT_SHARE = 0.20` of pages and
-   `_REPEAT_MIN_PAGES = 3`).
+   cannot know about itself:
+   * `body_size`, the modal font size, character-weighted so a three-word
+     heading cannot outvote a paragraph;
+   * `body_left` / `body_right`, the text column, measured over blocks that
+     reach the right margin;
+   * `paragraph_indent`, the first-line indent if the document has one:
+     the second mode of the left-edge distribution of full-width blocks,
+     accepted only if it holds at least 10 % of them. Word does not indent,
+     so it is `0.0` on the sample; LaTeX's `\parindent` shows up as 18.
+   * `hyphenated` and `words`, the document's own vocabulary, digits
+     included so `PASS-02` and `27001` are attested like any word;
+   * `breaks_hyphenate`, whether the document hyphenates at line ends,
+     inferred from its own line-final hyphens (see *Line joining*);
+   * `header_band` / `footer_band`, where the body text starts and stops as
+     fractions of page height, from the extremes of full-width multi-line
+     blocks -- 0.046 and 0.952 on the sample, whose text runs far past the
+     0.85 a fixed constant would have assumed;
+   * `furniture_patterns`, digit-masked texts that recur in those bands on
+     at least `_REPEAT_SHARE = 0.20` of pages and `_REPEAT_MIN_PAGES = 3`.
 2. `build_spine(doc) -> list[Section]` flattens `/Outlines` into document
    order with ancestry resolved, converting PyMuPDF's 1-based `get_toc()`
    pages to the 0-based indices used everywhere else.
@@ -149,29 +203,34 @@ does rather than at the top of the page. Finally furniture is split out and
 tables, figures and text are sorted together by `(round(y0 / 3), x0)` so
 reading order survives.
 
-**Post passes.** `join_wrapped_lines(elements, profile)` rebuilds paragraphs
-from the lines PyMuPDF hands out as separate blocks (the merged element keeps
-the first line's page, which is where a citation should point).
-`assign_sections(elements, spine)` walks elements and spine with a single
-advancing cursor and fills `section`, `section_path` and `order`.
-`_label_uncaptioned_figures` gives a figure with no caption the text
-`"Figure in {section} (page {label})"`.
+**Post passes, in this order.**
 
-## The four inference layers
+1. `stitch_spanning_tables` rejoins a table that a page break split (see
+   *The table ladder*).
+2. `EnumeratorLattice.from_elements` finds every clause label in the stream
+   and corroborates it by sequence (see *Clause structure*).
+3. `split_welded` cuts any paragraph that holds two corroborated clauses.
+4. `join_wrapped_lines` rebuilds paragraphs from the lines PyMuPDF hands out
+   as separate blocks, never across a corroborated clause boundary. The
+   merged element keeps the first line's page as its anchor and records the
+   last in `page_end`.
+5. If the PDF had no outline, `synthesize_spine` builds one from the
+   headings and the lattice, and `spine_source` becomes `"headings"`.
+6. `assign_sections` walks elements and spine with a single advancing cursor
+   and fills `section`, `section_path` and `order`.
+7. `_label_uncaptioned_figures` gives a figure with no caption the text
+   `"Figure in {section} (page {label})"`.
+
+## The inference layers
 
 Everything in `blocks.py` is a heuristic over geometry and font metadata.
-
-**Profile.** Every later judgement is relative: "larger than the body" needs
-to know what body is. `body_left` is measured only over blocks that reach
-`body_right`, because sampling every block's left edge counts indented first
-lines and hanging indents as the margin.
 
 **Classify.** `classify(block, profile, page_height) -> str` runs in a fixed
 order, furniture first so a page number is never mistaken for a one-word
 heading:
 
 ```
-furniture  -> in the header/footer band AND (a bare number OR a known furniture pattern)
+furniture  -> in a margin band AND (a page number OR a known furniture pattern)
 caption    -> CAPTION_RE matches at the start ("Figure 2.1:", "Table A.3.")
 equation   -> >= 40% of characters set in a font matching _MATH_FONT
 heading    -> dominant span size > body_size + HEADING_SIZE_MARGIN (0.5pt), not italic
@@ -181,32 +240,114 @@ paragraph  -> everything else
 The dominant span is the `(font, size, flags)` covering the most characters
 in the block, so a stray footnote marker does not decide a block's class.
 
-**Furniture.** The bands are `_HEADER_BAND = 0.06` and `_FOOTER_BAND = 0.85`
-of page height. A block in a band is furniture if it is a bare arabic or roman
-number, or if its digit-masked text (`"Page # of #"`) is in
-`profile.furniture_patterns`. On the sample contract this dropped 0 blocks --
-either the addendum carries no running header or page number, or they sit in
-a block that also holds body text; `scripts/parse_report.py` will show which
-once it is ported (step 13 of the plan).
+**Furniture.** A block is in a margin band when it starts above
+`profile.header_band` or below `profile.footer_band`. It is furniture if
+`is_page_number()` accepts its whole text -- arabic digits, or a roman
+numeral that actually parses, so `LLC`, `civil` and `did` are not page
+numbers -- or if its digit-masked text (`"Page # of #"`) is in
+`profile.furniture_patterns`. The sample contract carries no running header
+and no page number at all, which is why `furniture` is empty: there is
+nothing to drop, and every block in the bands is body text.
 
 **Headings.** The size rule finds every numbered section heading in the
-sample contract, because Word sets them larger than the body. It deliberately
-does *not* find sub-clauses such as "6.6 Password Management Standard." Those
-are bold inline runs at the start of an ordinary paragraph, at the body's own
-size; treating every bold run as a heading would also promote defined terms
-and emphasis. When an outline exists, `locate_headings` promotes such blocks
-by exact title match instead. Without an outline they stay paragraphs, which
-is the gap discussed under Known limitations.
+sample contract, because Word sets them larger than the body: all 51, with no
+false positives. It deliberately does *not* find sub-clauses such as "6.6
+Password Management Standard." -- those are bold runs at the body's own size,
+and treating every bold run as a heading would also promote defined terms
+and emphasis. Sub-clauses enter the spine through the enumerator lattice
+instead.
 
-Two supporting passes belong here. `join_lines(lines, profile)` resolves a
-line-end hyphen from the document's own vocabulary: the compound wins if it is
-attested hyphenated elsewhere (`third-party`, `sub-processor`), otherwise the
-merged word wins if attested, otherwise the hyphen is dropped. And
-`_continues(prev, element, profile)` in `pdf.py` is the paragraph-reassembly
-test: the previous line reaches the right margin, starts within `_INDENT` of
-the left one, the next line starts flush left, neither is a dot-leader contents
-row, the combined length is under `_MAX_PARAGRAPH_CHARS = 4000`, and the
-vertical gap is at most `_MAX_LINE_GAP` (a page break counts as a line break).
+**Line joining.** `join_lines(lines, profile)` resolves the break between two
+lines of one block, and `compact()` in `tables.py` sends every table cell's
+lines through it too, so an identifier wrapped inside a narrow cell is
+repaired the same way as prose. At a line-final hyphen, in order:
+
+1. the compound is attested and the merged word is not -- keep the hyphen
+   (`single-family`, `in-scope`);
+2. the hyphen sits at a letter/digit boundary -- no language hyphenates a
+   word there, so it is part of a token: keep it (`GOV-01`, `ISO-27001`);
+3. the merged word is attested -- a typographic break: drop the hyphen
+   (`build-` + `ing` -> `building`);
+4. otherwise follow `profile.breaks_hyphenate`, measured from whether the
+   document's own line-final hyphens resolve more often to merged forms
+   (LaTeX auto-hyphenates: drop) or to compounds (Word does not: keep).
+   The sample measures 10 compounds to 0 merged forms, so `just-in-time`,
+   `token-based` and `out-of-region` survive their line breaks.
+
+A line that ends mid-word with no hyphen (`Monitoring/Alertin` / `g`, the
+signature of a narrow cell) is closed up only when the concatenation is
+attested strictly more often than its longer fragment: `alerting` at 8 beats
+`alertin` at 2, while `Special` + `Handling` is left alone because
+`specialhandling` occurs nowhere.
+
+**Paragraph reassembly.** `_continues(prev, element, profile, lattice)` in
+`pdf.py` decides whether a line continues the paragraph before it. It is
+refused outright if the line opens a corroborated enumerator. Otherwise the
+previous line must reach the right margin -- judged by its *last* line's
+edge, not its bbox, after a merge across a page break -- and start in the
+text column, where "in the column" allows `profile.paragraph_indent` of slack
+only if the document was measured to indent; the next line must start flush
+left; neither may be a dot-leader contents row; the combined length must stay
+under `_MAX_PARAGRAPH_CHARS = 4000`; and the vertical gap must be at most
+`_MAX_LINE_GAP` (a page break counts as a line break).
+
+## Clause structure: the enumerator lattice
+
+`enumerators.py` is what lets a Word contract -- flush-left paragraphs
+separated by space-after, no indent, no outline -- be read by clause. On the
+sample the geometry alone welded 26 clauses into 8 host elements, and no gap
+threshold could separate them: new clauses sit *tighter* (median 14.7 pt)
+than genuine wrapped lines (25.7 pt). The evidence has to be structural.
+
+`match_enumerator(text, pos)` recognises the shapes documents number things
+with:
+
+| kind | example | nests under | sequence |
+|---|---|---|---|
+| `integer` | `21.` | -- | 20 -> 21 |
+| `decimal` | `6.6`, `12.4.1` | `6`, `12.4` | 6.5 -> 6.6 |
+| `alnum` | `G3A.` | `G` | G3 -> G3A -> G4 |
+| `exhibit` | `Exhibit G`, `Schedule 1` | -- | F -> G |
+| `lettered` | `(a)` | -- | (a) -> (b), restarting freely |
+| `roman` | `(iv)` | -- | (iii) -> (iv), restarting freely |
+
+A candidate must be followed by a capital, an opening quote or a parenthesis
+(`1.2 is the minimum TLS version` is not a clause), and a candidate in the
+middle of an element's text must follow a sentence terminator (`for (a)
+privileged` and `Section 6.4 for details` are never candidates).
+
+`EnumeratorLattice.from_elements(elements)` then **corroborates** each
+candidate: within its parent's group, sorted by document position, it counts
+only if the member before it is its predecessor or the member after it is its
+successor. That admits a sequence's first and last members, tolerates a
+lettered list restarting under a new clause, and rejects a lone cross-reference
+or version number. On the sample no version number or cross-reference in
+mid-prose is corroborated; all 49 clause labels are. The first four kinds are
+*sectional*: they can head a section, split a welded element, and enter the
+spine. The last two only stop a merge.
+
+## The section spine
+
+`outline.py` reads `/Outlines` when the PDF has one -- that remains the
+primary path and its behaviour is unchanged. `synthesize_spine(elements,
+lattice)` covers the Word case from two sources, both the document's own:
+
+* every `heading` element is a section;
+* every `paragraph` that opens with a corroborated `integer`, `decimal` or
+  `alnum` enumerator is a section -- this is how "6.6 Password Management
+  Standard", set bold at the body size, gets its place.
+
+Nesting comes from the enumerator, not the font: `6.6` is a child of whatever
+registered key `6`, `G3A` of the section that registered `G` (Exhibit G),
+`12.4.1` of `12.4`. An entry whose parent is unknown nests under the nearest
+preceding section of a shallower level. A clause's title is the text up to
+its first sentence terminator, or the quoted term when it defines one
+(`3.1 “Company Data”`), capped at 80 characters. Every entry is pinned to its
+element's y-position, so `assign_sections` needs no change.
+
+`ParsedDocument.spine_source` records `"outline"`, `"headings"` or `"none"`,
+so a report can say how the structure was obtained and a downstream consumer
+can distrust a synthesized spine if it wants to.
 
 ## The table ladder
 
@@ -223,9 +364,11 @@ varies, so each table records the rung it landed on.
 | 4 | `_region_text()` verbatim in a fenced block | `text-fallback` |
 
 Rungs 2 to 4 only fire when a caption promises a table that rung 1 did not
-find. `compact()` runs before validation, dropping wholly empty rows and
-columns, because `strategy="text"` emits one row per visual line and a
-multi-line cell arrives interleaved with blanks.
+find. `compact(rows, profile)` runs before validation: it drops wholly empty
+rows and columns, and joins each cell's lines through `join_lines` so a cell
+that PyMuPDF returned as `GOV-\n01` becomes `GOV-01` rather than `GOV- 01`.
+On the sample this changes 68 of the 266 wrapped cells, including all 48
+control identifiers, with no over-joins.
 
 Rung 3 is the load-bearing step. `validate` requires `MIN_ROWS = 2`,
 `MIN_COLS = 2`, uniform row width, and a cell fill rate of at least
@@ -234,17 +377,26 @@ a reviewer can still read values out of a fenced block, but nobody can spot a
 silently misaligned "Included?" column. Rung 1 candidates that fail validation
 are skipped entirely rather than stored.
 
-Word-produced contracts are the easy case. Word draws every cell border as a
-real line, so the sample contract's 42 tables all land on rung 1: the 11x2
-"Field | Value" service description on page 1, the 9x4 "Data Category |
-Included? | Examples | Special Handling" matrix on page 2, and the control
-matrices in Exhibits A onward. None of them carry a "Table N:" caption, so
-`caption` is empty and the element's `text` is the markdown grid alone. The
-chunker should prefix the enclosing section title for the same reason a
-caption is prefixed when one exists: a bare grid embeds poorly.
+**Page breaks.** Word repeats the header row when a table continues onto the
+next page, so the two halves arrive as two tables. `stitch_spanning_tables`
+in `pdf.py` merges the second into the first only when it is on the very next
+page, the headers are identical with the same column count, **nothing but
+tables lies between them**, and the halves end low and resume high on their
+own page rectangles. The intervening-element condition is the one that
+matters: Exhibit G of the sample has 16 requirement tables sharing a header,
+one per numbered subsection, and it is the `G`-heading between them that says
+they are separate. The merged table keeps the first half's position as its
+citation anchor, drops the repeated header once, regenerates its markdown,
+and records the span in `page_end`. On the sample, 8 tables are stitched --
+42 elements become 34 -- and the Exhibit A control matrix arrives as one
+20-row element instead of 13 rows and then 8.
 
-`rows_to_markdown` renders the grid after compaction, escaping `|` and turning
-in-cell newlines into `<br>`.
+Word-produced contracts are the easy case for detection. Word draws every
+cell border as a real line, so all of the sample's tables land on rung 1.
+None of them carry a "Table N:" caption, so `caption` is empty and the
+element's `text` is the markdown grid alone. The chunker prefixes the section
+breadcrumb for the same reason a caption is prefixed when one exists: a bare
+grid embeds poorly.
 
 ## Figures
 
@@ -282,75 +434,72 @@ money and needs a network, and the parser must stay runnable offline.
 
 1. `elements` is in reading order; `order` is `0..n-1`; pages never decrease.
 2. Every element has non-empty `text` (enforced at construction).
-3. `page_label` is the number a reader will see on the page, or the 1-based
-   index when the PDF carries no labels.
-4. No table or figure region also survives as prose.
-5. No caption is indexed twice.
-6. Every table records its `quality`; a stored grid has passed `validate`.
-7. Every figure has at least one asset on disk that opens as an image.
-8. Furniture is out of `elements` and available in `furniture`.
-9. A `paragraph` element is a paragraph, not a rendered line: wrapped lines
-   are rejoined across page breaks with no text lost or duplicated.
+3. Text is conserved: the alphanumeric characters on the pages equal those
+   in `elements + furniture`, plus the one accounted-for deletion (the
+   repeated header row of a stitched table). The test asserts the identity,
+   not a ratio.
+4. `page_label` is the number a reader will see on the page, or the 1-based
+   index when the PDF carries no labels; an element that crosses a page
+   break carries `page_end` / `page_label_end`.
+5. No table or figure region also survives as prose.
+6. No caption is indexed twice.
+7. Every table records its `quality`; a stored grid has passed `validate`.
+8. Every figure has at least one asset on disk that opens as an image.
+9. Furniture is out of `elements` and available in `furniture`.
+10. A `paragraph` element is a paragraph, not a rendered line: wrapped lines
+    are rejoined across page breaks with no text lost or duplicated.
+11. A numbered clause is its own element: no paragraph holds a second
+    corroborated clause label after a sentence terminator.
+12. Every element has a `section_path` when `spine_source` is not `"none"`,
+    except front matter preceding the first heading.
 
 `ParsedDocument` also carries `content_hash` (SHA-256 of the file, so
 re-ingesting an unchanged contract is a no-op), `page_count`, `producer`,
-`has_outline`, `sections`, and the `profile`.
+`has_outline`, `sections`, `spine_source` and the `profile`.
 
 ## Measured on the sample contract
 
-`parse_pdf("assignment_details/Sample Contract.pdf")` on the 21-page addendum:
+`parse_pdf("data/samples/Sample Contract.pdf")` on the 21-page addendum,
+before and after the hardening sequence (`plan_implement_docs/02_parser_hardening_plan.md`):
 
-| Measurement | Value |
-|---|---|
-| `/Outlines` | none (`has_outline = False`, `sections = []`) |
-| `/PageLabels` | none; labels fall back to `"1"`..`"21"` |
-| Headings | 51: "1. Order of Precedence" through "21. Term; Survival", then "Exhibit A — Control Matrix" through "Exhibit G" |
-| Paragraphs | 52 |
-| Tables | 42, all `ruled` (e.g. p.1 "Field \| Value" 11x2; p.2 "Data Category \| Included? \| Examples \| Special Handling" 9x4) |
-| Figures | 0 |
-| Furniture dropped | 0 |
-| Sub-clauses ("6.6 Password Management Standard.") | bold inline runs at paragraph start, classified as `paragraph` |
-
-The heading count is what the size rule alone recovers; the sub-clauses are
-the part it cannot.
+| Measurement | Before | After |
+|---|---|---|
+| `/Outlines`, `/PageLabels` | none | none |
+| `spine_source`; sections | -- ; 0 | `headings`; 100 (31 top-level, 69 clauses) |
+| Elements with a `section_path` | 0 of 145 | 164 of 164 |
+| Headings | 51 | 51, no false positives |
+| Paragraphs | 52 (26 clauses buried in 8 hosts; largest 2,727 chars) | 79 (49 of 49 clauses standalone; largest 1,164 chars) |
+| Tables | 42, all `ruled` | 34, all `ruled`; 8 stitched across page breaks |
+| Corrupted identifiers in cells (`GOV- 01`) | 48 | 0 |
+| `breaks_hyphenate` | assumed (drop) | measured `False` (keep) |
+| Elements carrying `page_end` | -- | 8 tables, 2 paragraphs |
+| Furniture dropped | 0 | 0 (correct: the file has none) |
+| Header / footer band | 0.06 / 0.85 assumed | 0.046 / 0.952 measured |
+| Parse time | 0.95 s | 0.92 s |
 
 ## Known limitations
 
-- **`section` is blank on every element.** The sample contract has no
-  `/Outlines`, so `build_spine` returns an empty list, `assign_sections` has
-  nothing to assign, and `section` / `section_path` are empty on all 145
-  content elements. This is the most important gap in the current parse and
-  the next commit fixes it: `outline.synthesize_spine(elements)` will build
-  the spine from the detected heading elements (`^\d{1,2}\.\s`,
-  `^Exhibit [A-Z]`) and from bold sub-clause prefixes on paragraphs
-  (`^\d{1,2}\.\d{1,2}\s+Title.`, `^G\d+[A-Z]?\.\s`), and
-  `ParsedDocument.spine_source` will record `"outline" | "headings" | "none"`.
-  See `plan_implement_docs/01_foundation_plan.md`, commit 6.
-- **Tables spanning a page break** are extracted as two tables. Contract
-  control matrices do this often; stitching by matching header rows is
-  future work.
+- **A citation's page is the element's span, not the quote's position.**
+  An element that crosses a page break reports `p.4-5`; mapping a quoted
+  sentence's character offset to the exact page would need per-line offsets
+  threaded through the merge. Deferred until generation is wired up.
 - **Tables carry no caption** in Word-produced contracts, so `TableElement.text`
   is the bare grid. The chunker must supply context from the section spine.
+  `CAPTION_RE` is deliberately not widened to match "Exhibit A — ...": those
+  are section headings, and treating them as captions would duplicate them
+  into table text.
+- **A hard wrap with no hyphen whose whole word appears nowhere else** is
+  left as two fragments (`Progres` / `s` on the sample, where `progress`
+  occurs only in that cell). The document supplies no evidence to repair it,
+  and guessing is worse.
 - **Multi-column reflow, OCR and formula recognition** are out of scope. The
   parser assumes a single column and a real text layer; a scanned contract
   will produce nothing.
-- **Constants tuned on LaTeX theses.** The parser was developed on two
-  double-spaced academic theses and several thresholds encode that origin.
-  They work on the sample contract but should be re-measured on a wider set
-  of Word-produced documents:
-  - `_INDENT = 24.0` in `pdf.py` assumes LaTeX's 18pt `\parindent`; Word
-    paragraphs are usually unindented with space-after instead.
-  - `_MAX_LINE_GAP = 36.0` in `pdf.py` was set from 32pt double-spaced
-    leading; single-spaced contracts sit well inside it, but a numbered list
-    with generous spacing might not.
-  - The booktabs recovery rung (`recovery_clip`, `_MIN_CLIP_HEIGHT = 60.0`,
-    `_RULE_MIN_WIDTH = 100.0`) targets LaTeX tables with top and mid rules
-    only; Word tables are fully ruled and never reach it.
-  - `CAPTION_RE` expects `Figure 2.1:` / `Table A.3.` numbering. Contract
-    exhibits caption tables as "Exhibit A — Control Matrix" or "Schedule 1",
-    which it does not match.
-  - `_MATH_FONT` matches Computer Modern and STIX math fonts and will never
-    fire on a contract; the `equation` type is effectively unused here.
+- **Machinery that never fires on a Word contract.** `_MATH_FONT` and the
+  `equation` type, the booktabs recovery rungs (`recovery_clip`,
+  `caption_band`), and `_MAX_LINE_GAP = 36.0` all exist for typeset
+  documents and are kept because they cost nothing and are the fallback for
+  a non-Word input. They are not exercised by the sample.
 
 ## Dependency note: PyMuPDF is AGPL-3.0
 

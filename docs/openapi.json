@@ -3458,6 +3458,7 @@
     },
     "/api/metrics/runs": {
       "get": {
+        "description": "Every run, newest first, whatever contract it was against. The report\nis not included -- open the analysis for that.",
         "operationId": "runs_api_metrics_runs_get",
         "parameters": [
           {
@@ -3603,6 +3604,7 @@
     },
     "/api/metrics/runs/{run_id}/spans": {
       "get": {
+        "description": "Still `503`: the waterfall needs the `spans` table, which is the next\nstep. Declared rather than absent because the OpenAPI document is a\ndeliverable, and an operation that is documented and honestly unavailable\nis a better contract than one that appears later and changes the spec.",
         "operationId": "spans_api_metrics_runs__run_id__spans_get",
         "parameters": [
           {
@@ -3745,6 +3747,7 @@
     },
     "/api/metrics/summary": {
       "get": {
+        "description": "Failure rate, p50/p95 latency, spend, and the three quality meters.\n\n`live` is the only part of this payload that is not a query: workers busy,\nruns queued, and the document count `GET /health` also reports.",
         "operationId": "summary_api_metrics_summary_get",
         "parameters": [
           {
@@ -3753,6 +3756,7 @@
             "required": false,
             "schema": {
               "default": "24h",
+              "pattern": "^\\d+[hd]$",
               "title": "Window",
               "type": "string"
             }
@@ -3885,26 +3889,35 @@
     },
     "/api/metrics/timeseries": {
       "get": {
+        "description": "One entry per bucket, oldest first. Buckets with no runs are present\nand zeroed: a chart that closes its gaps draws a busy night out of a quiet\none. `bucket` defaults to the one the window is designed with.",
         "operationId": "timeseries_api_metrics_timeseries_get",
         "parameters": [
-          {
-            "in": "query",
-            "name": "bucket",
-            "required": false,
-            "schema": {
-              "default": "1h",
-              "title": "Bucket",
-              "type": "string"
-            }
-          },
           {
             "in": "query",
             "name": "window",
             "required": false,
             "schema": {
               "default": "7d",
+              "pattern": "^\\d+[hd]$",
               "title": "Window",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "bucket",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^\\d+[hd]$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Bucket"
             }
           }
         ],

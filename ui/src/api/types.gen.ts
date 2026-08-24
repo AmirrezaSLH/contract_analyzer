@@ -257,7 +257,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** The runs table */
+        /**
+         * The runs table
+         * @description Every run, newest first, whatever contract it was against. The report
+         *     is not included -- open the analysis for that.
+         */
         get: operations["runs_api_metrics_runs_get"];
         put?: never;
         post?: never;
@@ -274,7 +278,13 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** One run's span tree, for the waterfall */
+        /**
+         * One run's span tree, for the waterfall
+         * @description Still `503`: the waterfall needs the `spans` table, which is the next
+         *     step. Declared rather than absent because the OpenAPI document is a
+         *     deliverable, and an operation that is documented and honestly unavailable
+         *     is a better contract than one that appears later and changes the spec.
+         */
         get: operations["spans_api_metrics_runs__run_id__spans_get"];
         put?: never;
         post?: never;
@@ -291,7 +301,13 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Real-time tiles for the KPI page */
+        /**
+         * Real-time tiles for the KPI page
+         * @description Failure rate, p50/p95 latency, spend, and the three quality meters.
+         *
+         *     `live` is the only part of this payload that is not a query: workers busy,
+         *     runs queued, and the document count `GET /health` also reports.
+         */
         get: operations["summary_api_metrics_summary_get"];
         put?: never;
         post?: never;
@@ -308,7 +324,12 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Historical trends, bucketed */
+        /**
+         * Historical trends, bucketed
+         * @description One entry per bucket, oldest first. Buckets with no runs are present
+         *     and zeroed: a chart that closes its gaps draws a busy night out of a quiet
+         *     one. `bucket` defaults to the one the window is designed with.
+         */
         get: operations["timeseries_api_metrics_timeseries_get"];
         put?: never;
         post?: never;
@@ -3035,8 +3056,8 @@ export interface operations {
     timeseries_api_metrics_timeseries_get: {
         parameters: {
             query?: {
-                bucket?: string;
                 window?: string;
+                bucket?: string | null;
             };
             header?: never;
             path?: never;

@@ -362,6 +362,23 @@ class JobRunner:
         with self._lock:
             return sum(1 for j in self._jobs.values() if j.status in _LIVE)
 
+    @property
+    def live(self) -> tuple[int, int]:
+        """Running and queued, counted in one pass under one lock.
+
+        The KPI page's "Active now" tile is `workers busy - queued`, and the
+        two halves have to agree: reading `active` and then a second property
+        would let a job start between them and show a queued run that is no
+        longer queued. Not stored anywhere -- a queue depth is a fact about
+        this process, and a table would be describing the last one.
+        """
+        with self._lock:
+            statuses = [j.status for j in self._jobs.values()]
+        return (
+            sum(1 for s in statuses if s == "running"),
+            sum(1 for s in statuses if s == "queued"),
+        )
+
     def find_live(self, document_id: int, criteria: tuple[str, ...]) -> JobState | None:
         """A job already doing exactly this, if there is one."""
         with self._lock:

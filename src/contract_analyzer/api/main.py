@@ -12,6 +12,10 @@ than raced for by the first two concurrent requests -- and closed on the way
 out. The job runner owns the thread pool, and shutting it down is what stops a
 reload from leaving analyses running against a closed database.
 
+The **metrics store** is built there too, and is the one thing on `app.state`
+that is allowed not to exist: `/metrics/*` answers `503` when it could not be
+built, exactly as it did before there was a store at all.
+
 It also **reconciles the analysis record** before the first request: a process
 that was killed mid-run left rows saying `running`, and nothing else will ever
 close them. They become `interrupted` -- not `failed`, because nothing refused
@@ -59,6 +63,7 @@ from ..embeddings.base import EmbedderUnavailable, get_embedder
 from ..generation.client import AnswerUnavailable, get_client
 from ..http_client import get_http_client
 from ..logger import configure_logging, get_logger, trace_context
+from ..metrics import MetricsStore
 from . import errors
 from .errors import ApiError
 from .jobs import JobRunner
@@ -138,6 +143,7 @@ def create_app(
         app.state.embedder = embedder if embedder is not None else _embedder(settings)
         app.state.client = client if client is not None else _client(settings)
         app.state.runner = JobRunner(settings, app.state.embedder, app.state.client)
+        app.state.metrics = _metrics(settings)
         # Before anything is served: rows a killed process left at `queued` or
         # `running` are not outcomes, and a client polling one would wait for a
         # worker that no longer exists. Its own connection, opened and closed
@@ -305,6 +311,23 @@ def _reconcile(settings: Settings) -> int:
         return reconcile(conn)
     finally:
         conn.close()
+
+
+def _metrics(settings: Settings) -> MetricsStore | None:
+    """The KPI store, or None if it could not be built.
+
+    None rather than a failed startup, for the same reason as the embedder and
+    the answer client: a dashboard is not what makes this service work, and an
+    API that refuses to serve an analysis because it could not build a query
+    layer has its priorities backwards. `/metrics/*` answers
+    `503 metrics_unavailable` in that case, which is what it answered for the
+    whole of the previous phase.
+    """
+    try:
+        return MetricsStore(settings)
+    except Exception as exc:  # noqa: BLE001 - reported, never fatal
+        log.warning("api.metrics_unavailable", extra={"error": str(exc)})
+        return None
 
 
 def _embedder(settings: Settings):

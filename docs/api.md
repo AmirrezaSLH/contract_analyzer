@@ -55,7 +55,10 @@ clicks later.
 | `GET` | `/analyses/{id}/events` | SSE: `status`, `criterion`, `tool_call`, `correction`, then `done` or `error`. `409` for an analysis this process is not running. |
 | `POST` | `/analyses/{id}/cancel` | Skip what has not started. `409` for an analysis this process is not running. |
 | `POST` | `/chat` | A cited answer over one contract, streamed or not. Model, retrieval mode and passage count are per-question. |
-| `GET` | `/metrics/*` | Declared; `503` until the metrics store lands. |
+| `GET` | `/metrics/summary` | KPI tiles and meters for one window. |
+| `GET` | `/metrics/timeseries` | The same numbers per bucket, for the trend charts. |
+| `GET` | `/metrics/runs` | The global runs table -- what `GET /analyses` deliberately does not serve. |
+| `GET` | `/metrics/runs/{id}/spans` | The per-run waterfall. `503` until the `spans` table lands. |
 
 ## Decisions worth defending
 
@@ -405,12 +408,13 @@ python scripts/export_openapi.py
 
 ## What is not here yet
 
-* **`/metrics/*` returns 503.** The store (`spans`, `criterion_results`, and
-  the query layer over them) is the next step; the `analyses` table it will
-  join against already exists and is populated. The endpoints are declared now because
-  the UI and the connector are written against the spec, and an endpoint that
-  is documented and honestly unavailable is a better contract than one that
-  appears later and changes the spec's shape.
+* **The per-run waterfall returns 503.** `GET /metrics/runs/{id}/spans` needs
+  the `spans` table, which is phase 2 of the metric store; the other three
+  `/metrics/*` operations answer over `analyses` today. See
+  [metrics.md](metrics.md). The endpoint stays declared because the UI and the
+  connector are written against the spec, and an operation that is documented
+  and honestly unavailable is a better contract than one that appears later and
+  changes the spec's shape.
 * **Streaming and cancellation are per-process.** The record is durable; the
   stream and the cancel flag are not. See *Durable is not distributed* above.
 * **`/v1` prefix.** One caller (MCP) would have to change; deferred until there

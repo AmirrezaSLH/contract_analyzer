@@ -95,6 +95,18 @@ def no_api_key() -> ApiError:
     )
 
 
+def metrics_unavailable() -> ApiError:
+    """The KPI store could not be built. Not the same thing as an empty
+    dashboard: no rows in the window is a `200` with zeroes on it."""
+    return ApiError(
+        status.HTTP_503_SERVICE_UNAVAILABLE,
+        "metrics_unavailable",
+        "The metrics store is not available in this process.",
+        "GET /api/health reports live counts, and GET /api/analyses?document_id=... "
+        "lists one contract's runs. The server log says why the store failed to start.",
+    )
+
+
 def unauthorized() -> ApiError:
     return ApiError(
         status.HTTP_401_UNAUTHORIZED,

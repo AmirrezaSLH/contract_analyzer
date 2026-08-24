@@ -73,8 +73,16 @@ CREATE INDEX IF NOT EXISTS idx_chunks_document ON chunks (document_id);
 -- Brute-force KNN, no ANN index. Sub-millisecond at demo scale; the migration
 -- path at real scale is pgvector or Qdrant behind the same interface.
 CREATE VIRTUAL TABLE IF NOT EXISTS chunks_vec USING vec0 (
-    chunk_id  INTEGER PRIMARY KEY,
-    embedding FLOAT[{dim}]
+    chunk_id    INTEGER PRIMARY KEY,
+    -- A PARTITION KEY, not a plain metadata column: analysis is always scoped
+    -- to one contract, sqlite-vec keeps each partition's vectors apart, and
+    -- the constraint is applied *before* k. A scoped search therefore returns
+    -- that document's true k nearest, not whatever survives a global top-k --
+    -- which is what makes over-fetching and filtering in Python unnecessary.
+    -- Left NULL, a row is invisible to every scoped query, so `_write` always
+    -- supplies it and the ingest suite asserts no row lacks one.
+    document_id INTEGER PARTITION KEY,
+    embedding   FLOAT[{dim}]
 );
 
 -- External-content FTS5: the index stores no copy of the text, it points back

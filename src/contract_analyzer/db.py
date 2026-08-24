@@ -21,6 +21,11 @@ SCHEMA_PATH = Path(__file__).with_name("schema.sql")
 EXPECTED_TABLES = ("documents", "chunks", "chunks_vec", "chunks_fts")
 
 _VEC_DIM_RE = re.compile(r"embedding\s+FLOAT\s*\[\s*(\d+)\s*\]", re.IGNORECASE)
+#: The partition key retrieval scopes on. A database built before it was added
+#: is not migratable in place -- a vec0 table's layout, like its width, is
+#: fixed at creation -- so `apply_schema` reports it rather than letting the
+#: first scoped query fail with `no such column: document_id`.
+_VEC_PARTITION_RE = re.compile(r"document_id\s+INTEGER\s+PARTITION\s+KEY", re.IGNORECASE)
 
 
 class SchemaMismatch(RuntimeError):
@@ -62,18 +67,27 @@ def connect(
 
 
 def apply_schema(conn: sqlite3.Connection, dim: int) -> None:
-    """Create the tables if absent, and refuse to proceed on a width mismatch.
+    """Create the tables if absent, and refuse to proceed on a stale `chunks_vec`.
 
-    Checked *before* the schema is applied: `CREATE VIRTUAL TABLE IF NOT
-    EXISTS` silently keeps the existing definition, so a changed EMBEDDING_DIM
-    would otherwise be ignored rather than reported.
+    Both checks run *before* the schema is applied: `CREATE VIRTUAL TABLE IF
+    NOT EXISTS` silently keeps the existing definition, so neither a changed
+    EMBEDDING_DIM nor a `chunks_vec` predating the document partition would be
+    reported -- the first would be ignored, the second would surface much later
+    as an unexplained `no such column: document_id` from a scoped search.
     """
-    existing = stored_dim(conn)
+    sql = _chunks_vec_sql(conn)
+    existing = _dim_of(sql)
     if existing is not None and existing != dim:
         raise SchemaMismatch(
             f"{describe_path(conn)} stores {existing}-dim vectors but EMBEDDING_DIM={dim}. "
             "A vec0 table's width is fixed at creation -- either restore the old value "
             "or delete the database and re-ingest."
+        )
+    if sql is not None and not _VEC_PARTITION_RE.search(sql):
+        raise SchemaMismatch(
+            f"{describe_path(conn)} has a chunks_vec table from before retrieval was "
+            "scoped by document: it has no `document_id INTEGER PARTITION KEY`. A vec0 "
+            "table cannot gain one in place -- delete the database and re-ingest."
         )
     conn.executescript(SCHEMA_PATH.read_text(encoding="utf-8").format(dim=dim))
     conn.commit()
@@ -81,12 +95,23 @@ def apply_schema(conn: sqlite3.Connection, dim: int) -> None:
 
 def stored_dim(conn: sqlite3.Connection) -> int | None:
     """The vector width baked into this database, or None if not yet created."""
+    return _dim_of(_chunks_vec_sql(conn))
+
+
+def _chunks_vec_sql(conn: sqlite3.Connection) -> str | None:
+    """The `CREATE VIRTUAL TABLE` text on disk: width and partition both live in it."""
     row = conn.execute(
         "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'chunks_vec'"
     ).fetchone()
     if row is None or row["sql"] is None:
         return None
-    match = _VEC_DIM_RE.search(row["sql"])
+    return str(row["sql"])
+
+
+def _dim_of(sql: str | None) -> int | None:
+    if sql is None:
+        return None
+    match = _VEC_DIM_RE.search(sql)
     return int(match.group(1)) if match else None
 
 

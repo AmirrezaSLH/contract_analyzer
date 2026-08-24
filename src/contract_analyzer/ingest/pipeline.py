@@ -411,10 +411,14 @@ def _write(
             ]
             if len(ids) != len(vectors):
                 raise RuntimeError(f"{len(ids)} chunk rows for {len(vectors)} vectors")
+            # `document_id` is the vec0 partition key. It is not optional in
+            # practice: a row written without it lands in the NULL partition,
+            # where every document-scoped KNN query will fail to see it while
+            # the row counts still tally.
             conn.executemany(
-                "INSERT INTO chunks_vec (chunk_id, embedding) VALUES (?, ?)",
+                "INSERT INTO chunks_vec (chunk_id, document_id, embedding) VALUES (?, ?, ?)",
                 [
-                    (chunk_id, sqlite_vec.serialize_float32(vector))
+                    (chunk_id, document_id, sqlite_vec.serialize_float32(vector))
                     for chunk_id, vector in zip(ids, vectors, strict=True)
                 ],
             )

@@ -3,37 +3,39 @@ import styles from "./ModeToggle.module.css";
 
 interface Props {
   /** Where the App half returns to -- the last app page the user was on, so
-   *  a trip to the dashboard and back does not lose their document. */
+   *  a trip to the dashboard or the log and back does not lose their document. */
   appPath: string;
-  /** Which half is lit. Passed in rather than derived from the link targets:
+  /** Which third is lit. Passed in rather than derived from the link targets:
    *  the App half covers four routes, so "does my `to` match the URL" is the
    *  wrong question -- `/upload` is App mode even when `appPath` is
    *  `/library`. */
-  mode: "app" | "kpi";
+  mode: "app" | "kpi" | "log";
 }
 
 /**
- * App or KPI: the one piece of navigation above the document scope.
+ * App, KPI or Log: the navigation above the document scope.
  *
- * The dashboard spans every document, so it cannot sit inside the per-document
- * navigation, and it is not a third sidebar entry either -- it is the other
- * half of the workspace. In KPI mode the sidebar drops the document blocks
- * entirely, because no document is in scope.
+ * KPI and Log span every document, so they cannot sit inside the per-document
+ * navigation. In those modes the sidebar drops the document blocks, because
+ * no document is in scope.
  */
 export function ModeToggle({ appPath, mode }: Props) {
   return (
     <div className={styles.track} role="group" aria-label="Workspace">
-      <Half to={appPath} active={mode === "app"}>
+      <Third to={appPath} active={mode === "app"}>
         App
-      </Half>
-      <Half to="/metrics" active={mode === "kpi"}>
+      </Third>
+      <Third to="/metrics" active={mode === "kpi"}>
         KPI
-      </Half>
+      </Third>
+      <Third to="/logs" active={mode === "log"}>
+        Log
+      </Third>
     </div>
   );
 }
 
-function Half({ to, active, children }: { to: string; active: boolean; children: string }) {
+function Third({ to, active, children }: { to: string; active: boolean; children: string }) {
   return (
     <Link
       to={to}

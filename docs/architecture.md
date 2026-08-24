@@ -46,8 +46,11 @@ flowchart LR
 Two modules cut across everything and were built first:
 
 * **`logger.py`** -- the only logging surface. Structured JSON lines with
-  `trace_id` / `span_id` / `parent_span_id` from context variables, plus a
-  `span()` context manager that times any block. See [logging.md](logging.md).
+  `trace_id` / `span_id` / `parent_span_id` / `run_id` from context variables,
+  plus a `span()` context manager that times any block. It is also the seam the
+  metrics store hangs off: a handler there turns every `span.end` into a row,
+  so no module that emits a span knows the store exists. See
+  [logging.md](logging.md).
 * **`http_client.py`** -- the only way bytes leave the process. One `httpx2`
   transport with 3 retries on exponential backoff; the Anthropic and OpenAI
   SDKs are built on it with their own retries disabled. See
@@ -71,8 +74,8 @@ Two modules cut across everything and were built first:
 | `compliance/` | the five criteria with sub-requirements, the result schema, the structural validator | [compliance.md](compliance.md) | done, tested |
 | `documents.py` | the document catalogue: list, get, outline, delete | [storage.md](storage.md#the-document-catalogue-documentspy) | done, tested |
 | `report.py` | five criteria over one contract, in parallel, as one `AnalysisReport` | [compliance.md](compliance.md#the-document-runner-reportpy-at-the-package-root) | done, tested |
-| `api/` | the HTTP surface: upload, analyses as jobs, streamed cited chat | [api.md](api.md) | done, tested; `/metrics/*` declared and 503 until the store lands |
-| `metrics/` | `runs` / `spans` / `criterion_results`, and the KPI queries | -- | next |
+| `api/` | the HTTP surface: upload, analyses as jobs, streamed cited chat, the KPI data | [api.md](api.md) | done, tested |
+| `metrics/` | the KPI query layer over `analyses`, the `spans` table filled by a logging handler, and `criterion_results` | [metrics.md](metrics.md) | done, tested |
 | `evaluator` | the critic pass over each result | -- | next |
 | `ui/` | the React front end (repo-root Vite app): upload, library, analysis, chat -- a client of `/api` like any other | [ui.md](ui.md) | done, tested |
 | `MCP-Connector/` | the fourth surface: seven MCP tools over the HTTP API, importing nothing from this package | [mcp.md](mcp.md) | done, tested |
@@ -137,6 +140,9 @@ Two modules cut across everything and were built first:
 | The API contains no logic the CLI does not have | `POST /analyses` and `scripts/analyze.py` call one `analyze_document()`; a handler that decides something is a decision the command line cannot reach | business logic in route handlers |
 | Every upload mints a new `document_id` | `ingest_file` keys uniqueness on path, so a uuid in the stored path is how two people demoing at once stay isolated | content-hash dedupe, which would share one document between sessions |
 | The UI holds no logic either | it parses nothing, opens no database, calls no model; the browser talks to `/api` on the same origin | rendering logic in the front end, which would need a second implementation for MCP |
+| Telemetry is a logging handler, not an API | every module already wraps its work in `span()`; a handler on the root logger turns each `span.end` into a row, so eight emitting modules changed by zero lines and the CLI is instrumented for free | a `record_span()` call at every site, which the next module to be written would forget |
+| Spans are dropped, never blocked on | a bounded queue and a daemon writer; a drop increments a counter the dashboard reports | letting a criterion thread wait on telemetry, or sampling, which is a knob set wrong during the demo |
+| `analyses` in `schema.sql`, `spans` in `metrics.sql`, one file | *what happened* is a domain object and *how it went* is telemetry; the API's storage must not depend on the metrics module to persist a report | a second database, or a generic `analytics(event_type, json)` table that re-invents `analyses` inside JSON |
 | Ids are the only server state | one dict of jobs, no sessions, no server-side transcript; the UI, an MCP tool and a connector can all watch the same job | a session store between four consumers |
 
 ## Repository layout
@@ -146,7 +152,9 @@ src/contract_analyzer/   the package (src layout; `pip install -e .`)
   logger.py http_client.py config.py db.py schema.sql models.py tokens.py
   documents.py           the catalogue: what is ingested, and dropping it
   report.py              five criteria over one contract -> AnalysisReport
+  analyses.py            the analysis record, and its per-criterion history
   parse/  ingest/  embeddings/  retrieval/  generation/  compliance/
+  metrics/               the KPI store: queries, metrics.sql, the span handler
   api/                   the HTTP surface (see below); serves the built UI at `/`
 scripts/                 CLIs (analyze, export_openapi, ingest, search, chat)
 tests/                   offline suite: fake embedder, scripted SSE API, mock transport
@@ -190,6 +198,16 @@ inside it. See [docker.md](docker.md).
 
 ## Change log of this document
 
+* 2026-08-24 -- The metric store, in `metrics/`. Three phases from
+  `plan_implement_docs/KPI_01/Metric_Store.md`: `/metrics/summary`,
+  `/timeseries` and `/runs` answer from `analyses` with no schema change and
+  percentiles computed in SQL; a `logging.Handler` files every `span.end` into
+  a `spans` table, which is what makes chat cost, cost per model and the
+  per-run waterfall answerable without one line of change in any module that
+  emits a span; and `criterion_results` records the state mix per criterion.
+  `run_id` joins the trace context, the embeddings call is priced onto
+  `ingest.embed`, and `make analyze` populates the same tables the API does.
+  491 tests. Evaluator and the waterfall's front-end view pending.
 * 2026-08-24 -- The MCP surface, in `MCP-Connector/`. Seven tools over the HTTP
   API: `get_started`, `list_criteria`, `upload_contract`, `list_contracts`,
   `analyze_compliance`, `get_analysis`, `search_contract`. The host generates

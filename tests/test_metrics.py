@@ -839,6 +839,67 @@ def test_the_summary_costs_the_run_by_model_from_its_agent_calls(analysed):
     assert got["spans"]["dropped"] == 0
 
 
+def test_a_chat_turn_lands_in_spans_and_in_the_per_model_cost(settings, monkeypatch):
+    """`Metric_Store.md` §9: chat writes no row anywhere, so its cost exists
+    only because the turn was a span. It must also appear in cost-per-model,
+    which is the property that made `spans` worth building instead of mining
+    `report_json` -- one query covering analysis and chat together."""
+    from fastapi.testclient import TestClient
+
+    from conftest import ScriptedAPI, make_chunk, scripted_client
+    from contract_analyzer.api.main import create_app
+    from contract_analyzer.embeddings.fake import FakeEmbedder
+    from contract_analyzer.generation import tools as T
+    from contract_analyzer.retrieval.base import RetrievalResult
+    from test_api import CLAUSE, chat_turns
+
+    settings = Settings(
+        anthropic_api_key="k",
+        embedding_provider="fake",
+        embedding_model=None,
+        embedding_dim=4,
+        db_path=settings.db_path,
+        raw_dir=settings.raw_dir,
+        assets_dir=settings.assets_dir,
+        log_file=None,
+    )
+
+    def retrieve(question, conn, embedder=None, settings=None, *, document_id, mode=None,
+                 top_k=None, candidates=None):
+        return RetrievalResult(question=question, mode=mode or "hybrid", document_id=document_id,
+                               chunks=[make_chunk(1, CLAUSE)], candidates=20, top_k=top_k or 6)
+
+    monkeypatch.setattr(T, "retrieve", retrieve)
+
+    conn = get_db(settings)
+    conn.execute(
+        "INSERT INTO documents (id, path, filename, content_hash, page_count) "
+        "VALUES (1, 'data/raw/c.pdf', 'c.pdf', 'h', 21)"
+    )
+    conn.commit()
+    conn.close()
+
+    api = ScriptedAPI(*chat_turns())
+    app = create_app(settings, embedder=FakeEmbedder(settings), client=scripted_client(api),
+                     static_dir=settings.raw_dir / "no-such-bundle")
+    with TestClient(app) as client:
+        answer = client.post(
+            "/api/chat", json={"document_id": 1, "question": "passwords?", "stream": False}
+        ).json()
+        assert app.state.metrics.flush()
+        got = client.get("/api/metrics/summary").json()
+
+    assert got["chat"]["turns"] == 1
+    assert got["chat"]["cost_usd"] == pytest.approx(answer["cost_usd"])
+    assert got["chat"]["latency_ms"]["p50"] is not None
+    # The same dollars, reached the other way: through the agent.call spans the
+    # turn made. `analyses` has no model column and could answer neither.
+    by_model = {row["model"]: row for row in got["cost_by_model"]}
+    assert by_model[answer["model"]]["cost_usd"] == pytest.approx(answer["cost_usd"])
+    # And chat is not an analysis: no run row was invented for it.
+    assert got["runs"]["total"] == 0
+
+
 def test_an_api_run_puts_the_job_span_at_the_root_of_the_waterfall(settings, monkeypatch):
     """`api.analysis` covers queueing as well as running, so it is the root the
     UI wants: without it the wait for a worker would be missing from the one

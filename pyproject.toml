@@ -37,10 +37,23 @@ api = [
     # Multipart form parsing, which FastAPI needs for file uploads.
     "python-multipart>=0.0.9",
 ]
+# The Streamlit front end. Separate from `[api]` so the CLIs, the tests and the
+# ingest path install without a web framework either way:
+#   pip install -e ".[ui]"
+# `httpx2` is already core, so the UI needs no HTTP dependency of its own.
+# Pinned at >=1.45 for `st.segmented_control`, `st.fragment(run_every=...)`,
+# `[theme.fontFaces]` and `theme.baseRadius`; verified against 1.62.0.
+ui = ["streamlit>=1.45"]
 # `httpx` here is not a second HTTP stack: the application calls out through
 # `httpx2` only. This is what `fastapi.testclient.TestClient` is built on, and
 # it never leaves the test process.
-dev = ["pytest>=8.0", "ruff>=0.6", "contract-analyzer[api]", "httpx>=0.27"]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+    "contract-analyzer[api]",
+    "contract-analyzer[ui]",
+    "httpx>=0.27",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]

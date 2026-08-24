@@ -69,6 +69,11 @@ class Health(BaseModel):
     #: `api_max_upload_mb`, so an uploader can refuse a file the same way the
     #: API would rather than discovering the 413 after the bytes are sent.
     max_upload_mb: float = 25.0
+    #: The pool shape: analyses in flight, and criteria in parallel inside one.
+    #: A UI states this on a running analysis, and one that hardcodes it states
+    #: it wrongly the first time someone tunes it.
+    api_workers: int = 2
+    analysis_workers: int = 5
     #: Whether ANTHROPIC_API_KEY is set. Analysis and chat need it; upload,
     #: retrieval and this endpoint do not.
     key_present: bool = False

@@ -1,0 +1,44 @@
+# The design's tokens, as configuration rather than as injected CSS.
+#
+# Everything expressible here is here, which is what keeps `ui/theme.py` down
+# to three HTML builders and a dozen rules. Verified against streamlit 1.62.0:
+# `theme.fontFaces`, `theme.baseRadius`, `theme.sidebar.*`, `st.fragment(
+# run_every=...)` and `st.segmented_control` all exist at that pin, so none of
+# the fallbacks in 02_streamlit_build.md §2 are needed.
+
+[server]
+# Must equal `api_max_upload_mb`, or this accepts a file the API answers 413
+# to -- a rejection after the bytes have been sent is the worst version of
+# that message. The UI also reads the real value from GET /health and prints
+# it, so the two are stated in one place and checked in another.
+maxUploadSize = 25
+headless = true
+
+[browser]
+gatherUsageStats = false
+
+[theme]
+base                     = "light"
+# Oxblood. Changing this token changes the accent everywhere; nothing else in
+# the palette moves. The alternates the prototype carries, if it is ever
+# rejected: #2F5D62 deep teal, #4A4636 olive ink, #1F1B16 near black.
+primaryColor             = "#7A3B2E"
+backgroundColor          = "#FAF8F4"
+secondaryBackgroundColor = "#F2EEE6"
+textColor                = "#23201B"
+borderColor              = "#E0D9CC"
+linkColor                = "#7A3B2E"
+baseRadius               = "6px"
+# The serif is doing real work: it marks what is *quoted from the contract* as
+# against what is chrome. Never set an explanation in it.
+font                     = "Source Sans 3"
+headingFont              = "Source Serif 4"
+codeFont                 = "ui-monospace, monospace"
+showWidgetBorder         = true
+
+[theme.sidebar]
+# Warm paper, one step darker than the canvas. The default width is 21rem =
+# 336px, which is the design's number, so there is no override.
+backgroundColor          = "#F2EEE6"
+secondaryBackgroundColor = "#E5DCCC"
+borderColor              = "#E0D9CC"

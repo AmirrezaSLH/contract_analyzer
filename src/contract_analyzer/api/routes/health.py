@@ -46,6 +46,8 @@ def health(settings: SettingsDep, conn: ConnDep, runner: RunnerDep) -> Health:
         retrieval_mode=settings.retrieval_mode,
         retrieval_top_k=settings.retrieval_top_k,
         max_upload_mb=settings.api_max_upload_mb,
+        api_workers=settings.api_workers,
+        analysis_workers=settings.analysis_workers,
         key_present=bool(settings.anthropic_key),
         auth_required=bool(settings.api_key_value),
         documents=documents,

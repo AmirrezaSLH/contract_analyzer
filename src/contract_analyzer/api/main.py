@@ -217,7 +217,7 @@ def create_app(
     )
     app.include_router(api)
 
-    # The container healthcheck and every `curl localhost:8000/health` in the
+    # The container healthcheck and every `curl localhost:$BACKEND_PORT/health` in the
     # documentation predate the prefix. Hidden from the schema so the OpenAPI
     # document -- which is the connector deliverable -- describes one health
     # operation rather than two spellings of it.

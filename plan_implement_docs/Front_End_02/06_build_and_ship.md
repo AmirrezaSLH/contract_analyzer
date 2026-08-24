@@ -23,7 +23,7 @@ ui/
 export default defineConfig({
   plugins: [react()],
   server: {
-    proxy: { "/api": { target: "http://localhost:8000", changeOrigin: true } },
+    proxy: { "/api": { target: "http://localhost:8100", changeOrigin: true } },
   },
   build: {
     outDir: "../src/contract_analyzer/api/static",
@@ -79,8 +79,8 @@ files and needs no Node.
 
 In `docker-compose.yml`:
 
-* **Delete the `ui` service** and the `UI_PORT` mapping.
-* The `api` service now serves both, on 8000. Its comment about `CA_API_URL`
+* **Delete the `ui` service** and the `FRONTEND_PORT` mapping.
+* The `api` service now serves both, on `BACKEND_PORT` (8100). Its comment about `CA_API_URL`
   and cross-origin requests should be replaced with the reason there is no
   longer a second origin at all.
 * `CA_API_URL` remains the **MCP server's** setting. It is no longer the
@@ -145,7 +145,7 @@ fixture is worth the ten lines: it is how the gap states get looked at.
 ## 6. Acceptance
 
 - [ ] `make docker-up` from a clean clone with no Node installed: one
-      container serves the UI and the API on 8000; `/health` green; `/docs`
+      container serves the UI and the API on `BACKEND_PORT` (8100); `/health` green; `/docs`
       still reachable.
 - [ ] A hard refresh on `/documents/1/analysis` returns the app, not a 404.
 - [ ] Upload the sample: progress bar advances, then the result card shows a

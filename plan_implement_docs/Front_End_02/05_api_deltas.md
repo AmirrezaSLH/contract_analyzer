@@ -132,7 +132,7 @@ authenticates. Both dissolve if the answer to the first is "the same one":
   "single setup script to run in localhost" the assignment asks for stays a
   single script.
 * **Development.** Vite's `server.proxy` forwards `/api/*` to
-  `localhost:8000`. The browser sees one origin there too.
+  `localhost:8100`. The browser sees one origin there too.
 
 For that to work the API's routes move behind an `/api` prefix — one
 `APIRouter(prefix="/api")` in `main.py`. Three things must stay ahead of the
@@ -172,7 +172,7 @@ Recorded so it is not re-litigated:
   computed client-side. It is a presentation decision, not a backend fact.
 * **CORS.** `api_cors_origins` stays empty — still, and now deliberately.
   The browser is the client, but it never sees a second origin: in
-  development Vite proxies `/api/*` to `localhost:8000`, and in production
+  development Vite proxies `/api/*` to `localhost:8100`, and in production
   FastAPI serves the built bundle itself (item 5). Configuring CORS would be
   a symptom of having got the serving story wrong.
 * **`POST /analyses` returning `200` with an in-flight analysis** is correct

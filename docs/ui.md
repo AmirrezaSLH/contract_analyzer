@@ -16,13 +16,13 @@ belongs in the library first. `ui/` imports nothing from `api/`.
 ```bash
 pip install -e ".[ui]"
 make api           # in one terminal
-make ui            # in another; http://localhost:8501
+make ui            # in another; http://localhost:8101
 # or
-make docker-up     # both, on 8000 and 8501
+make docker-up     # both, on BACKEND_PORT (8100) and FRONTEND_PORT (8101)
 ```
 
-`CA_API_URL` is the whole of its configuration (`http://localhost:8000` by
-default, `http://api:8000` under compose). `API_KEY` is picked up from the
+`CA_API_URL` is the whole of its configuration (`http://localhost:8100` by
+default, `http://api:8100` under compose). `API_KEY` is picked up from the
 environment if the API demands one.
 
 ## The shape

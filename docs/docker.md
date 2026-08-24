@@ -3,7 +3,8 @@
 `Dockerfile`, `docker-compose.yml`, `docker/entrypoint.sh`, `.dockerignore` --
 a build-and-run foundation for the whole project. One image serves both
 servers -- the entrypoint's verb picks which -- and `make docker-up` brings up
-the API on 8000 and the Streamlit UI on 8501. The `mcp` verb is wired and not
+the API on `BACKEND_PORT` (8100) and the Streamlit UI on `FRONTEND_PORT`
+(8101). The `mcp` verb is wired and not
 yet implemented; it exits with a message naming the missing module rather than
 an `ImportError` from inside its runner.
 
@@ -40,8 +41,8 @@ arrive empty) and then dispatches:
 
 | Verb | Runs | State |
 |---|---|---|
-| `api` | `uvicorn contract_analyzer.api.main:app` on 8000 | works |
-| `ui` | `streamlit run src/contract_analyzer/ui/app.py` on 8501 | works |
+| `api` | `uvicorn contract_analyzer.api.main:app` on `BACKEND_PORT` (8100) | works |
+| `ui` | `streamlit run src/contract_analyzer/ui/app.py` on `FRONTEND_PORT` (8101) | works |
 | `mcp` | `python -m contract_analyzer.mcp.server` (stdio) | Phase C |
 | `test` | `pytest -q` | works |
 | `lint` | `ruff check src tests scripts` | works |
@@ -52,14 +53,14 @@ arrive empty) and then dispatches:
 
 | Service | Image stage | Ports | Started by `up` |
 |---|---|---|---|
-| `api` | runtime | 8000 | yes |
-| `ui` | runtime | 8501 | yes, after `api` is **healthy** |
+| `api` | runtime | `BACKEND_PORT` (8100) | yes |
+| `ui` | runtime | `FRONTEND_PORT` (8101) | yes, after `api` is **healthy** |
 | `tools` | dev | – | no (profile `tools`) |
 
 * **`ui` waits for `api` to be healthy**, not merely started: the UI calls
   `GET /health` on its first render, and booting into "the API is not
   reachable" is a worse first impression than waiting three seconds. It reaches
-  the API as `CA_API_URL: http://api:8000`, over the compose network -- the
+  the API as `CA_API_URL: http://api:8100`, over the compose network -- the
   Streamlit *server* makes those calls, not the browser, so there is no
   cross-origin request and `api_cors_origins` stays empty.
 * **Both servers set `restart: unless-stopped`** on themselves rather than in
@@ -104,4 +105,5 @@ The healthcheck on `api` polls `/health`, an endpoint that does not exist yet.
 
 ## Change log of this document
 
+* 2026-08-24 -- ports are `BACKEND_PORT` (8100) and `FRONTEND_PORT` (8101), matching `.env.example`.
 * 2026-08-23 -- first version: stages, entrypoint verbs, compose layout.

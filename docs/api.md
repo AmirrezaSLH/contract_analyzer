@@ -16,9 +16,9 @@ it too.
 
 ```bash
 pip install -e ".[api]"
-uvicorn contract_analyzer.api.main:app --port 8000
+uvicorn contract_analyzer.api.main:app --port 8100
 # or
-make docker-up            # then http://localhost:8000/docs
+make docker-up            # then http://localhost:8100/docs
 ```
 
 Neither key is required to start. Without `ANTHROPIC_API_KEY` you can still

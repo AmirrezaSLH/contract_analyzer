@@ -270,7 +270,7 @@ def test_a_document_deleted_elsewhere_clears_the_scope_rather_than_404ing():
 
 def test_an_unreachable_api_is_a_sentence_and_not_a_traceback():
     at = app(StubApi(raise_on={"health": ApiError(
-        "unreachable", "Could not reach the API at http://localhost:8000.",
+        "unreachable", "Could not reach the API at http://localhost:8100.",
         "Check that the API is running.")}))
 
     assert not at.exception

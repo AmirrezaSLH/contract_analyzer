@@ -90,7 +90,7 @@ browser only ever talks to one origin, so neither becomes a problem.
    at the end of the route table. One container, one port, one URL, and the
    browser never makes a cross-origin request — so `api_cors_origins` stays
    empty, exactly as it is today. In development, Vite's `server.proxy`
-   forwards `/api/*` to `localhost:8000`, so the browser sees one origin
+   forwards `/api/*` to `localhost:8100`, so the browser sees one origin
    there too. **CORS is never configured, in either mode.** This is a
    deliberate choice and the reason it is worth stating twice.
 3. **TanStack Query owns server state.** The analysis job is a polled
@@ -158,7 +158,7 @@ ui/
 ```ts
 export default defineConfig({
   plugins: [react()],
-  server: { proxy: { "/api": { target: "http://localhost:8000", changeOrigin: true } } },
+  server: { proxy: { "/api": { target: "http://localhost:8100", changeOrigin: true } } },
   build: { outDir: "../src/contract_analyzer/api/static", emptyOutDir: true },
 });
 ```
@@ -324,8 +324,8 @@ FROM base AS runtime
 COPY --from=ui-builder /ui/dist /app/src/contract_analyzer/api/static
 ```
 
-In `docker-compose.yml`, delete the `ui` service and its `UI_PORT` mapping.
-The API service now serves both the API and the front end on 8000, and its
+In `docker-compose.yml`, delete the `ui` service and its `FRONTEND_PORT` mapping.
+The API service now serves both the API and the front end on `BACKEND_PORT` (8100), and its
 comment about `CA_API_URL` and cross-origin requests should be replaced by
 the reason there is no longer a second origin at all. `CA_API_URL` remains
 the **MCP server's** setting; it is no longer the UI's.
@@ -367,7 +367,7 @@ contract that passes everything.
 
 ## 11. Acceptance
 
-- [ ] `make docker-up`; one container serves the UI and the API on 8000, and
+- [ ] `make docker-up`; one container serves the UI and the API on `BACKEND_PORT` (8100), and
       `/health` is green. No `ui` service, no second port.
 - [ ] Upload the sample PDF: the result card shows a document id, 21 pages,
       102 chunks, outline from headings.

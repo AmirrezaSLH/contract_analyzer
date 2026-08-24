@@ -97,7 +97,7 @@ only ever talks to one origin.**
   "single setup script to run in localhost" the assignment asks for stays a
   single script.
 * **Development.** Vite's `server.proxy` forwards `/api/*` to
-  `localhost:8000`. Same origin from the browser's point of view.
+  `localhost:8100`. Same origin from the browser's point of view.
 
 Consequences, all of them good:
 

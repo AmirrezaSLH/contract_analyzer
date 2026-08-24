@@ -452,7 +452,7 @@
         "title": "Answer",
         "type": "object"
       },
-      "Body_upload_documents_post": {
+      "Body_upload_api_documents_post": {
         "properties": {
           "file": {
             "contentMediaType": "application/octet-stream",
@@ -464,7 +464,7 @@
         "required": [
           "file"
         ],
-        "title": "Body_upload_documents_post",
+        "title": "Body_upload_api_documents_post",
         "type": "object"
       },
       "ChatRequest": {
@@ -491,7 +491,7 @@
                 "type": "null"
               }
             ],
-            "description": "Answer model for this question. Must be one of `chat_models` from GET /health; omit for the configured `answer_model`.",
+            "description": "Answer model for this question. Must be one of `chat_models` from GET /api/health; omit for the configured `answer_model`.",
             "examples": [
               "claude-sonnet-5"
             ],
@@ -985,7 +985,7 @@
               }
             ],
             "examples": [
-              "Call GET /documents to list ids."
+              "Call GET /api/documents to list ids."
             ],
             "title": "Hint"
           },
@@ -1384,16 +1384,16 @@
     }
   },
   "info": {
-    "description": "\nCompliance analysis of PDF contracts, and cited chat over them.\n\nUpload a contract to get a `document_id`, then bind everything else to it:\nanalysis and chat both require one, and retrieval is scoped to it in the\nlibrary rather than in this API, so an answer cannot cite another contract.\n\nAnalyses are jobs. `POST /analyses` returns an `analysis_id` in under a second\nand the run takes a minute or more; poll `GET /analyses/{analysis_id}` or\nsubscribe to its `/events`. Chat streams by default and can return one JSON\nbody instead.\n\nErrors are always `{\"error\": {\"code\", \"message\", \"hint\"}}`. `code` is stable\nand `hint` says what to do next, which is what a model driving this API through\nan MCP server needs in order to recover.\n",
+    "description": "\nCompliance analysis of PDF contracts, and cited chat over them.\n\nUpload a contract to get a `document_id`, then bind everything else to it:\nanalysis and chat both require one, and retrieval is scoped to it in the\nlibrary rather than in this API, so an answer cannot cite another contract.\n\nAnalyses are jobs. `POST /api/analyses` returns an `analysis_id` in under a\nsecond and the run takes a minute or more; poll `GET /api/analyses/{analysis_id}`\nor subscribe to its `/events`. Chat streams by default and can return one JSON\nbody instead.\n\nEvery route is under `/api`. Everything else this server answers is the front\nend it also serves, from one origin, which is why no CORS configuration is\nneeded to call it from a browser.\n\nErrors are always `{\"error\": {\"code\", \"message\", \"hint\"}}`. `code` is stable\nand `hint` says what to do next, which is what a model driving this API through\nan MCP server needs in order to recover.\n",
     "title": "Contract Analyzer",
     "version": "0.1.0"
   },
   "openapi": "3.1.0",
   "paths": {
-    "/analyses": {
+    "/api/analyses": {
       "get": {
         "description": "Live and stored analyses merged, so a run from a previous boot or from `make analyze` is listed too. `document_id` is required: a global list is a KPI question, and `/metrics/runs` is where it belongs.",
-        "operationId": "index_analyses_get",
+        "operationId": "index_api_analyses_get",
         "parameters": [
           {
             "in": "query",
@@ -1413,7 +1413,7 @@
                   "items": {
                     "$ref": "#/components/schemas/AnalysisSummary"
                   },
-                  "title": "Response Index Analyses Get",
+                  "title": "Response Index Api Analyses Get",
                   "type": "array"
                 }
               }
@@ -1532,8 +1532,8 @@
         ]
       },
       "post": {
-        "description": "Returns immediately with an `analysis_id`; poll `GET /analyses/{id}` or subscribe to `GET /analyses/{id}/events`. A submission that matches one already queued or running returns that analysis with `200` instead of starting a second run -- send an `Idempotency-Key` header to force a new one.",
-        "operationId": "submit_analyses_post",
+        "description": "Returns immediately with an `analysis_id`; poll `GET /api/analyses/{id}` or subscribe to `GET /api/analyses/{id}/events`. A submission that matches one already queued or running returns that analysis with `200` instead of starting a second run -- send an `Idempotency-Key` header to force a new one.",
+        "operationId": "submit_api_analyses_post",
         "parameters": [
           {
             "in": "header",
@@ -1685,10 +1685,10 @@
         ]
       }
     },
-    "/analyses/{analysis_id}": {
+    "/api/analyses/{analysis_id}": {
       "get": {
         "description": "Answered from the live job when this process is running it, and from the stored record otherwise -- a finished analysis returns its report after a restart. `detail=summary` omits quotes and rationale -- the MCP default, because a full report is a lot of context to put in a model's window.",
-        "operationId": "detail_analyses__analysis_id__get",
+        "operationId": "detail_api_analyses__analysis_id__get",
         "parameters": [
           {
             "in": "path",
@@ -1837,10 +1837,10 @@
         ]
       }
     },
-    "/analyses/{analysis_id}/cancel": {
+    "/api/analyses/{analysis_id}/cancel": {
       "post": {
         "description": "Criteria that have not started are skipped and listed in the report's `skipped`. One already talking to the model finishes: stopping it would mean interrupting the agent loop between tool calls, which this API does not do.",
-        "operationId": "cancel_analyses__analysis_id__cancel_post",
+        "operationId": "cancel_api_analyses__analysis_id__cancel_post",
         "parameters": [
           {
             "in": "path",
@@ -1975,10 +1975,10 @@
         ]
       }
     },
-    "/analyses/{analysis_id}/events": {
+    "/api/analyses/{analysis_id}/events": {
       "get": {
         "description": "`status`, one `criterion` per verdict, `tool_call` for each search the agents make, then `done` or `error`, after which the stream closes. Subscribing late replays what was missed; subscribing after the job finished returns the replay and closes, rather than hanging.",
-        "operationId": "events_analyses__analysis_id__events_get",
+        "operationId": "events_api_analyses__analysis_id__events_get",
         "parameters": [
           {
             "in": "path",
@@ -2106,10 +2106,10 @@
         ]
       }
     },
-    "/chat": {
+    "/api/chat": {
       "post": {
         "description": "Streams server-sent events by default: `text` deltas, a `tool_call` for each search the model makes, one `citations` event, then `done` with usage and cost. With `stream=false` the same answer comes back as one JSON body. Quotes are extracted by the model API from the passages we sent, so they cannot be invented.",
-        "operationId": "ask_chat_post",
+        "operationId": "ask_api_chat_post",
         "requestBody": {
           "content": {
             "application/json": {
@@ -2244,10 +2244,10 @@
         ]
       }
     },
-    "/criteria": {
+    "/api/criteria": {
       "get": {
         "description": "Each criterion with its sub-requirements.\n\nThe sub-requirements are the part worth publishing: the overall state is\n*derived* from them rather than asserted, so a client that shows them shows\nwhy a contract was judged partially compliant instead of only that it was.",
-        "operationId": "criteria_criteria_get",
+        "operationId": "criteria_api_criteria_get",
         "responses": {
           "200": {
             "content": {
@@ -2256,7 +2256,7 @@
                   "items": {
                     "$ref": "#/components/schemas/CriterionOut"
                   },
-                  "title": "Response Criteria Criteria Get",
+                  "title": "Response Criteria Api Criteria Get",
                   "type": "array"
                 }
               }
@@ -2370,10 +2370,10 @@
         ]
       }
     },
-    "/documents": {
+    "/api/documents": {
       "get": {
         "description": "What a client binds a session to, with enough to draw a row for each.\n\n`last_analysis` comes from one query over the whole list rather than one\nper document: this is the endpoint a library table renders from, and a\nStreamlit script re-runs it on every click.",
-        "operationId": "index_documents_get",
+        "operationId": "index_api_documents_get",
         "responses": {
           "200": {
             "content": {
@@ -2382,7 +2382,7 @@
                   "items": {
                     "$ref": "#/components/schemas/DocumentOut"
                   },
-                  "title": "Response Index Documents Get",
+                  "title": "Response Index Api Documents Get",
                   "type": "array"
                 }
               }
@@ -2502,12 +2502,12 @@
       },
       "post": {
         "description": "Parses, chunks and embeds the PDF, and returns the `document_id` every other endpoint needs. Each upload mints a new id even for identical bytes, so two sessions working on the same contract cannot see each other's analyses.",
-        "operationId": "upload_documents_post",
+        "operationId": "upload_api_documents_post",
         "requestBody": {
           "content": {
             "multipart/form-data": {
               "schema": {
-                "$ref": "#/components/schemas/Body_upload_documents_post"
+                "$ref": "#/components/schemas/Body_upload_api_documents_post"
               }
             }
           },
@@ -2636,10 +2636,10 @@
         ]
       }
     },
-    "/documents/{document_id}": {
+    "/api/documents/{document_id}": {
       "delete": {
         "description": "The analyses of this contract and their reports are kept: the report is the deliverable and it is self-contained. Refused with `409` while an analysis of it is still queued or running, in this process or another.",
-        "operationId": "remove_documents__document_id__delete",
+        "operationId": "remove_api_documents__document_id__delete",
         "parameters": [
           {
             "in": "path",
@@ -2767,7 +2767,7 @@
         ]
       },
       "get": {
-        "operationId": "detail_documents__document_id__get",
+        "operationId": "detail_api_documents__document_id__get",
         "parameters": [
           {
             "in": "path",
@@ -2902,10 +2902,10 @@
         ]
       }
     },
-    "/documents/{document_id}/sections": {
+    "/api/documents/{document_id}/sections": {
       "get": {
         "description": "Built from the indexed chunks, so every section listed is one retrieval\ncan actually reach -- see `documents.py`.",
-        "operationId": "sections_documents__document_id__sections_get",
+        "operationId": "sections_api_documents__document_id__sections_get",
         "parameters": [
           {
             "in": "path",
@@ -2925,7 +2925,7 @@
                   "items": {
                     "$ref": "#/components/schemas/SectionOut"
                   },
-                  "title": "Response Sections Documents  Document Id  Sections Get",
+                  "title": "Response Sections Api Documents  Document Id  Sections Get",
                   "type": "array"
                 }
               }
@@ -3044,10 +3044,10 @@
         ]
       }
     },
-    "/health": {
+    "/api/health": {
       "get": {
         "description": "Whether the service can work, and with what.\n\n`key_present` is the question a UI actually asks -- upload and retrieval\nwork without an answer key, analysis and chat do not -- so it is reported\nrather than left to be discovered by a 503 three clicks later.\n\nThe configuration echoed beside it is there for the same reason. A client\nthat hardcodes the model list, the retrieval defaults or the upload cap\nhas three values that drift the moment `settings.json` changes; a client\nthat reads them here has none.",
-        "operationId": "health_health_get",
+        "operationId": "health_api_health_get",
         "responses": {
           "200": {
             "content": {
@@ -3166,9 +3166,9 @@
         ]
       }
     },
-    "/metrics/runs": {
+    "/api/metrics/runs": {
       "get": {
-        "operationId": "runs_metrics_runs_get",
+        "operationId": "runs_api_metrics_runs_get",
         "parameters": [
           {
             "in": "query",
@@ -3192,7 +3192,7 @@
                     "additionalProperties": true,
                     "type": "object"
                   },
-                  "title": "Response Runs Metrics Runs Get",
+                  "title": "Response Runs Api Metrics Runs Get",
                   "type": "array"
                 }
               }
@@ -3311,9 +3311,9 @@
         ]
       }
     },
-    "/metrics/runs/{run_id}/spans": {
+    "/api/metrics/runs/{run_id}/spans": {
       "get": {
-        "operationId": "spans_metrics_runs__run_id__spans_get",
+        "operationId": "spans_api_metrics_runs__run_id__spans_get",
         "parameters": [
           {
             "in": "path",
@@ -3334,7 +3334,7 @@
                     "additionalProperties": true,
                     "type": "object"
                   },
-                  "title": "Response Spans Metrics Runs  Run Id  Spans Get",
+                  "title": "Response Spans Api Metrics Runs  Run Id  Spans Get",
                   "type": "array"
                 }
               }
@@ -3453,9 +3453,9 @@
         ]
       }
     },
-    "/metrics/summary": {
+    "/api/metrics/summary": {
       "get": {
-        "operationId": "summary_metrics_summary_get",
+        "operationId": "summary_api_metrics_summary_get",
         "parameters": [
           {
             "in": "query",
@@ -3474,7 +3474,7 @@
               "application/json": {
                 "schema": {
                   "additionalProperties": true,
-                  "title": "Response Summary Metrics Summary Get",
+                  "title": "Response Summary Api Metrics Summary Get",
                   "type": "object"
                 }
               }
@@ -3593,9 +3593,9 @@
         ]
       }
     },
-    "/metrics/timeseries": {
+    "/api/metrics/timeseries": {
       "get": {
-        "operationId": "timeseries_metrics_timeseries_get",
+        "operationId": "timeseries_api_metrics_timeseries_get",
         "parameters": [
           {
             "in": "query",
@@ -3627,7 +3627,7 @@
                     "additionalProperties": true,
                     "type": "object"
                   },
-                  "title": "Response Timeseries Metrics Timeseries Get",
+                  "title": "Response Timeseries Api Metrics Timeseries Get",
                   "type": "array"
                 }
               }

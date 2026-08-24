@@ -21,7 +21,7 @@ from catching a bug we do not have.
 **A streaming response must not use `get_conn` at all.** Whether a dependency's
 teardown runs before or after a streaming body is consumed has changed across
 FastAPI releases, and a connection closed under a half-finished chat is a very
-confusing failure. `/chat` and `/analyses/{id}/events` open their own connection
+confusing failure. `/api/chat` and `/api/analyses/{id}/events` open their own connection
 inside the generator and close it there, where the lifetime is the stream's by
 construction rather than by framework ordering.
 

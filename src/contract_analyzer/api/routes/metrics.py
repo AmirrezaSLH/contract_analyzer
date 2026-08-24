@@ -28,8 +28,9 @@ from ..errors import ApiError
 router = APIRouter(prefix="/metrics", tags=["metrics"], dependencies=[Protected])
 
 _HINT = (
-    "The metrics store is not implemented yet. GET /health reports live counts, "
-    "GET /analyses?document_id=... lists one contract's runs, and GET /analyses/{id} "
+    "The metrics store is not implemented yet. GET /api/health reports live counts, "
+    "GET /api/analyses?document_id=... lists one contract's runs, and "
+    "GET /api/analyses/{id} "
     "carries the totals for one of them."
 )
 

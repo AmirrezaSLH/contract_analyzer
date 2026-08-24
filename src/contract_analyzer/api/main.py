@@ -19,10 +19,19 @@ close them. They become `interrupted` -- not `failed`, because nothing refused
 worker that no longer exists.
 
 **Neither key is required to start.** An API that refuses to boot without an
-answer key is an API that cannot serve `/health`, `/criteria` or an upload,
+answer key is an API that cannot serve health, the criteria or an upload,
 which is most of what a keyless demo wants. The client and the embedder are
 built if they can be, and the routes that need one say so with a 503 that names
 the `.env` key.
+
+**Every route lives behind `/api`, and the front end is everything else.**
+The browser is a client of this API and is served *by* it: `ui/` builds a
+static bundle into `api/static/`, which is mounted at `/` after every route so
+that a path no route claimed returns `index.html`. That is what makes a hard
+refresh on a client-side route work, and it is why there is no CORS
+configuration anywhere in this project -- there is only ever one origin.
+`/docs`, `/openapi.json` and `/redoc` stay where FastAPI puts them, and
+`/health` keeps a hidden alias at the root for the container healthcheck.
 
 **Every request runs inside a trace.** The middleware honours an incoming
 `X-Trace-Id` and returns it either way, so one MCP tool call, its HTTP request,
@@ -35,10 +44,12 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, Request
+from fastapi import APIRouter, FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from ..analyses import reconcile
 from ..config import Settings, get_settings
@@ -48,6 +59,7 @@ from ..generation.client import AnswerUnavailable, get_client
 from ..http_client import get_http_client
 from ..logger import configure_logging, get_logger, trace_context
 from . import errors
+from .errors import ApiError
 from .jobs import JobRunner
 from .routes import analyses, chat, documents, health, metrics
 from .schemas import Error
@@ -81,10 +93,14 @@ Upload a contract to get a `document_id`, then bind everything else to it:
 analysis and chat both require one, and retrieval is scoped to it in the
 library rather than in this API, so an answer cannot cite another contract.
 
-Analyses are jobs. `POST /analyses` returns an `analysis_id` in under a second
-and the run takes a minute or more; poll `GET /analyses/{analysis_id}` or
-subscribe to its `/events`. Chat streams by default and can return one JSON
+Analyses are jobs. `POST /api/analyses` returns an `analysis_id` in under a
+second and the run takes a minute or more; poll `GET /api/analyses/{analysis_id}`
+or subscribe to its `/events`. Chat streams by default and can return one JSON
 body instead.
+
+Every route is under `/api`. Everything else this server answers is the front
+end it also serves, from one origin, which is why no CORS configuration is
+needed to call it from a browser.
 
 Errors are always `{"error": {"code", "message", "hint"}}`. `code` is stable
 and `hint` says what to do next, which is what a model driving this API through
@@ -178,9 +194,75 @@ def create_app(
             return response
 
     errors.install(app)
+
+    # Every route behind one prefix, so that everything *not* behind it can be
+    # the front end. See `_serve_front_end`.
+    api = APIRouter(prefix=API_PREFIX)
     for module in (health, documents, analyses, chat, metrics):
-        app.include_router(module.router, responses=ERROR_RESPONSES)
+        api.include_router(module.router, responses=ERROR_RESPONSES)
+    # Last on the router, so it matches only what the real routes did not. An
+    # unknown path under /api is a client's mistake and must answer in this
+    # API's error envelope; without this it would fall through to the static
+    # mount and come back as index.html with a 200, which is the single most
+    # confusing failure a generated client can be handed.
+    api.add_api_route(
+        "/{rest:path}",
+        _unknown_route,
+        methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"],
+        include_in_schema=False,
+    )
+    app.include_router(api)
+
+    # The container healthcheck and every `curl localhost:8000/health` in the
+    # documentation predate the prefix. Hidden from the schema so the OpenAPI
+    # document -- which is the connector deliverable -- describes one health
+    # operation rather than two spellings of it.
+    app.add_api_route("/health", health.health, include_in_schema=False)
+
+    _serve_front_end(app)
     return app
+
+
+#: One prefix, one reason: the browser and the API share an origin, so
+#: everything the API answers has to be distinguishable from everything the
+#: front end answers. `/docs`, `/openapi.json` and `/redoc` stay where FastAPI
+#: puts them -- they are ahead of the static mount and cannot collide with a
+#: client-side route.
+API_PREFIX = "/api"
+
+#: Where `ui/vite.config.ts` builds to. A build artefact inside the package: it
+#: is what `StaticFiles` serves and it is gitignored.
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+
+
+async def _unknown_route(rest: str) -> None:
+    raise ApiError(
+        status.HTTP_404_NOT_FOUND,
+        "unknown_route",
+        f"No API route at {API_PREFIX}/{rest}.",
+        "Read /openapi.json for the routes this service publishes.",
+    )
+
+
+def _serve_front_end(app: FastAPI) -> None:
+    """Mount the built front end at `/`, last, if there is one.
+
+    **Last** is the whole trick. Every API route is already registered, so this
+    only ever sees what they did not claim, and `html=True` returns index.html
+    for a path with no file behind it -- which is what makes a hard refresh on
+    `/documents/1/analysis` load the app rather than 404.
+
+    **If there is one.** The bundle is a build artefact, so a fresh clone, the
+    test suite and `make api` before `make ui-build` all run without it. A
+    missing directory is a `RuntimeError` out of `StaticFiles`, and an API that
+    refuses to start because nobody has run npm is not an improvement on one
+    that serves JSON and says where the front end went.
+    """
+    if not (STATIC_DIR / "index.html").exists():
+        log.info("api.static_absent", extra={"path": str(STATIC_DIR)})
+        return
+    app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="ui")
+    log.info("api.static_mounted", extra={"path": str(STATIC_DIR)})
 
 
 def _reconcile(settings: Settings) -> int:

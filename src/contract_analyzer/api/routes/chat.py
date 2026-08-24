@@ -109,7 +109,7 @@ def require_allowed_model(model: str | None, settings) -> None:
         status.HTTP_422_UNPROCESSABLE_CONTENT,
         "validation",
         f"model: {model!r} is not offered by this deployment.",
-        "Pick one of the models GET /health lists as chat_models, or omit the field "
+        "Pick one of the models GET /api/health lists as chat_models, or omit the field "
         "to use the configured default.",
     )
 

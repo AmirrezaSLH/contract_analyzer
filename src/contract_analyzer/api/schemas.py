@@ -35,7 +35,7 @@ class ErrorBody(BaseModel):
     code: str = Field(examples=["document_not_found"])
     message: str
     #: What to do next, in one sentence.
-    hint: str | None = Field(default=None, examples=["Call GET /documents to list ids."])
+    hint: str | None = Field(default=None, examples=["Call GET /api/documents to list ids."])
 
 
 class Error(BaseModel):
@@ -254,7 +254,7 @@ class ChatRequest(BaseModel):
     model: str | None = Field(
         default=None,
         description="Answer model for this question. Must be one of `chat_models` from "
-                    "GET /health; omit for the configured `answer_model`.",
+                    "GET /api/health; omit for the configured `answer_model`.",
         examples=["claude-sonnet-5"],
     )
     retrieval_mode: RetrievalMode | None = Field(

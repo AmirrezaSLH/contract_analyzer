@@ -229,3 +229,10 @@ AGENTS.md
 
 # Docker: local-only compose overrides (extra mounts, ports, a debugger).
 docker-compose.override.yml
+
+# --- front end --------------------------------------------------------------
+# The built bundle. Vite writes it into the API package so `StaticFiles` finds
+# it with no copy step; it is a build artefact, not source.
+src/contract_analyzer/api/static/
+ui/node_modules/
+ui/dist/

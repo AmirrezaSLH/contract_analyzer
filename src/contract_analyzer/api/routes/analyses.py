@@ -52,8 +52,9 @@ router = APIRouter(prefix="/analyses", tags=["analyses"], dependencies=[Protecte
     status_code=status.HTTP_202_ACCEPTED,
     summary="Queue an analysis of one contract",
     description=(
-        "Returns immediately with an `analysis_id`; poll `GET /analyses/{id}` or subscribe "
-        "to `GET /analyses/{id}/events`. A submission that matches one already queued or "
+        "Returns immediately with an `analysis_id`; poll `GET /api/analyses/{id}` or "
+        "subscribe to `GET /api/analyses/{id}/events`. A submission that matches one "
+        "already queued or "
         "running returns that analysis with `200` instead of starting a second run -- send "
         "an `Idempotency-Key` header to force a new one."
     ),
@@ -224,7 +225,7 @@ def _not_here(stored: bool, analysis_id: str, verb: str) -> ApiError:
         status.HTTP_409_CONFLICT,
         "not_live_here",
         f"Analysis {analysis_id} is not running in this process, so it cannot be {verb}.",
-        f"Ask for its status instead -- GET /analyses/{analysis_id} answers from the "
+        f"Ask for its status instead -- GET /api/analyses/{analysis_id} answers from the "
         "stored record, wherever the run is. Live events and cancellation reach only "
         "the worker that started it.",
     )

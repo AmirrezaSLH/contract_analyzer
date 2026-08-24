@@ -32,7 +32,7 @@ resolves `import openai` to the installed top-level package, never the sibling.)
 from __future__ import annotations
 
 from ..config import Settings
-from ..http_client import HttpFailure, get_http_client
+from ..http_client import get_http_client, unwrap_http_failure
 from ..logger import get_logger
 from .base import BaseEmbedder, EmbedderUnavailable, normalize
 
@@ -114,8 +114,9 @@ class OpenAIEmbedder(BaseEmbedder):
             # own exhausted retry policy, the caller wants that message -- it
             # names the URL, the attempt count and the elapsed time -- and not
             # a generic connection error two layers above it.
-            if isinstance(exc.__cause__, HttpFailure):
-                raise exc.__cause__ from None
+            failure = unwrap_http_failure(exc)
+            if failure is not None:
+                raise failure from None
             raise
 
 

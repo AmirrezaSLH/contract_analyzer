@@ -81,6 +81,27 @@ class HttpFailure(RuntimeError):
         )
 
 
+def unwrap_http_failure(exc: BaseException) -> HttpFailure | None:
+    """The :class:`HttpFailure` an SDK wrapped, if that is what ``exc`` hides.
+
+    Both SDKs catch whatever the transport raised and re-raise it as their own
+    ``APIConnectionError("Connection error.")`` with the original as
+    ``__cause__``. The one-line diagnostic this module promises -- method,
+    URL, attempts, elapsed -- is therefore one level down. A caller does::
+
+        except sdk.APIConnectionError as exc:
+            failure = unwrap_http_failure(exc)
+            if failure is not None:
+                raise failure from None
+            raise
+
+    Returns ``None`` when the cause is something else (a DNS error the policy
+    does not cover, say), so the caller re-raises the SDK's own error unchanged.
+    """
+    cause = exc.__cause__
+    return cause if isinstance(cause, HttpFailure) else None
+
+
 def retry_after_seconds(response: httpx.Response) -> float | None:
     """The server's ``Retry-After`` in seconds, if it sent one we can read."""
     value = response.headers.get("retry-after")

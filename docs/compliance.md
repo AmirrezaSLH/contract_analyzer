@@ -78,10 +78,19 @@ that is Phase B's evaluator, a separate concern.
 How the analysis uses it -- rounds, dropping, `needs_review`, the confidence
 formula -- is in [generation.md](generation.md#surface-1-analysis-analysispy).
 
-## The document runner (`report.py`)
+## The document runner (`report.py`, at the package root)
 
 `analyze_criterion` answers one question; `analyze_document` is the layer that
-knows a *contract-level* analysis exists. It is the function the CLI calls and
+knows a *contract-level* analysis exists.
+
+It lives at the top of the package, not in `compliance/`, because that is the
+layer it belongs to: it uses `compliance` for the criteria and the result schema
+and `generation` for the agent, and those two already refer to each other.
+Putting the runner in either closes the loop -- importing `compliance` would
+import the runner, which imports `generation.analysis`, which imports
+`compliance.criteria`, which is still being imported. The import cycle was not a
+quirk to route around; it was the module saying where it goes. `documents.py`
+sits beside it for the same reason. It is the function the CLI calls and
 the function the API's job worker calls -- the same arguments in both cases,
 which is what makes "the API contains no logic the CLI does not have" a fact
 rather than an intention.

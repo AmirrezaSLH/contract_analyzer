@@ -26,7 +26,6 @@ if str(ROOT / "src") not in sys.path:  # runnable without `pip install -e .`
     sys.path.insert(0, str(ROOT / "src"))
 
 from contract_analyzer.compliance import get_criteria  # noqa: E402
-from contract_analyzer.compliance.report import AnalysisReport, analyze_document  # noqa: E402
 from contract_analyzer.config import get_settings  # noqa: E402
 from contract_analyzer.db import get_db  # noqa: E402
 from contract_analyzer.documents import get_document, list_documents  # noqa: E402
@@ -34,6 +33,7 @@ from contract_analyzer.embeddings import get_embedder  # noqa: E402
 from contract_analyzer.generation.client import AnswerUnavailable  # noqa: E402
 from contract_analyzer.ingest.pipeline import ingest_file  # noqa: E402
 from contract_analyzer.logger import configure_logging, trace_context  # noqa: E402
+from contract_analyzer.report import AnalysisReport, analyze_document  # noqa: E402
 
 STATE_WIDTH = 22
 

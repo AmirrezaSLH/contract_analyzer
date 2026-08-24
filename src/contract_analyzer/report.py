@@ -5,6 +5,15 @@ the thing a CLI calls, the thing the API's job worker calls, and the only place
 that knows a *document-level* analysis exists. It contains no prompting and no
 model logic; it is a fan-out, a fan-in and a report.
 
+It lives at the top of the package rather than inside `compliance/` because
+that is where it actually sits: it uses `compliance` for the criteria and the
+result schema and `generation` for the agent, and both of those already refer to
+each other. Putting the runner in either one closes the loop -- importing
+`compliance` would import the runner, which would import `generation.analysis`,
+which imports `compliance.criteria`, which is still being imported. The cycle
+is not a Python quirk to route around; it is the module telling us which layer
+it belongs to. `documents.py` is here for the same reason.
+
 Three things it is responsible for, all of them consequences of running five
 agents at once:
 
@@ -52,16 +61,16 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from ..config import Settings, get_settings
-from ..db import connect, describe_path
-from ..documents import get_document
-from ..embeddings.base import Embedder
-from ..generation.agent import Event, OnEvent
-from ..generation.analysis import analyze_criterion
-from ..generation.client import get_client
-from ..logger import get_logger, new_id, span, trace_context
-from .criteria import Criterion, get_criteria
-from .schemas import ComplianceResult
+from .compliance.criteria import Criterion, get_criteria
+from .compliance.schemas import ComplianceResult
+from .config import Settings, get_settings
+from .db import connect, describe_path
+from .documents import get_document
+from .embeddings.base import Embedder
+from .generation.agent import Event, OnEvent
+from .generation.analysis import analyze_criterion
+from .generation.client import get_client
+from .logger import get_logger, new_id, span, trace_context
 
 log = get_logger(__name__)
 

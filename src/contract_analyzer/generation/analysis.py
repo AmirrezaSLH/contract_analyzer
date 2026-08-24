@@ -2,10 +2,11 @@
 structured finisher that corrects its own structure, bounded.
 
 The model searches through the tools; when it stops, the finisher asks for
-a `ComplianceDraft` with `output_config.format` -- citations off, tools off,
-the ledger *not* re-sent, since every passage is already in the conversation
-as a tool result. The draft is validated in pure Python against the ledger
-and the schema's cross-field rules; the errors go back as one user turn and
+a `ComplianceDraft` with `output_config.format` -- citations off, the tool
+definitions kept but `tool_choice: none`, the ledger *not* re-sent, since
+every passage is already in the conversation as a tool result. The draft is
+validated in pure Python against the ledger and the schema's cross-field
+rules; the errors go back as one user turn and
 the model tries again, up to `structure_fix_rounds` times. Feedback names
 what is malformed, never what the answer should be.
 
@@ -45,6 +46,9 @@ from .prompts import get_prompts
 from .tools import ContractTools, Evidence
 
 log = get_logger(__name__)
+
+#: The finisher wants a draft, not another search -- but the definitions stay.
+NO_TOOLS: dict[str, str] = {"type": "none"}
 
 #: Stop reasons that mean "no draft arrived", retried once as plain retries.
 RETRY_STOPS = frozenset({"max_tokens", "refusal"})
@@ -94,7 +98,7 @@ def analyze_criterion(
     def finisher(run: AgentRun) -> ComplianceResult:
         return finish_analysis(
             run, criterion=criterion, settings=settings, client=client, system=system,
-            on_event=on_event or (lambda event: None),
+            tools=tools.definitions(), on_event=on_event or (lambda event: None),
         )
 
     with span("analysis.criterion", log, criterion=criterion.id, document_id=document_id) as bag:
@@ -120,15 +124,21 @@ def finish_analysis(
     settings: Settings,
     client: Any,
     system: str,
+    tools: list[dict[str, Any]],
     on_event: Callable[[dict[str, Any]], None],
 ) -> ComplianceResult:
-    """The structured finisher: draft, validate, correct, resolve."""
+    """The structured finisher: draft, validate, correct, resolve.
+
+    `tools` are the loop's definitions, sent again with `tool_choice: none`,
+    so the finisher's prefix matches the loop's for caching and the tool
+    blocks in the conversation always have their definitions alongside.
+    """
     prompts = get_prompts(settings)
     messages = list(run.messages) + [{"role": "user", "content": prompts.get("analysis.finish")}]
     rounds = 0
     while True:
         run.turns += 1
-        message = _draft_call(run, client, settings, system, messages)
+        message = _draft_call(run, client, settings, system, messages, tools)
         draft, errors = _parse(message, run.evidence, criterion)
         if errors:
             log.info(
@@ -161,7 +171,9 @@ def finish_analysis(
     return result
 
 
-def _draft_call(run: AgentRun, client: Any, settings: Settings, system: str, messages) -> Any:
+def _draft_call(
+    run: AgentRun, client: Any, settings: Settings, system: str, messages, tools
+) -> Any:
     """One structured call, retried once if the answer was truncated or refused."""
     for attempt in range(2):
         message = call_model(
@@ -173,6 +185,8 @@ def _draft_call(run: AgentRun, client: Any, settings: Settings, system: str, mes
             effort=run.effort,
             surface="analysis",
             turn=run.turns,
+            tools=tools,
+            tool_choice=NO_TOOLS,
             format=ComplianceDraft.output_format(),
         )
         run.usage += Usage.from_message(message)

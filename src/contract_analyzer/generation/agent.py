@@ -107,6 +107,7 @@ def call_model(
     surface: str,
     turn: int,
     tools: Sequence[dict[str, Any]] | None = None,
+    tool_choice: dict[str, Any] | None = None,
     format: dict[str, Any] | None = None,
     on_text: Callable[[str], None] | None = None,
 ) -> Any:
@@ -114,6 +115,13 @@ def call_model(
 
     Streamed even when nobody watches the deltas: a long turn then keeps
     bytes moving under the transport's read timeout instead of racing it.
+
+    A finisher that wants no more tool calls keeps the definitions and sends
+    `tool_choice={"type": "none"}` rather than dropping them: the request then
+    shares the loop's exact `tools -> system` prefix, which is what prompt
+    caching keys on, and a conversation carrying tool blocks stays valid
+    whatever the API's rule on undefined tools is that week (a live probe on
+    2026-08-24 accepted both shapes).
     """
     output_config: dict[str, Any] = {"effort": effort}
     if format is not None:
@@ -127,6 +135,8 @@ def call_model(
     }
     if tools:
         kwargs["tools"] = list(tools)
+    if tool_choice is not None:
+        kwargs["tool_choice"] = tool_choice
     with (
         span("agent.call", log, surface=surface, turn=turn, model=model, effort=effort) as bag,
         api_errors(),

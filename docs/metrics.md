@@ -193,6 +193,26 @@ browser would mean writing the same algorithm again in TypeScript. A run with
 no spans is an empty list, not a 404 — it may be a run from before this table
 existed, and it is still in `/metrics/runs` beside it.
 
+### Embedding cost: captured, never tiled
+
+`ingest.embed` now carries `tokens` and `cost_usd`, read from the embeddings
+response's `usage.total_tokens` and priced by `EMBEDDING_PRICES` in
+`generation/pricing.py`. It rides the handler into `spans` like everything
+else.
+
+There is deliberately **no tile for it**. At $0.02/1M, embedding the 21-page
+sample costs about **$0.0002** against the **~$0.96** analysis it enables —
+four orders of magnitude, so a dashboard tile would be four leading zeros.
+What the capture buys is the sentence the waterfall can then make: *ingestion
+costs a fiftieth of a cent; the dollar is all reasoning.* The local and fake
+embedders report no tokens and price at $0.00, which is the truth and not a
+missing number.
+
+A related footnote worth keeping on the page: `pricing.py` prices an **unknown
+model at $0.00** and logs `pricing.unknown_model` once. So a `$0.00` average
+cost has a known failure meaning — a model id the price table has not learned
+— rather than a free run.
+
 ### Retention
 
 `prune(before)` deletes spans older than a timestamp and leaves `analyses`

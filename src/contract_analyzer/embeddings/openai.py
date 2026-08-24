@@ -2,7 +2,10 @@
 
 The default. A 21-page contract is about 10k tokens of chunk text, so at
 $0.02/1M ingesting one costs a fiftieth of a cent -- the interesting numbers
-here are not the money.
+here are not the money. The response's `usage.total_tokens` is read anyway and
+kept on `last_tokens`, because the *ratio* is the interesting number: the
+waterfall can then say ingestion cost a fiftieth of a cent and the dollar was
+all reasoning.
 
 Three things are not boilerplate.
 
@@ -90,6 +93,13 @@ class OpenAIEmbedder(BaseEmbedder):
         for start in range(0, len(payload), BATCH_SIZE):
             batch = payload[start : start + BATCH_SIZE]
             response = self._request(batch)
+            # The one provider here that bills, and the only one that reports
+            # usage. Summed across batches, so a contract embedded in three
+            # round trips still prices as one number on the `ingest.embed`
+            # span. `getattr` because a mocked response in a test has no
+            # reason to carry a usage object.
+            usage = getattr(response, "usage", None)
+            self.last_tokens += int(getattr(usage, "total_tokens", 0) or 0)
             # `data` is documented as index-ordered; sorting makes that
             # explicit rather than load-bearing and unstated.
             for item in sorted(response.data, key=lambda d: d.index):

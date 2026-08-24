@@ -2,7 +2,20 @@
 
 PYTHON ?= .venv/bin/python
 
-.PHONY: help venv ingest reingest search chat analyze api ui openapi test lint fmt logs \
+# The ports live in .env, beside the keys and the paths -- they are
+# environment-dependent, not tuning parameters. BACKEND_PORT is the only one a
+# demo needs: one process serves the API and the front end it built.
+#
+# Read one key at a time rather than `-include .env`, which would parse every
+# line as a make assignment -- and an API key containing a '#' or a '$' is not
+# a make expression.
+dotenv = $(shell sed -n 's/^$(1)=//p' .env 2>/dev/null | tail -1)
+BACKEND_PORT ?= $(or $(call dotenv,BACKEND_PORT),8000)
+FRONTEND_PORT ?= $(or $(call dotenv,FRONTEND_PORT),5173)
+export BACKEND_PORT FRONTEND_PORT
+
+.PHONY: help venv ingest reingest search chat analyze api openapi test lint fmt logs \
+	ui-install ui-types ui-dev ui-build ui-test \
 	docker-build docker-up docker-down docker-logs docker-shell docker-test
 
 help:  ## List the targets
@@ -27,12 +40,8 @@ chat:  ## Multi-turn cited conversation over an ingested contract
 analyze:  ## The five criteria over one contract: make analyze F=path.pdf
 	$(PYTHON) scripts/analyze.py "$(F)"
 
-api:  ## Run the HTTP API locally on :8000 (reload on edit)
-	$(PYTHON) -m uvicorn contract_analyzer.api.main:app --reload --port $(or $(PORT),8000)
-
-ui:  ## Run the Streamlit front end on :8501 against a local API
-	CA_API_URL=$(or $(API_URL),http://localhost:8000) \
-	$(PYTHON) -m streamlit run src/contract_analyzer/ui/app.py --server.port $(or $(UI_PORT),8501)
+api:  ## Run the HTTP API, which also serves the built front end (reload on edit)
+	$(PYTHON) -m uvicorn contract_analyzer.api.main:app --reload --port $(BACKEND_PORT)
 
 openapi:  ## Re-export docs/openapi.json, the connector specification
 	$(PYTHON) scripts/export_openapi.py
@@ -48,6 +57,28 @@ fmt:  ## ruff, applying what it can fix
 
 logs:  ## Tail the structured JSON log
 	tail -f .run/app.jsonl
+
+# --- Front end ---------------------------------------------------------------
+# `ui/` is a Vite project at the repository root. It is not a Python package
+# and must not look like one. `ui-build` writes the bundle straight into
+# src/contract_analyzer/api/static/, which is what StaticFiles serves -- so
+# there is no copy step and no volume mount between building and serving.
+
+ui-install:  ## npm ci in ui/
+	cd ui && npm ci
+
+ui-types:  ## Re-export the OpenAPI document, then regenerate src/api/types.gen.ts
+	$(PYTHON) scripts/export_openapi.py
+	cd ui && npm run types
+
+ui-dev:  ## The Vite dev server, proxying /api to a locally running API
+	cd ui && npm run dev
+
+ui-build:  ## tsc --noEmit && vite build, into the API package
+	cd ui && npm run build
+
+ui-test:  ## vitest: the sse reader, the error map and the depth mapping
+	cd ui && npm test
 
 # --- Docker -----------------------------------------------------------------
 # The host uid/gid are passed through so bind-mounted data/ and .run/ stay

@@ -1,0 +1,107 @@
+/* The design tokens, one custom property per row of the UI spec §2.
+ *
+ * This is the only file in the front end that contains a literal colour. A
+ * component with a hex in it is a bug, with one documented exception in
+ * `SubMarker`.
+ *
+ * Two values differ from `design/Main.dc.html` on purpose. The prototype paints
+ * micro labels #9A9082 and meta lines #7C7365, which measure 2.96:1 and 4.40:1
+ * against --canvas and fail WCAG AA. Spec §2.3 replaces both with --muted-2
+ * (4.62:1 on canvas, 4.90:1 on surface) and keeps #9A9082 as --hairline for
+ * things that are not read: icon strokes, rules, empty-state art. The
+ * hierarchy the two greys used to carry is now typographic -- 11px/700
+ * uppercase against 13px/400 -- which is more separation than 0.5:1 of
+ * contrast ever gave.
+ *
+ * Adding a token means measuring it against --canvas *and* --surface first.
+ */
+
+:root {
+  /* -- surfaces ------------------------------------------------------------
+   * The two-surface rule: white cards on warm canvas, with the sidebar as a
+   * third, warmer plane. It is the whole structural device of this design,
+   * and collapsing it is exactly how the previous implementation failed. */
+  --canvas: #faf8f4;
+  --sidebar: #f2eee6;
+  --surface: #ffffff;
+  --surface-sel: #fbf8f2;
+  --nav-sel: #e5dccc;
+  --surface-ctl: #f7f3ec;
+
+  /* -- lines --------------------------------------------------------------- */
+  --border: #e0d9cc;
+  --border-card: #e5ddd0;
+  --border-ctl: #d6cdbd;
+  --divider: #efe9de;
+  --divider-2: #f0ebe1;
+  --divider-3: #f3efe6;
+  --rule-quote: #c8a88c;
+
+  /* -- text ---------------------------------------------------------------- */
+  --ink: #23201b;
+  --ink-body: #3a342b;
+  --ink-2: #4a443a;
+  --muted: #6e665a;
+  --muted-2: #787061;
+
+  /* Non-text only: icon strokes, rules, empty-state illustration. */
+  --hairline: #9a9082;
+  --faint: #a08e7c;
+  --faint-2: #a69c8c;
+  --faint-3: #b3a896;
+  --faint-4: #c4b7a3;
+  --faint-5: #ddd5c6;
+
+  /* -- accent -------------------------------------------------------------
+   * The palette pivots on this alone; nothing else moves. Alternates, if the
+   * oxblood is ever rejected: #2F5D62 deep teal, #4A4636 olive ink,
+   * #1F1B16 near black. */
+  --accent: #7a3b2e;
+  --accent-hover: #5c2b21;
+  --on-accent: #fdf9f3;
+
+  /* -- compliance state ---------------------------------------------------
+   * Measured: 5.68:1, 5.02:1 and 7.08:1 against their own backgrounds. Never
+   * carried by colour alone -- the chip always contains the words. */
+  --fc-fg: #2f6b4f;
+  --fc-bg: #eef5f0;
+  --fc-br: #b9d3c4;
+  --pc-fg: #8a6108;
+  --pc-bg: #fbf3e3;
+  --pc-br: #e4d0a6;
+  --nc-fg: #8f2e2e;
+  --nc-bg: #faedec;
+  --nc-br: #e3bfbb;
+  --neutral-fg: #787061;
+  --neutral-bg: #f4f0e8;
+  --neutral-br: #e0d9cc;
+
+  /* The `partial` sub-requirement marker and the unverified-quote rule. */
+  --pc-marker: #a9720b;
+  --queued-dot: #c9a227;
+
+  --tooltip-bg: #2b2721;
+  --tooltip-fg: #f5f1e9;
+
+  /* -- type ---------------------------------------------------------------
+   * The serif does real work: it marks what is *quoted from the contract* as
+   * against what is chrome. Never set UI chrome or an explanation in it. */
+  --serif: "Source Serif 4", Georgia, serif;
+  --sans: "Source Sans 3", system-ui, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* -- geometry ------------------------------------------------------------ */
+  --r-lg: 8px;
+  --r-md: 6px;
+  --r-sm: 5px;
+  --r-xs: 4px;
+  --r-chip: 3px;
+  --r-pill: 999px;
+
+  --sidebar-w: 336px;
+  --gap-block: 22px;
+  --gap-group: 10px;
+
+  --shadow-menu: 0 8px 22px rgba(35, 32, 27, 0.12);
+  --shadow-tip: 0 10px 26px rgba(35, 32, 27, 0.22);
+}

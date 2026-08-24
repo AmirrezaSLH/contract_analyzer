@@ -17,10 +17,12 @@ rows with it. SQLite only *promises* that a trigger fires for a direct delete
 this project runs against, and `tests/test_documents.py` asserts the outcome
 rather than trusting the mechanism.
 
-**The row and its bytes go together.** `documents.path` is relative to the
-project root, so a deleted document takes its raw file with it unless the
-caller says otherwise. A path that has wandered outside the project root is
-left alone: this function deletes what it ingested, not what it can reach.
+**The row and its bytes go together, but only inside `RAW_DIR`.** A deleted
+document takes its raw file with it -- that file was written by the upload
+that created the row, and leaving it behind is a leak. Anything ingested from
+*outside* `RAW_DIR` is left on disk: `make ingest F=data/samples/...` points at
+a committed fixture, and a catalogue delete has no business removing a file it
+did not put there.
 """
 
 from __future__ import annotations
@@ -30,7 +32,7 @@ import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .config import PROJECT_ROOT
+from .config import PROJECT_ROOT, Settings, get_settings
 from .logger import get_logger
 
 log = get_logger(__name__)
@@ -149,13 +151,18 @@ def document_sections(conn: sqlite3.Connection, document_id: int) -> list[Sectio
 
 
 def delete_document(
-    conn: sqlite3.Connection, document_id: int, *, remove_file: bool = True
+    conn: sqlite3.Connection,
+    document_id: int,
+    settings: Settings | None = None,
+    *,
+    remove_file: bool = True,
 ) -> bool:
     """Remove one document, its chunks, its vectors and its FTS rows.
 
     Returns False when there was no such document, so a caller can answer 404
-    without a second query. The raw file goes too unless `remove_file=False`
-    (the CLI's `--keep-file`, and any caller that did not put the file there).
+    without a second query. The raw file goes too, but only if it sits inside
+    `RAW_DIR` -- see the module docstring. `remove_file=False` keeps it either
+    way.
     """
     document = get_document(conn, document_id)
     if document is None:
@@ -163,7 +170,7 @@ def delete_document(
     with conn:
         conn.execute("DELETE FROM documents WHERE id = ?", (int(document_id),))
     if remove_file:
-        _remove_file(document.path)
+        _remove_file(document.path, settings or get_settings())
     log.info(
         "document.deleted",
         extra={"document_id": document.document_id, "chunks": document.chunks},
@@ -194,15 +201,19 @@ def _page_display(first: str, last: str) -> str:
     return first
 
 
-def _remove_file(relative: str) -> None:
-    """Delete the ingested file, if it is where the row says and inside the
-    project. `missing_ok`: a file removed by hand is not an error here."""
+def _remove_file(relative: str, settings: Settings) -> None:
+    """Delete the ingested file, if it is one we wrote.
+
+    Inside `RAW_DIR` it is an upload and goes; anywhere else it is a file the
+    caller pointed us at and stays. `missing_ok`: a file removed by hand is not
+    an error here.
+    """
     if not relative:
         return
     path = Path(relative)
-    path = path if path.is_absolute() else PROJECT_ROOT / path
+    path = (path if path.is_absolute() else PROJECT_ROOT / path).resolve()
     try:
-        path.resolve().relative_to(PROJECT_ROOT)
+        path.relative_to(settings.raw_dir.resolve())
     except ValueError:
         log.info("document.file_kept", extra={"path": str(path)})
         return

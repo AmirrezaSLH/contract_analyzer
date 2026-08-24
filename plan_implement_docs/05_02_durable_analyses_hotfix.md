@@ -64,9 +64,9 @@ are `/analyses`, the schema type is `Analysis`, the CLI writes
 table called `runs` whose primary key is `analysis_id` charges a small
 translation tax on every query anyone ever writes against it.
 
-**Recommendation: `analyses`, with `analysis_id` as the primary key.**
-`06_metrics_plan.md` gets edited to match. `spans.run_id` becomes
-`spans.analysis_id`.
+**Recommendation: `analyses`, with `analysis_id` as the primary key.** `06` is
+left stale rather than edited — see the scope box above; the consequences for it
+are recorded under [Deferred](#deferred-what-this-will-change-in-06_metrics_planmd).
 
 ### 2. It lives in `schema.sql`, not `metrics.sql`
 

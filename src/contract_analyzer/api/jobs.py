@@ -6,12 +6,20 @@ the client comes back for the answer. The id is the whole of the state: this
 server keeps nothing per client, which is what lets the UI, an MCP tool call and
 a connector all watch the same job.
 
-**What is remembered, and for how long.** `JobState` lives in a dict on the app.
-That is the honest scope of this iteration: an analysis does not survive a
-restart, and `GET /analyses/{id}` says so in its 404 hint. When the metrics
-store lands, the `runs` row becomes the durable half and this dict stays as the
-live view (stage, progress, subscribers, the cancel flag) -- which is why it is
-built around an interface rather than around the dict.
+**What is remembered, and for how long.** Two halves. The `analyses` row is the
+durable one: it survives a restart, it is what another worker can read, and it
+carries the report. `JobState` in a dict on the app is the live one: `stage`,
+per-criterion progress, the SSE subscribers, the cancel flag -- none of which
+mean anything once the process holding them is gone. **The dict wins wherever
+both have an answer**, because it is the one being updated; the row answers
+everything else, which after a restart is everything.
+
+Durable is not distributed. With `--workers 2` a worker can read a neighbour's
+analysis and its report, and it still cannot stream its events or cancel it:
+`Broadcast` and the cancel `threading.Event` are per-process objects, and
+`find_live` stays in-memory for the same reason -- this process cannot hand
+back a live handle it does not own. Fixing that means a broker, which is what
+this iteration declined to build for a local demo.
 
 **Two jobs at a time, and the third waits.** SQLite serialises writes and the
 answer model has rate limits; `api_workers * analysis_workers` is the real
@@ -33,6 +41,7 @@ to `generation/`, not here. The report that comes back is partial and says so.
 from __future__ import annotations
 
 import contextvars
+import sqlite3
 import threading
 from collections.abc import Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -40,12 +49,14 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
+from .. import analyses as store
+from ..analyses import AnalysisRecord
 from ..compliance.criteria import get_criteria
 from ..config import Settings
 from ..db import get_db
 from ..embeddings.base import Embedder
 from ..logger import get_logger, new_id, span, trace_context
-from ..report import AnalysisReport, analyze_document, totals_of
+from ..report import AnalysisReport, AnalysisTotals, analyze_document, totals_of
 from .schemas import Analysis, AnalysisSummary, CriterionProgress, JobStatus, Progress
 from .sse import Broadcast
 
@@ -155,6 +166,111 @@ class JobState:
         self.events.close("error", {"analysis_id": self.analysis_id, "error": error})
 
 
+# -- the other producer of AnalysisSummary: a row ---------------------------
+
+
+def summary_of(record: AnalysisRecord, report: AnalysisReport | None = None) -> AnalysisSummary:
+    """An `analyses` row as the wire type, for an analysis this process is not
+    running -- one from a previous boot, or from the CLI, or from a neighbour.
+
+    Here, beside `JobState.summary()`, so the two producers of `AnalysisSummary`
+    sit together and neither drifts from the other.
+
+    A row carries no `stage`, no live `progress` and no per-criterion list. The
+    missing fields are filled with **the terminal values the status implies**
+    rather than invented ones: `stage` is the status, and `progress` counts what
+    the row says finished.
+
+    `totals` is rebuilt from the row's own columns rather than from the stored
+    report -- they were derived from it and they are the same numbers, and a
+    list endpoint should not parse thirty kilobytes of JSON per entry to fill
+    them in. `criteria` is the one field that genuinely needs the report, so it
+    is filled only when a caller has already parsed one; `detail_of` does.
+    """
+    return AnalysisSummary(
+        analysis_id=record.analysis_id,
+        document_id=record.document_id,
+        status=record.status,  # type: ignore[arg-type]
+        stage=record.status,
+        progress=Progress(
+            done=record.criteria_completed + record.criteria_skipped,
+            total=record.criteria_requested,
+        ),
+        criteria=_criteria_of(report),
+        totals=_totals_of(record),
+        trace_id=record.trace_id,
+        error=record.error,
+        created_at=record.created_at,
+        started_at=record.started_at,
+        completed_at=record.completed_at,
+    )
+
+
+def detail_of(record: AnalysisRecord, report: AnalysisReport | None = None) -> Analysis:
+    """The same, with the report. `report` is passed in when the caller has
+    already trimmed it for `?detail=summary`; otherwise it is read from the
+    row."""
+    if report is None:
+        report = record.report()
+    return Analysis(**summary_of(record, report).model_dump(), report=report)
+
+
+def summaries_for(
+    runner: JobRunner, conn: sqlite3.Connection, document_id: int, *, limit: int = 50
+) -> list[AnalysisSummary]:
+    """One document's analyses: the live ones and the stored ones, merged.
+
+    The dict wins on the analyses it holds -- it has the stage and the live
+    progress the row cannot carry -- and the row supplies everything else,
+    which after a restart is everything. Used by `GET /analyses` and by
+    `GET /documents/{id}`, so the two cannot disagree.
+    """
+    live = {job.analysis_id: job.summary() for job in runner.list(document_id)}
+    stored = [
+        summary_of(record)
+        for record in store.list_analyses(conn, document_id, limit=limit)
+        if record.analysis_id not in live
+    ]
+    merged = list(live.values()) + stored
+    return sorted(merged, key=lambda s: (s.created_at, s.analysis_id), reverse=True)
+
+
+def _totals_of(record: AnalysisRecord) -> AnalysisTotals | None:
+    """The derived columns as `AnalysisTotals`, or None for a run that never
+    produced a report. `report_json` is the flag, so this costs no parse."""
+    if not record.report_json:
+        return None
+    return AnalysisTotals(
+        criteria=record.criteria_completed,
+        latency_s=record.latency_s or 0.0,
+        cost_usd=record.cost_usd or 0.0,
+        input_tokens=record.input_tokens or 0,
+        output_tokens=record.output_tokens or 0,
+        tool_calls=record.tool_calls or 0,
+        needs_review=record.needs_review or 0,
+        capped=record.capped or 0,
+        mean_confidence=record.mean_confidence or 0.0,
+    )
+
+
+def _criteria_of(report: AnalysisReport | None) -> list[CriterionProgress]:
+    """The progress table as a finished report implies it. Nothing is invented:
+    a criterion is `done` because there is a result for it, or `skipped`
+    because the report says the run never reached it."""
+    if report is None:
+        return []
+    return [
+        CriterionProgress(
+            id=result.criterion_id,
+            status="done",
+            state=result.compliance_state,
+            confidence=result.confidence,
+            needs_review=result.needs_review,
+        )
+        for result in report.results
+    ] + [CriterionProgress(id=criterion_id, status="skipped") for criterion_id in report.skipped]
+
+
 def _status_payload(job: JobState) -> dict[str, Any]:
     return {
         "analysis_id": job.analysis_id,
@@ -194,6 +310,11 @@ class JobRunner:
 
         Jobs still queued are cancelled: nothing will pick them up, and a state
         of `queued` on a dead runner is a lie a client would poll forever.
+
+        Their rows are left alone rather than failed here. The next startup's
+        `reconcile` reads them as `interrupted`, which is what actually
+        happened -- the process went away -- and is a better answer than
+        `failed` from a runner that is itself being torn down.
         """
         with self._lock:
             for job in self._jobs.values():
@@ -232,12 +353,25 @@ class JobRunner:
 
     def submit(
         self,
+        conn: sqlite3.Connection,
         document_id: int,
         criteria: Sequence[str] | None,
         *,
         trace_id: str,
+        filename: str = "",
     ) -> JobState:
-        """Queue an analysis and return its state. Never blocks."""
+        """Queue an analysis and return its state. Never blocks.
+
+        `conn` is the *request's* connection, passed in rather than opened here.
+        `queue_analysis` is one INSERT on the request thread, and the worker's
+        connection does not exist yet at this point; opening a second one for
+        it would be a connection per submission for no reason.
+
+        This is the only lifecycle write the API makes. `running`, `done`,
+        `cancelled` and `failed` are all written by `analyze_document`, so the
+        CLI records them too -- `queued` is the one state HTTP has and the
+        command line does not.
+        """
         selected = self.resolve_criteria(criteria)
         job = JobState(
             analysis_id=new_id(16),
@@ -246,6 +380,15 @@ class JobRunner:
             trace_id=trace_id,
             events=Broadcast(self._settings.api_event_buffer),
             progress={cid: CriterionProgress(id=cid) for cid in selected},
+        )
+        store.queue_analysis(
+            conn,
+            job.analysis_id,
+            document_id,
+            filename=filename,
+            criteria=selected,
+            trace_id=trace_id,
+            surface="api",
         )
         with self._lock:
             self._jobs[job.analysis_id] = job
@@ -260,24 +403,25 @@ class JobRunner:
         )
         return job
 
-    def cancel(self, job: JobState) -> None:
+    def cancel(self, conn: sqlite3.Connection, job: JobState) -> None:
         """Ask the run to stop after the criteria that have already started."""
         job.cancelled.set()
         if job.future is not None and job.future.cancel():
-            # Never picked up by the pool: nothing will ever set the terminal
-            # state, so it is set here.
-            job.finish(
-                AnalysisReport(
-                    analysis_id=job.analysis_id,
-                    document_id=job.document_id,
-                    status="cancelled",
-                    trace_id=job.trace_id,
-                    skipped=list(job.criteria),
-                    totals=totals_of([]),
-                    created_at=job.created_at,
-                    completed_at=_now(),
-                )
+            # Never picked up by the pool: `analyze_document` will not run, so
+            # nothing else will ever set the terminal state -- in memory or on
+            # disk. Both are set here, on the request's connection.
+            report = AnalysisReport(
+                analysis_id=job.analysis_id,
+                document_id=job.document_id,
+                status="cancelled",
+                trace_id=job.trace_id,
+                skipped=list(job.criteria),
+                totals=totals_of([]),
+                created_at=job.created_at,
+                completed_at=_now(),
             )
+            job.finish(report)
+            store.finish_analysis(conn, job.analysis_id, report)
         log.info("api.analysis.cancelled", extra={"analysis_id": job.analysis_id})
 
     # -- the worker -------------------------------------------------------
@@ -301,10 +445,17 @@ class JobRunner:
                     on_event=lambda event: self._on_event(job, event),
                     cancelled=job.cancelled.is_set,
                     analysis_id=job.analysis_id,
+                    surface="api",
                 )
             except BaseException as exc:  # noqa: BLE001 - a job must never die silently
                 log.exception("api.analysis.failed", extra={"analysis_id": job.analysis_id})
                 job.fail(f"{type(exc).__name__}: {exc}")
+                # Belt and braces. `analyze_document` fails its own row, but it
+                # raises the two argument errors -- unknown document, unknown
+                # criterion -- *before* there is one to fail, and this row was
+                # already queued. Without this it would sit at `queued` until
+                # the next restart reconciled it.
+                store.fail_analysis(conn, job.analysis_id, f"{type(exc).__name__}: {exc}")
             else:
                 job.finish(report)
             finally:
@@ -357,4 +508,4 @@ class JobRunner:
         return tuple(cid for cid in everything if cid in wanted)
 
 
-__all__ = ["JobRunner", "JobState"]
+__all__ = ["JobRunner", "JobState", "detail_of", "summaries_for", "summary_of"]

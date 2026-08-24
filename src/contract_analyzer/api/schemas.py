@@ -119,7 +119,12 @@ class SectionOut(BaseModel):
 # Analyses
 # --------------------------------------------------------------------------
 
-JobStatus = Literal["queued", "running", "done", "failed", "cancelled"]
+#: `interrupted` is not a flavour of `failed`: it is what a row left `running`
+#: by a process that went away reads as after the next startup reconciles it.
+#: The model refusing and the machine going away want different KPI treatment
+#: and different copy -- "this analysis failed" against "this analysis was
+#: interrupted; run it again".
+JobStatus = Literal["queued", "running", "done", "failed", "cancelled", "interrupted"]
 
 
 class AnalyzeRequest(BaseModel):

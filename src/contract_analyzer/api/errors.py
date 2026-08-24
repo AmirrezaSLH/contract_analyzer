@@ -74,8 +74,7 @@ def analysis_not_found(analysis_id: str) -> ApiError:
         status.HTTP_404_NOT_FOUND,
         "analysis_not_found",
         f"No analysis with id {analysis_id}.",
-        "Call GET /analyses?document_id=... to list the analyses of one document. "
-        "Analyses are held in memory and do not survive a restart of the server.",
+        "Call GET /analyses?document_id=... to list the analyses of one document.",
     )
 
 

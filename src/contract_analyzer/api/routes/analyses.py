@@ -11,6 +11,13 @@ thirty seconds: an unknown `document_id` or criterion id, and a missing answer
 key. `get_client` raising `AnswerUnavailable` on the pool thread would mean a
 `202` followed by a job that fails immediately, which is a worse answer than an
 error.
+
+**Reads are the live job first, the stored row second.** An analysis running in
+this process has a stage, a progress table and a stream; one from a previous
+boot, from `make analyze` or from another worker has a row and a report. The
+first two operations here need the live handle and say so when they do not have
+it -- `cancel` cannot set a flag it does not own, `events` cannot fan out a
+stream that lives in another process -- while `GET` answers from either.
 """
 
 from __future__ import annotations
@@ -20,10 +27,13 @@ from typing import Annotated
 from fastapi import APIRouter, Header, Query, Request, Response, status
 from sse_starlette.sse import EventSourceResponse
 
+from ...analyses import get_analysis
+from ...db import get_db
 from ...documents import get_document
 from ...logger import current_trace_id, get_logger
 from ..deps import ClientDep, ConnDep, Protected, RunnerDep, SettingsDep
 from ..errors import ApiError, analysis_not_found, document_not_found, no_api_key
+from ..jobs import detail_of, summaries_for
 from ..schemas import (
     Analysis,
     AnalysisSummary,
@@ -56,7 +66,8 @@ def submit(
     client: ClientDep,
     idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
 ) -> AnalysisSummary:
-    if get_document(conn, body.document_id) is None:
+    document = get_document(conn, body.document_id)
+    if document is None:
         raise document_not_found(body.document_id)
     if client is None:
         raise no_api_key()
@@ -82,38 +93,54 @@ def submit(
             )
             return existing.summary()
 
-    job = runner.submit(body.document_id, criteria, trace_id=current_trace_id() or "")
+    # The request's connection, not one of the runner's: `queue_analysis` is a
+    # single INSERT on this thread, and the worker's connection does not exist
+    # yet. `filename` is denormalised onto the row so a report outlives the
+    # document it was run against.
+    job = runner.submit(
+        conn,
+        body.document_id,
+        criteria,
+        trace_id=current_trace_id() or "",
+        filename=document.filename,
+    )
     return job.summary()
 
 
 @router.get(
     "",
     summary="One document's analyses, newest first",
-    description="`document_id` is required: a global list is a KPI question, and "
-                "`/metrics/runs` is where it belongs.",
+    description="Live and stored analyses merged, so a run from a previous boot or from "
+                "`make analyze` is listed too. `document_id` is required: a global list is "
+                "a KPI question, and `/metrics/runs` is where it belongs.",
 )
-def index(runner: RunnerDep, document_id: Annotated[int, Query()]) -> list[AnalysisSummary]:
-    return [job.summary() for job in runner.list(document_id)]
+def index(
+    conn: ConnDep, runner: RunnerDep, document_id: Annotated[int, Query()]
+) -> list[AnalysisSummary]:
+    return summaries_for(runner, conn, document_id)
 
 
 @router.get(
     "/{analysis_id}",
     summary="An analysis, with its report once it is done",
-    description="`detail=summary` omits quotes and rationale -- the MCP default, because a "
-                "full report is a lot of context to put in a model's window.",
+    description="Answered from the live job when this process is running it, and from the "
+                "stored record otherwise -- a finished analysis returns its report after a "
+                "restart. `detail=summary` omits quotes and rationale -- the MCP default, "
+                "because a full report is a lot of context to put in a model's window.",
 )
 def detail(
     analysis_id: str,
+    conn: ConnDep,
     runner: RunnerDep,
     detail: Annotated[Detail, Query()] = "full",
 ) -> Analysis:
     job = runner.get(analysis_id)
-    if job is None:
+    if job is not None:
+        return job.detail(_trim(job.report, detail))
+    record = get_analysis(conn, analysis_id)
+    if record is None:
         raise analysis_not_found(analysis_id)
-    report = job.report
-    if report is not None and detail == "summary":
-        report = summarise_report(report)
-    return job.detail(report)
+    return detail_of(record, _trim(record.report(), detail))
 
 
 @router.post(
@@ -126,17 +153,17 @@ def detail(
         "the agent loop between tool calls, which this API does not do."
     ),
 )
-def cancel(analysis_id: str, runner: RunnerDep) -> AnalysisSummary:
+def cancel(analysis_id: str, conn: ConnDep, runner: RunnerDep) -> AnalysisSummary:
     job = runner.get(analysis_id)
     if job is None:
-        raise analysis_not_found(analysis_id)
+        raise _not_here(get_analysis(conn, analysis_id) is not None, analysis_id, "cancelled")
     if job.status not in ("queued", "running"):
         raise ApiError(
             status.HTTP_409_CONFLICT,
             "not_running",
             f"Analysis {analysis_id} is already {job.status}.",
         )
-    runner.cancel(job)
+    runner.cancel(conn, job)
     return job.summary()
 
 
@@ -154,7 +181,15 @@ def cancel(analysis_id: str, runner: RunnerDep) -> AnalysisSummary:
 def events(analysis_id: str, request: Request, runner: RunnerDep, settings: SettingsDep):
     job = runner.get(analysis_id)
     if job is None:
-        raise analysis_not_found(analysis_id)
+        # No `ConnDep` on this route: `deps.py` is explicit that a streaming
+        # response must not hold a per-request connection, and an SSE stream is
+        # open for the length of the analysis. The one lookup this path needs
+        # gets its own connection and closes it here.
+        conn = get_db(settings)
+        try:
+            raise _not_here(get_analysis(conn, analysis_id) is not None, analysis_id, "streamed")
+        finally:
+            conn.close()
 
     def stream():
         for event in job.events.subscribe():
@@ -164,4 +199,30 @@ def events(analysis_id: str, request: Request, runner: RunnerDep, settings: Sett
         stream(),
         ping=int(settings.api_keepalive_seconds),
         headers={"X-Trace-Id": job.trace_id} if job.trace_id else None,
+    )
+
+
+def _trim(report, detail: Detail):
+    """`?detail=summary` without the quotes and the rationale. A copy: the
+    runner's report is the one every other reader of this job holds."""
+    return summarise_report(report) if report is not None and detail == "summary" else report
+
+
+def _not_here(stored: bool, analysis_id: str, verb: str) -> ApiError:
+    """404 for an id nobody has, 409 for one this process does not own.
+
+    Cancelling and streaming both need the live handle -- a `threading.Event`
+    and a `Broadcast`, neither of which crosses a process. An analysis that
+    exists on disk but not in this worker's dict is therefore a conflict, not a
+    missing resource, and saying so is better than a 404 that contradicts the
+    `GET` the client just made.
+    """
+    if not stored:
+        return analysis_not_found(analysis_id)
+    return ApiError(
+        status.HTTP_409_CONFLICT,
+        "not_live_here",
+        f"Analysis {analysis_id} is not running in this process, so it cannot be {verb}.",
+        f"Poll GET /analyses/{analysis_id} for its state and its report. Streaming and "
+        "cancellation are per-process; see docs/api.md.",
     )

@@ -23,6 +23,7 @@ from typing import Annotated
 from fastapi import APIRouter, File, Response, UploadFile, status
 from starlette.concurrency import run_in_threadpool
 
+from ...analyses import live_analyses
 from ...documents import (
     delete_document,
     document_sections,
@@ -33,6 +34,7 @@ from ...documents import (
 from ...ingest.pipeline import ingest_file
 from ..deps import ConnDep, EmbedderDep, Protected, RunnerDep, SettingsDep
 from ..errors import ApiError, document_not_found, from_ingest_error
+from ..jobs import summaries_for
 from ..schemas import DocumentDetail, DocumentOut, SectionOut, UploadOut
 from ..uploads import require_pdf, save_upload, stored_path
 
@@ -113,8 +115,10 @@ def detail(document_id: int, conn: ConnDep, runner: RunnerDep) -> DocumentDetail
     if document is None:
         raise document_not_found(document_id)
     return DocumentDetail(
+        # The same merge `GET /analyses` uses, from the same function, so the
+        # two lists cannot disagree about a document's history.
         **_out(document).model_dump(),
-        analyses=[job.summary() for job in runner.list(document_id)],
+        analyses=summaries_for(runner, conn, document_id),
     )
 
 
@@ -134,11 +138,17 @@ def sections(document_id: int, conn: ConnDep) -> list[SectionOut]:
     "/{document_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Remove a contract, its chunks, its vectors and its file",
+    description="The analyses of this contract and their reports are kept: the report is "
+                "the deliverable and it is self-contained. Refused with `409` while an "
+                "analysis of it is still queued or running, in this process or another.",
 )
-def remove(document_id: int, conn: ConnDep, settings: SettingsDep, runner: RunnerDep) -> Response:
+def remove(document_id: int, conn: ConnDep, settings: SettingsDep) -> Response:
     if get_document(conn, document_id) is None:
         raise document_not_found(document_id)
-    running = [j for j in runner.list(document_id) if j.status in ("queued", "running")]
+    # A query rather than a look in this worker's job dict, so a run started by
+    # another worker -- or by `make analyze` against the same database -- also
+    # blocks the delete.
+    running = live_analyses(conn, document_id)
     if running:
         raise ApiError(
             status.HTTP_409_CONFLICT,
@@ -146,6 +156,9 @@ def remove(document_id: int, conn: ConnDep, settings: SettingsDep, runner: Runne
             f"Analysis {running[0].analysis_id} is still running on this document.",
             "Cancel it with POST /analyses/{analysis_id}/cancel, or wait for it to finish.",
         )
+    # The analyses are deliberately left behind: `analyses.document_id` carries
+    # no foreign key, because the report is the deliverable and it is
+    # self-contained. See `analyses.py`.
     delete_document(conn, document_id, settings)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 

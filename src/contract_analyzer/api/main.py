@@ -12,6 +12,12 @@ than raced for by the first two concurrent requests -- and closed on the way
 out. The job runner owns the thread pool, and shutting it down is what stops a
 reload from leaving analyses running against a closed database.
 
+It also **reconciles the analysis record** before the first request: a process
+that was killed mid-run left rows saying `running`, and nothing else will ever
+close them. They become `interrupted` -- not `failed`, because nothing refused
+-- so a client polling one is told to run it again instead of waiting for a
+worker that no longer exists.
+
 **Neither key is required to start.** An API that refuses to boot without an
 answer key is an API that cannot serve `/health`, `/criteria` or an upload,
 which is most of what a keyless demo wants. The client and the embedder are
@@ -34,7 +40,9 @@ from typing import Any
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
+from ..analyses import reconcile
 from ..config import Settings, get_settings
+from ..db import get_db
 from ..embeddings.base import EmbedderUnavailable, get_embedder
 from ..generation.client import AnswerUnavailable, get_client
 from ..http_client import get_http_client
@@ -111,6 +119,11 @@ def create_app(
         app.state.embedder = embedder if embedder is not None else _embedder(settings)
         app.state.client = client if client is not None else _client(settings)
         app.state.runner = JobRunner(settings, app.state.embedder, app.state.client)
+        # Before anything is served: rows a killed process left at `queued` or
+        # `running` are not outcomes, and a client polling one would wait for a
+        # worker that no longer exists. Its own connection, opened and closed
+        # here, because the request pool is not accepting yet.
+        interrupted = _reconcile(settings)
         log.info(
             "api.startup",
             extra={
@@ -120,6 +133,7 @@ def create_app(
                 "key_present": bool(settings.anthropic_key),
                 "auth_required": bool(settings.api_key_value),
                 "api_workers": settings.api_workers,
+                "interrupted": interrupted,
             },
         )
         try:
@@ -167,6 +181,22 @@ def create_app(
     for module in (health, documents, analyses, chat, metrics):
         app.include_router(module.router, responses=ERROR_RESPONSES)
     return app
+
+
+def _reconcile(settings: Settings) -> int:
+    """Close out analyses a previous process died holding. Never fatal: an API
+    that will not start because it could not tidy up is worse than one that
+    starts with a stale row, and `GET /health` already reports a database it
+    cannot open."""
+    try:
+        conn = get_db(settings)
+    except Exception as exc:  # noqa: BLE001 - reported, not fatal
+        log.warning("api.reconcile_failed", extra={"error": str(exc)})
+        return 0
+    try:
+        return reconcile(conn)
+    finally:
+        conn.close()
 
 
 def _embedder(settings: Settings):

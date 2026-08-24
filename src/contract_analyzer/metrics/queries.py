@@ -389,6 +389,95 @@ def runs(conn: sqlite3.Connection, *, limit: int = 50) -> list[dict[str, Any]]:
     return [dict(row) for row in conn.execute(_RUNS, (int(limit),))]
 
 
+#: `criterion_results` from the reports already on disk. `INSERT OR IGNORE`, so
+#: rows `finish_analysis` wrote live are left exactly as they are and only the
+#: history predating the table is filled in -- which is the whole reason this
+#: table could land last without losing anything.
+_BACKFILL = """
+INSERT OR IGNORE INTO criterion_results (
+    run_id, criterion_id, state, confidence, raw_confidence, needs_review,
+    ended_by, structure_rounds, tool_calls, cost_usd, quotes_total,
+    quotes_verified, latency_s
+)
+SELECT a.analysis_id,
+       json_extract(r.value, '$.criterion_id'),
+       json_extract(r.value, '$.compliance_state'),
+       json_extract(r.value, '$.confidence'),
+       json_extract(r.value, '$.raw_confidence'),
+       json_extract(r.value, '$.needs_review'),
+       json_extract(r.value, '$.ended_by'),
+       json_extract(r.value, '$.structure_rounds'),
+       json_extract(r.value, '$.tool_calls'),
+       json_extract(r.value, '$.cost_usd'),
+       json_array_length(json_extract(r.value, '$.relevant_quotes')),
+       (SELECT count(*)
+          FROM json_each(json_extract(r.value, '$.relevant_quotes')) q
+         WHERE json_extract(q.value, '$.verified') = 1),
+       json_extract(r.value, '$.latency_s')
+  FROM analyses a
+  JOIN json_each(a.report_json, '$.results') r
+ WHERE a.report_json IS NOT NULL
+   AND json_extract(r.value, '$.criterion_id') IS NOT NULL
+"""
+
+#: State mix and confidence per criterion, joined to `analyses` for the window
+#: bound. This is the drift question -- the same contract coming back with a
+#: different state -- and "which criterion drags the confidence down", neither
+#: of which `analyses` can answer without mining every report.
+_CRITERION_MIX = """
+SELECT c.criterion_id,
+       c.state,
+       count(*)              AS runs,
+       avg(c.confidence)     AS confidence,
+       avg(c.raw_confidence) AS raw_confidence,
+       sum(c.needs_review)   AS needs_review,
+       sum(c.ended_by = 'cap') AS capped
+  FROM criterion_results c
+  JOIN analyses a ON a.analysis_id = c.run_id
+ WHERE a.created_at >= ?
+ GROUP BY c.criterion_id, c.state
+ ORDER BY c.criterion_id, runs DESC
+"""
+
+
+def backfill_criteria(conn: sqlite3.Connection) -> int:
+    """Fill `criterion_results` from the reports already stored. Returns rows.
+
+    `json_each` over `report_json`, the same trick the library's document list
+    uses on `last_analysis`. It is what lets this table land after the runs it
+    describes: nothing had to be re-run, and nothing already written is
+    touched.
+    """
+    with conn:
+        cursor = conn.execute(_BACKFILL)
+    return cursor.rowcount
+
+
+def criterion_mix(
+    conn: sqlite3.Connection, *, window: str = "30d", now: datetime | None = None
+) -> list[dict[str, Any]]:
+    """Per criterion: how its verdicts came out, and how confident they were.
+
+    Not on the dashboard's first cut -- five criteria times three states is
+    fifteen numbers, which is a drill-down and not a tile. Queryable is the
+    point: the same file hash flipping state is drift, and the gap between
+    `raw_confidence` and `confidence` is the calibration story.
+    """
+    since = windows.since(window, now=now or datetime.now(UTC))
+    return [
+        {
+            "criterion_id": row["criterion_id"],
+            "state": row["state"],
+            "runs": int(row["runs"]),
+            "confidence": _round(row["confidence"], 4),
+            "raw_confidence": _round(row["raw_confidence"], 4),
+            "needs_review": int(row["needs_review"] or 0),
+            "capped": int(row["capped"] or 0),
+        }
+        for row in conn.execute(_CRITERION_MIX, (since,))
+    ]
+
+
 def spans(conn: sqlite3.Connection, run_id: str) -> list[dict[str, Any]]:
     """One run's spans as a tree of roots, each carrying its `children`.
 
@@ -491,4 +580,12 @@ def _round(value: Any, places: int) -> float | None:
     return None if value is None else round(float(value), places)
 
 
-__all__ = ["SETTLED", "runs", "spans", "summary", "timeseries"]
+__all__ = [
+    "SETTLED",
+    "backfill_criteria",
+    "criterion_mix",
+    "runs",
+    "spans",
+    "summary",
+    "timeseries",
+]

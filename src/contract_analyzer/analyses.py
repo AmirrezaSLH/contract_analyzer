@@ -241,7 +241,68 @@ def finish_analysis(
                 analysis_id,
             ),
         )
+    # After the run's own row, and never able to fail it: the report is the
+    # deliverable and the per-criterion table is history about it.
+    record_criteria(conn, analysis_id, report)
     return cursor.rowcount > 0
+
+
+#: The per-criterion table, written beside the run's own row. Its DDL lives in
+#: `metrics/metrics.sql` -- it is telemetry, not a domain object -- which is
+#: why this INSERT is guarded rather than assumed: a process that never built a
+#: metrics store has no such table, and an analysis must not fail to record
+#: itself because nobody asked for a dashboard.
+_CRITERION_RESULTS = """
+INSERT OR REPLACE INTO criterion_results (
+    run_id, criterion_id, state, confidence, raw_confidence, needs_review,
+    ended_by, structure_rounds, tool_calls, cost_usd, quotes_total,
+    quotes_verified, latency_s
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+"""
+
+
+def record_criteria(
+    conn: sqlite3.Connection, analysis_id: str, report: AnalysisReport
+) -> int:
+    """One row per criterion of this run, for the state-mix and drift queries.
+
+    Called by `finish_analysis`, which is already holding the report: the
+    alternative is mining `report_json` with `json_each` on every query, or a
+    backfill later. Rows are `INSERT OR REPLACE`, so a backfill over old
+    reports is the same statement.
+
+    **A missing table is not an error here.** `criterion_results` is created by
+    the metrics store, and this module must not import it -- storage does not
+    depend on telemetry. A process that never built a store simply records no
+    per-criterion history, and says so at debug level.
+    """
+    rows = [
+        (
+            analysis_id,
+            result.criterion_id,
+            result.compliance_state,
+            result.confidence,
+            result.raw_confidence,
+            int(result.needs_review),
+            result.ended_by,
+            result.structure_rounds,
+            result.tool_calls,
+            result.cost_usd,
+            len(result.relevant_quotes),
+            sum(1 for quote in result.relevant_quotes if quote.verified),
+            result.latency_s,
+        )
+        for result in report.results
+    ]
+    if not rows:
+        return 0
+    try:
+        with conn:
+            conn.executemany(_CRITERION_RESULTS, rows)
+    except sqlite3.OperationalError as exc:
+        log.debug("analyses.criteria_unrecorded", extra={"error": str(exc)})
+        return 0
+    return len(rows)
 
 
 def fail_analysis(conn: sqlite3.Connection, analysis_id: str, error: str) -> bool:
@@ -421,4 +482,5 @@ __all__ = [
     "mark_running",
     "queue_analysis",
     "reconcile",
+    "record_criteria",
 ]

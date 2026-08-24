@@ -65,3 +65,48 @@ CREATE TABLE IF NOT EXISTS spans (
 CREATE INDEX IF NOT EXISTS idx_spans_run ON spans (run_id);
 CREATE INDEX IF NOT EXISTS idx_spans_trace ON spans (trace_id);
 CREATE INDEX IF NOT EXISTS idx_spans_name_ts ON spans (name, ts);
+
+-- One row per criterion per run: the grain between `analyses` (one row per
+-- run) and `spans` (one row per step). Written by `finish_analysis` from the
+-- report it is already holding, and backfillable from `report_json` with
+-- json_each, so it can land late without losing history.
+--
+-- What it is for is the question `report_json` answers badly: **the same file
+-- hash coming back with a different compliance state is drift**, and finding
+-- that in a blob means mining every report on every query. It is also the raw
+-- material of the calibration story -- `raw_confidence`, the model's own
+-- estimate, against the derived `confidence`, per criterion, over many runs.
+--
+-- Not on the dashboard's first cut. Queryable is enough.
+--
+-- The primary key is (run_id, criterion_id): a criterion is analysed once per
+-- run, and re-running one is a new run. No foreign key, for the same reason
+-- `spans` has none.
+CREATE TABLE IF NOT EXISTS criterion_results (
+    run_id           TEXT    NOT NULL,
+    criterion_id     TEXT    NOT NULL,
+    -- 'Fully Compliant' | 'Partially Compliant' | 'Non-Compliant'.
+    state            TEXT,
+    -- The derived confidence, already cut by the verify ratio and by missing
+    -- sub-requirements, and the model's own raw estimate beside it. The gap
+    -- between the two over many runs is the calibration story.
+    confidence       REAL,
+    raw_confidence   REAL,
+    needs_review     INTEGER,
+    -- 'stop' when the model finished, 'cap' when a counter stopped it.
+    ended_by         TEXT,
+    structure_rounds INTEGER,
+    tool_calls       INTEGER,
+    cost_usd         REAL,
+    quotes_total     INTEGER,
+    quotes_verified  INTEGER,
+    latency_s        REAL,
+    -- Declared now, NULL until the evaluator lands. The same argument as the
+    -- evaluator_* trio on `analyses`: declaring a column costs nothing and
+    -- removes an ALTER TABLE from the middle of a later step.
+    evaluator_verdict TEXT,
+    PRIMARY KEY (run_id, criterion_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_criterion_results_criterion
+    ON criterion_results (criterion_id);

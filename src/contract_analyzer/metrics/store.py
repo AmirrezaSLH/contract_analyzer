@@ -131,6 +131,27 @@ class MetricsStore:
         """One run's spans as a tree, for the waterfall."""
         return queries.spans(conn, run_id)
 
+    def criterion_mix(
+        self, conn: sqlite3.Connection, *, window: str = "30d"
+    ) -> list[dict[str, Any]]:
+        """State mix and confidence per criterion -- the drift signal.
+
+        Deliberately not an endpoint: `00_README.md` defers per-criterion state
+        mix off the dashboard's first cut, and five criteria times three states
+        is a drill-down rather than a tile. Queryable is what phase 3 promised.
+        """
+        return queries.criterion_mix(conn, window=window)
+
+    def backfill_criteria(self, conn: sqlite3.Connection) -> int:
+        """Fill `criterion_results` from reports already on disk. Returns rows.
+
+        Why the table could land last: `json_each` over `report_json` recovers
+        every run that predates it, and rows already written are left alone.
+        """
+        rows = queries.backfill_criteria(conn)
+        log.info("metrics.backfilled", extra={"criterion_results": rows})
+        return rows
+
     def prune(self, conn: sqlite3.Connection, before: str) -> int:
         """Delete spans older than an ISO-8601 timestamp. Returns how many.
 

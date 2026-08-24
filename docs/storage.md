@@ -23,8 +23,9 @@ width at creation.
 line is that **this schema holds *what happened* and the metrics store holds
 *how it went***: an analysis is a domain object exactly as a document is, it is
 the deliverable a client comes back for, and putting it here means the API's
-storage never depends on the metrics module. `spans` is the other side of that
-line: it is in `metrics/metrics.sql`, applied by the metrics store on **this
+storage never depends on the metrics module. `spans` and
+`criterion_results` are the other side of that line: they are in
+`metrics/metrics.sql`, applied by the metrics store on **this
 same database file** -- two DDL files, one store, see [metrics.md](metrics.md).
 It has to be a second file for a mechanical reason too, since `db.py` runs this
 one through `str.format(dim=...)` and span DDL contains braces.

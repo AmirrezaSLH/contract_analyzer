@@ -220,7 +220,34 @@ alone. There is no retention policy for the demo, and this has never been run
 in anger; it exists so that "what happens when the table grows" has an answer
 that is not "nobody thought about it".
 
-## Still to come
+## Phase 3: `criterion_results`
 
-* **Phase 3, `criterion_results`** — state mix per criterion over time, the
-  drift signal, without mining `report_json`.
+One row per criterion per run — the grain between `analyses` (one row per run)
+and `spans` (one row per step). `finish_analysis` writes it from the report it
+is already holding, so there is no second pass and no second source of truth;
+the columns are `state`, `confidence`, `raw_confidence`, `needs_review`,
+`ended_by`, `structure_rounds`, `tool_calls`, `cost_usd`, `quotes_total`,
+`quotes_verified`, `latency_s`, and an `evaluator_verdict` that is `NULL` until
+the evaluator lands.
+
+It answers the two questions `report_json` answers badly:
+
+* **Drift** — the same file hash coming back with a different compliance
+  state. Finding that in a blob means mining every report on every query.
+* **Calibration** — `raw_confidence` (the model's own estimate) against the
+  derived `confidence`, per criterion, over many runs.
+
+**The write is guarded.** `criterion_results` is created by the metrics store,
+and `analyses.py` must not import `metrics` — storage does not depend on
+telemetry. A process that never built a store records no per-criterion history
+and logs that at debug level; an analysis never fails to record itself because
+nobody asked for a dashboard.
+
+**Backfillable.** `MetricsStore.backfill_criteria(conn)` fills the table from
+reports already on disk with `json_each`, `INSERT OR IGNORE`, which is why this
+table could land last without losing history.
+
+**Not on the dashboard.** Five criteria times three states is fifteen numbers —
+a drill-down, not a tile. `MetricsStore.criterion_mix(conn, window=…)` is the
+query; there is no endpoint, because `00_README.md` defers it off the first
+cut. Queryable is what this phase promised.

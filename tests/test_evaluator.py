@@ -117,10 +117,11 @@ def test_a_missing_verdict_that_was_searched_for_is_not_flagged():
 def test_the_coverage_check_looks_for_what_separates_a_sub_requirement_from_its_siblings():
     """Every sub-requirement here contains "password". If the check accepted any
     shared word it would call all of them searched and never fire at all."""
-    assert EV.distinctive_terms(CRITERION, "vaulting") == {
-        "privileg", "credential", "held", "vault",
-    }
-    assert "password" not in EV.distinctive_terms(CRITERION, "vaulting")
+    terms = EV.distinctive_terms(
+        CRITERION.requirement, CRITERION.sub_requirements, "vaulting"
+    )
+    assert terms == {"privileg", "credential", "held", "vault"}
+    assert "password" not in terms
 
 
 @pytest.mark.parametrize(
@@ -140,7 +141,10 @@ def test_search_coverage_survives_the_shapes_the_same_word_takes(requirement, qu
         sub_requirements=(SubRequirement("only", requirement),),
         states=("Fully Compliant",),
     )
-    assert EV.searched_for(EV.distinctive_terms(criterion, "only"), [query]) is searched
+    assert EV.searched_for(
+        EV.distinctive_terms(criterion.requirement, criterion.sub_requirements, "only"),
+        [query],
+    ) is searched
 
 
 def test_a_hedged_quote_under_a_met_status_reaches_the_critic_flagged():

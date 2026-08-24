@@ -48,6 +48,7 @@ from __future__ import annotations
 import json
 import re
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -174,7 +175,10 @@ def _stem(word: str) -> str:
     return word
 
 
-def _tokens(text: str) -> set[str]:
+def content_terms(text: str) -> set[str]:
+    """The stemmed content words of a string -- what two texts can be said to
+    share. Public because the Router's cross-criterion pass compares quotes
+    against sub-requirements with the same notion of "mentions"."""
     return {
         _stem(w)
         for w in _WORD.findall(text.casefold())
@@ -182,7 +186,9 @@ def _tokens(text: str) -> set[str]:
     }
 
 
-def distinctive_terms(criterion: Criterion, sub_requirement_id: str) -> set[str]:
+def distinctive_terms(
+    requirement: str, sub_requirements: Sequence[Any], sub_requirement_id: str
+) -> set[str]:
     """The words that separate this sub-requirement from its siblings.
 
     Plain token overlap does not work here, and finding that out is the point.
@@ -198,13 +204,13 @@ def distinctive_terms(criterion: Criterion, sub_requirement_id: str) -> set[str]
     is one this check cannot speak about, and a silent `False` there would be
     an accusation rather than a fact.
     """
-    per_sub = {sub.id: _tokens(sub.requirement) for sub in criterion.sub_requirements}
+    per_sub = {sub.id: content_terms(sub.requirement) for sub in sub_requirements}
     mine = per_sub.get(sub_requirement_id, set())
     siblings: set[str] = set()
     for other_id, tokens in per_sub.items():
         if other_id != sub_requirement_id:
             siblings |= tokens
-    return (mine - siblings - _tokens(criterion.requirement)) or mine
+    return (mine - siblings - content_terms(requirement)) or mine
 
 
 def searched_for(terms: set[str], queries: list[str]) -> bool:
@@ -217,7 +223,7 @@ def searched_for(terms: set[str], queries: list[str]) -> bool:
     """
     if not terms:
         return True
-    return any(terms & _tokens(query) for query in queries)
+    return any(terms & content_terms(query) for query in queries)
 
 
 def unsearched(criterion: Criterion, request: EvaluationRequest) -> list[str]:
@@ -230,7 +236,10 @@ def unsearched(criterion: Criterion, request: EvaluationRequest) -> list[str]:
         sub.id
         for sub in request.sub_requirements
         if sub.status == "missing"
-        and not searched_for(distinctive_terms(criterion, sub.id), request.searched_queries)
+        and not searched_for(
+            distinctive_terms(criterion.requirement, criterion.sub_requirements, sub.id),
+            request.searched_queries,
+        )
     ]
 
 
@@ -456,6 +465,7 @@ __all__ = [
     "HEDGE_TERMS",
     "Evaluation",
     "EvaluationFailed",
+    "content_terms",
     "distinctive_terms",
     "evaluate",
     "hedge_terms",

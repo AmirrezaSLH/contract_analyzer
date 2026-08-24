@@ -71,6 +71,11 @@ RETRY_STOPS = frozenset({"max_tokens", "refusal"})
 CONFIDENCE_FLOOR, CONFIDENCE_CEILING = 0.05, 0.95
 REVIEW_CAP = 0.5
 
+#: What the score is multiplied by when the critic reads the evidence as a
+#: different compliance state. Not zero: two careful readers disagreeing means
+#: the answer is uncertain, not that the analyst's is wrong.
+STATE_DISAGREEMENT = 0.6
+
 
 class AnalysisFailed(RuntimeError):
     """The finisher could not obtain a draft at all (truncated or refused twice)."""
@@ -470,23 +475,62 @@ def compute_confidence(
     total: int,
     needs_review: bool,
     ended_by: str,
+    critic: float | None = None,
+    support_ratio: float | None = None,
+    state_agreed: bool = True,
 ) -> tuple[float, dict[str, float]]:
-    """confidence = raw x (verified/claimed) x (1 - not_determined/total),
-    capped at 0.5 on `needs_review` or a capped run, clamped to [0.05, 0.95]."""
+    """A heuristic score, each term a sentence, every term stored.
+
+        confidence = min(raw, critic)                 two estimates, take the pessimist
+                   x quote_term                       did the evidence carry the claim
+                   x (1 - not_determined / total)     how much of the criterion was settled
+                   x (1.0 if the critic agrees on the state else 0.6)
+
+    capped at 0.5 when the result needs review or a counter ended the run,
+    clamped to [0.05, 0.95] because nothing here is certain either way.
+
+    **This is not a calibrated probability and the UI must not call it one.**
+    Calibration is a property measured over labelled results; until those
+    labels exist no formula is calibrated, whatever it looks like. What this
+    function does instead is keep every term separately in
+    `confidence_components`, so a later phase can fit the *combination*
+    against real labels without changing the schema or re-running anything.
+    See `plan_implement_docs/AGENT_PLAN_01/05_confidence_plan.md`.
+
+    The critic's terms are optional so the old three-term call still works:
+    a result with no critic keeps the analyst's estimate, which is what it
+    always was, and its components say so by omitting the critic keys.
+
+    `quote_term` is the critic's *support* ratio when there is one, and the
+    verbatim ratio otherwise. Verbatim-ness was always a proxy for support --
+    it is what could be checked without a reader. Now that a reader judges
+    support directly, the proxy steps aside; it stays a hard gate upstream in
+    `validate.py`, where a non-verbatim quote is dropped before it can be
+    judged at all.
+    """
     raw = min(1.0, max(0.0, raw))
-    quote_term = verified / claimed if claimed else 1.0
+    verbatim_ratio = verified / claimed if claimed else 1.0
+    quote_term = verbatim_ratio if support_ratio is None else support_ratio
     coverage = 1.0 - not_determined / total if total else 1.0
-    value = raw * quote_term * coverage
+    estimate = raw if critic is None else min(raw, min(1.0, max(0.0, critic)))
+    agreement = 1.0 if state_agreed else STATE_DISAGREEMENT
+    value = estimate * quote_term * coverage * agreement
     capped = needs_review or ended_by == "cap"
     if capped:
         value = min(value, REVIEW_CAP)
     value = min(CONFIDENCE_CEILING, max(CONFIDENCE_FLOOR, value))
-    return round(value, 3), {
+    components = {
         "raw": raw,
         "quote_term": round(quote_term, 3),
         "coverage": round(coverage, 3),
         "cap": REVIEW_CAP if capped else 1.0,
     }
+    if critic is not None:
+        # Present only when a critic actually spoke, so the components can
+        # never be read as "the critic agreed" about a run nobody criticised.
+        components["critic"] = round(min(1.0, max(0.0, critic)), 3)
+        components["agreement"] = agreement
+    return round(value, 3), components
 
 
 __all__ = [

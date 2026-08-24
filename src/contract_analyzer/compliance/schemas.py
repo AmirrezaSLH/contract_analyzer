@@ -270,6 +270,10 @@ class ComplianceResult(BaseModel):
     #: Revision rounds the Router spent after the first analysis. 0 means the
     #: first draft was accepted (or was never revised).
     rounds: int = 0
+    #: What the critic's own call cost, kept apart from the analysis cost so
+    #: the KPI page can answer "what share of the bill is criticism" without
+    #: re-deriving it from logs. Included in `cost_usd`, not additional to it.
+    evaluator_cost_usd: float = 0.0
     #: The critic's findings, stored whatever the Router decided -- including
     #: on `accept`, so the UI can show why the confidence is what it is and
     #: the KPI page computes agreement rates from results rather than logs.

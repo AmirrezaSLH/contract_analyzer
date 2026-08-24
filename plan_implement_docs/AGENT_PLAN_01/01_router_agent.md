@@ -1,5 +1,7 @@
 # Router Agent — design
 
+**Status: implemented** in `generation/router.py`. Deviations from this design — `build_evaluation_request` rather than a classmethod, disputed statuses blocking `accept`, and a different (computable) cross-criterion check — are recorded in [06_build_report.md](06_build_report.md) §2, §6, §7.
+
 **Role.** The orchestrator. For each criterion it: builds the task,
 invokes the Analyzer, receives the result, packages result-plus-evidence
 as JSON for the Evaluator, receives structured findings, decides

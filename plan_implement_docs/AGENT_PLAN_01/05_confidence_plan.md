@@ -1,5 +1,7 @@
 # Confidence — score, calibration, and intervals: a plan
 
+**Status: Phase A implemented**; Phases B, C and D are not started. The formula, the stored components and the honest "uncalibrated" naming shipped with the three agents; `docs/agents/confidence.md` is the user-facing version and names the gate on each later phase.
+
 **Why this doc exists.** "Confidence" hides three different ideas, and the
 assignment (§3.2 "confidence calibration", §7 "a calibrated confidence
 score") plus the KPI requirement touch all three. This doc separates them,
@@ -35,7 +37,10 @@ What exists after AGENT_PLAN_01 lands (master plan §5):
 ```
 confidence = min(raw_confidence, critic_confidence)        # two independent estimates,
                                                            # take the pessimist
-           × supporting_quotes / claimed_quotes            # evidence actually supports
+           × support_ratio                                 # evidence actually supports;
+                                                           # supports=1, partial=0.5,
+                                                           # irrelevant/contradicts=0,
+                                                           # per (quote, sub-requirement)
            × (1 − not_determined / total)                  # coverage of sub-requirements
            × (1.0 if critic agrees on state else 0.6)
 capped at 0.5 on fallback / unevaluated / ended_by == "cap"

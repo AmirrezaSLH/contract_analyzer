@@ -1,5 +1,7 @@
 # How the current system changes
 
+**Status: done**, except step 7's UI half. What actually landed, including the two database columns and the migration mechanism this file did not anticipate, is in [06_build_report.md](06_build_report.md).
+
 What lands where, what moves, what must not break, and the behaviour the
 demo will feel. Companion to the per-agent designs; file paths are the
 repo's today.

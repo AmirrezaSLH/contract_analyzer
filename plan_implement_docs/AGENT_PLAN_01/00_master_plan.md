@@ -1,6 +1,12 @@
 # AGENT_PLAN_01 — Master Plan: the three-agent architecture
 
-**Status: design, 2026-08-24.** Supersedes the single-evaluator sketch in
+**Status: implemented, 2026-08-24.** Built in seven commits, `e2e2844` through
+`d1f23ed`. What shipped matches this plan except where
+[06_build_report.md](06_build_report.md) says otherwise — read that file for
+the deviations and why each was made. Steps 7 (the UI half) and the whole of
+the confidence plan beyond Phase A are **not** done and are named there.
+
+Supersedes the single-evaluator sketch in
 `plan_implement_docs/04_02_evaluator_agent.md` where the two disagree; keeps
 its E1–E4 analysis where they do not. The decision this plan implements: the
 system has **three named agents** — a **Router** that orchestrates, an
@@ -70,7 +76,7 @@ JSON the Router sent to the Evaluator by grepping one span id in
 
 | Message | From → To | Carries |
 |---|---|---|
-| `AnalysisTask` | Router → Analyzer | criterion id, round number, optional `RevisionRequest` |
+| `Criterion` (+ `RevisionRequest` later) | Router → Analyzer | what to assess; on rounds ≥ 1, what was wrong with the last attempt. *(No `AnalysisTask` wrapper was built — see 06 §1.)* |
 | `AnalysisOutcome` | Analyzer → Router | `ComplianceResult`, the evidence ledger, the conversation handle (for cheap redraft rounds), run bookkeeping |
 | `EvaluationRequest` | Router → Evaluator | the result's claims + **only the cited evidence passages** + E1 facts (tool-call queries, hedge flags), round number |
 | `EvaluatorFindings` | Evaluator → Router | per-quote support, per-sub-requirement agreement, state agreement, `missing_searches`, `critic_confidence`, notes |
@@ -127,7 +133,9 @@ Composed by the Router at finalize, extending `compute_confidence`:
 
 ```
 confidence = min(raw_confidence, critic_confidence)
-             × (supporting_quotes / claimed_quotes)      # critic-judged support
+             × support_ratio                              # critic-judged support:
+                                                          # supports=1, partial=0.5,
+                                                          # per (quote, sub-requirement)
              × (1 − not_determined / total)              # coverage, as today
              × (1.0 if state agreed else 0.6)
 capped 0.5 on fallback / unevaluated / ended_by == "cap"; clamped [0.05, 0.95]
@@ -156,15 +164,15 @@ are the demo's evidence that the three agents are real and not a diagram.
 
 | Step | What | Depends on | Est. |
 |---|---|---|---|
-| 1 | Schemas: `EvaluatorFindings` + parts, `EvaluationRequest`, `RevisionRequest`; `ComplianceResult` gains `verdict`, `evaluator_findings`, `rounds` (defaults keep old reports parsing) | — | 1 h |
-| 2 | Analyzer seam: `AnalysisOutcome`, `redraft()` and `research()` entry points on the existing conversation/tools (02 §3) | 1 | 1.5 h |
-| 3 | Evaluator: E1 checks, `evaluator.system` / `evaluator.user` prompts, critic call, findings parse + one retry (03) | 1 | 2 h |
-| 4 | Router: `route_criterion`, decision policy, confidence composition, spans (01) | 2, 3 | 1.5 h |
-| 5 | Harness rewire: `report.py` calls the Router; cross-criterion pass fills `cross_criterion_notes` (already on the wire format) | 4 | 1 h |
-| 6 | Config (`evaluator_model/effort`, `router_max_rounds`, `research_extra_tool_calls`), `settings.json`, `REQUIRED_KEYS` | 3, 4 | 0.5 h |
-| 7 | API/SSE events, UI progress states, KPI tiles | 5 | 1.5 h |
-| 8 | Tests (`tests/test_router.py`, `tests/test_evaluator.py`, extend analysis tests) | 4 | 2 h |
-| 9 | Docs: `docs/agents.md` (the diagram above), README + slide-deck material | all | 1 h |
+| ✅ 1 | Schemas: `EvaluatorFindings` + parts, `EvaluationRequest`, `RevisionRequest`; `ComplianceResult` gains `verdict`, `evaluator_findings`, `rounds` (defaults keep old reports parsing) | — | 1 h |
+| ✅ 2 | Analyzer seam: `AnalysisOutcome`, `redraft()` and `research()` entry points on the existing conversation/tools (02 §3) | 1 | 1.5 h |
+| ✅ 3 | Evaluator: E1 checks, `evaluator.system` / `evaluator.user` prompts, critic call, findings parse + one retry (03) | 1 | 2 h |
+| ✅ 4 | Router: `route_criterion`, decision policy, confidence composition, spans (01) | 2, 3 | 1.5 h |
+| ✅ 5 | Harness rewire: `report.py` calls the Router; cross-criterion pass fills `cross_criterion_notes` (already on the wire format) | 4 | 1 h |
+| ✅ 6 | Config (`evaluator_model/effort`, `router_max_rounds`, `research_extra_tool_calls`), `settings.json`, `REQUIRED_KEYS` | 3, 4 | 0.5 h |
+| ◐ 7 | API/SSE events **done**; UI progress states and KPI tiles **not started** | 5 | 1.5 h |
+| ✅ 8 | Tests (`tests/test_router.py`, `tests/test_evaluator.py`, extend analysis tests) | 4 | 2 h |
+| ✅ 9 | Docs: `docs/agents.md` (the diagram above), README + slide-deck material | all | 1 h |
 
 ~12 h total. Cost per contract: +5 critic calls (~2k tokens each at
 `evaluator_effort=medium`) plus revise rounds at roughly one extra finisher

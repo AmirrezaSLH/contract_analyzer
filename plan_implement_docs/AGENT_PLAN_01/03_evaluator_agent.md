@@ -1,5 +1,7 @@
 # Evaluator Agent — design
 
+**Status: implemented** in `generation/evaluator.py`. Two deviations worth knowing about: the search-coverage check compares *distinctive* terms rather than any token overlap (the plain version could never fire), and the retry ladder is three attempts with exponential backoff rather than one immediate retry. See [06_build_report.md](06_build_report.md) §3, §5.
+
 **Role.** The critic. Given a JSON `EvaluationRequest` from the Router —
 the Analyzer's claims plus only the evidence those claims cite — it judges
 whether each quote supports its claim, whether each status and the overall

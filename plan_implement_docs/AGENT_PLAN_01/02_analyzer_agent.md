@@ -1,5 +1,7 @@
 # Analyzer Agent — design
 
+**Status: implemented** in `generation/analysis.py` and `agent.py`. The one deviation: no `AnalysisTask` wrapper type — the Router passes the `Criterion` and, on later rounds, a `RevisionRequest`. See [06_build_report.md](06_build_report.md) §1.
+
 **Role.** The worker. Given one criterion, it searches the contract,
 extracts evidence, drafts a structured `ComplianceDraft`, and corrects its
 own *structure* until `validate_structure` passes or rounds run out. It is

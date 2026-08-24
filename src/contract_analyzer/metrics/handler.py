@@ -284,7 +284,14 @@ _RECORD_FIELDS = frozenset(
 
 
 def _text(value: Any) -> str | None:
-    return None if value is None else str(value)
+    """`str(value)`, and `None` for an object whose `__str__` raises. Nothing
+    a span carries is worth failing a row over, let alone a run."""
+    if value is None:
+        return None
+    try:
+        return str(value)
+    except Exception:  # noqa: BLE001 - a promoted column is not worth a row
+        return None
 
 
 def _integer(value: Any) -> int | None:
@@ -301,15 +308,39 @@ def _number(value: Any) -> float | None:
         return None
 
 
+#: What a value that could not be serialised is replaced with. Visible in the
+#: waterfall, which is the point: the span is still there and it says which
+#: attribute was the problem.
+UNSERIALISABLE = "<unserialisable>"
+
+
 def _json(attrs: dict[str, Any]) -> str | None:
-    """The leftover bag as JSON, or None. `default=str` so an object nobody
-    thought about is stringified rather than raising into a criterion thread."""
+    """The leftover bag as JSON. `default=str` handles anything unusual.
+
+    `str` itself can raise -- an object with a broken `__repr__` is rare and
+    entirely possible -- so the whole bag is retried key by key rather than
+    thrown away. One bad attribute costs that attribute, not the other
+    attributes and not the row: **every span is stored** is a claim this
+    module makes, and dropping a row over a `__repr__` would falsify it.
+    """
     if not attrs:
         return None
     try:
         return json.dumps(attrs, default=str, ensure_ascii=False)
-    except (TypeError, ValueError):  # pragma: no cover - default=str covers it
+    except Exception:  # noqa: BLE001 - retried per key below
+        pass
+    safe: dict[str, Any] = {}
+    for key, value in attrs.items():
+        try:
+            json.dumps(value, default=str)
+        except Exception:  # noqa: BLE001 - this one value, named as such
+            safe[key] = UNSERIALISABLE
+        else:
+            safe[key] = value
+    try:
+        return json.dumps(safe, default=str, ensure_ascii=False)
+    except Exception:  # noqa: BLE001 - a bag is never worth a row
         return None
 
 
-__all__ = ["BATCH", "CAPACITY", "COLUMNS", "SPAN_END", "SpanHandler"]
+__all__ = ["BATCH", "CAPACITY", "COLUMNS", "SPAN_END", "UNSERIALISABLE", "SpanHandler"]

@@ -1,0 +1,57 @@
+/* The component the product is about.
+ *
+ * `verified: false` is a *different card*, not a variant with a footnote: the
+ * left rule turns amber and the meta line says what happened. An unverified
+ * quote is the hallucination-detection story made visible, and it must not
+ * look like a clean quote. */
+
+.quote {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-left: 3px solid var(--rule-quote);
+}
+
+/* In a report: bare, behind its rule. */
+.analysis {
+  padding: 2px 0 2px 16px;
+}
+
+.analysis .text {
+  font-size: 15px;
+  color: var(--ink);
+}
+
+/* In a transcript: a card, because it sits in prose rather than under a
+ * heading and needs an edge of its own. */
+.chat {
+  background: var(--surface);
+  border: 1px solid var(--border-card);
+  border-left: 3px solid var(--rule-quote);
+  border-radius: 0 var(--r-md) var(--r-md) 0;
+  padding: 12px 16px;
+}
+
+.chat .text {
+  font-size: 14px;
+  color: var(--ink-body);
+}
+
+.text {
+  font-family: var(--serif);
+  line-height: 1.55;
+}
+
+.meta {
+  font-size: 12px;
+  color: var(--muted-2);
+}
+
+.unverified {
+  border-left-color: var(--pc-marker);
+}
+
+.unverified .meta {
+  color: var(--pc-fg);
+  font-weight: 600;
+}

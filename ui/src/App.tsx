@@ -3,6 +3,7 @@ import { Button } from "./components/Button";
 import { Icon } from "./components/Icon";
 import { Label } from "./components/Label";
 import { useDocument, useDocuments } from "./hooks/useDocuments";
+import { useHealth } from "./hooks/useHealth";
 import { lastAnalysisWords } from "./views/Library/lastAnalysis";
 import styles from "./App.module.css";
 
@@ -18,6 +19,7 @@ export function App() {
   const documentId = useActiveDocumentId();
   const documents = useDocuments();
   const active = useDocument(documentId);
+  const health = useHealth();
   const navigate = useNavigate();
   const onLibrary = useMatch("/library") !== null;
 
@@ -88,9 +90,13 @@ export function App() {
         </div>
 
         <div className={styles.foot}>
-          <div className={styles.trace}>
-            <span>trace</span>
-            <span className={styles.traceValue}>{doc?.last_analysis?.analysis_id ? "on the analysis" : "—"}</span>
+          <div className={styles.deployment}>
+            <span>embeddings</span>
+            <span className={styles.deploymentValue}>{health.data?.embedder ?? "—"}</span>
+          </div>
+          <div className={styles.deployment}>
+            <span>answer model</span>
+            <span className={styles.deploymentValue}>{health.data?.answer_model ?? "—"}</span>
           </div>
         </div>
       </nav>

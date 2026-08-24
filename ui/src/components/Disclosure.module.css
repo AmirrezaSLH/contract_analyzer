@@ -1,0 +1,36 @@
+/* The criterion row: the primary scanning surface of the product.
+ *
+ * The header is a *slot*, which is the whole point of this component. The
+ * previous front end used a framework expander whose label was one markdown
+ * string, so "k of n met" and "conf 0.95" were demoted to a caption inside --
+ * invisible while collapsed, on the one screen where a reviewer decides what
+ * to open. That was a loss of information, not of alignment. */
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 20px;
+  width: 100%;
+  text-align: left;
+}
+
+.headOpen {
+  border-bottom: 1px solid var(--divider);
+}
+
+.chevron {
+  color: var(--hairline);
+  transition: transform 0.15s ease;
+}
+
+.chevronOpen {
+  transform: rotate(90deg);
+}
+
+.body {
+  padding: 4px 24px 24px 45px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}

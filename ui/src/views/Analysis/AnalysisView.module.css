@@ -1,0 +1,267 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-block);
+}
+
+/* -- the run card: queued and running --------------------------------------
+ * One card that mutates. Never four layouts, so nothing jumps as a run
+ * progresses. */
+.runHead {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--divider);
+}
+
+.dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  display: block;
+  flex-shrink: 0;
+}
+
+.dotQueued {
+  background: var(--queued-dot);
+}
+
+.dotRunning {
+  background: var(--fc-fg);
+}
+
+.runHeadline {
+  font-family: var(--serif);
+  font-size: 19px;
+  font-weight: 600;
+  flex-grow: 1;
+}
+
+.runSub {
+  font-size: 13px;
+  color: var(--muted-2);
+}
+
+.stage {
+  padding: 22px 24px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-group);
+}
+
+.stageLine {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.rows {
+  padding: 14px 24px 22px;
+  display: flex;
+  flex-direction: column;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) 120px 74px 74px;
+  gap: 14px;
+  align-items: center;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--divider-3);
+}
+
+.rowDot {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  display: block;
+}
+
+.rowDotDone {
+  background: var(--fc-fg);
+}
+
+.rowDotActive {
+  background: var(--accent);
+}
+
+.rowDotWaiting {
+  background: var(--surface);
+  border: 1.5px solid var(--faint-5);
+}
+
+.rowName {
+  font-family: var(--serif);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.rowWaiting {
+  color: var(--faint-2);
+}
+
+.rowState {
+  font-size: 12px;
+  color: var(--faint-2);
+}
+
+.rowStateDone {
+  color: var(--fc-fg);
+  font-weight: 600;
+}
+
+.rowNum,
+.rowLat {
+  font-size: 13px;
+  text-align: right;
+  color: var(--muted-2);
+}
+
+.runFoot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 30px;
+  padding: 4px 24px 22px;
+  font-size: 13px;
+  color: var(--muted-2);
+}
+
+.trace {
+  font-family: var(--mono);
+}
+
+/* -- done ------------------------------------------------------------------ */
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.criteria {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-group);
+}
+
+/* The four data points of a collapsed row. All of them are here, and all of
+ * them are visible while collapsed. */
+.critHead {
+  display: contents;
+}
+
+.critTitle {
+  font-family: var(--serif);
+  font-size: 17px;
+  font-weight: 600;
+  flex-grow: 1;
+  min-width: 0;
+}
+
+.critSubs {
+  font-size: 13px;
+  color: var(--muted-2);
+  white-space: nowrap;
+}
+
+.critConf {
+  font-size: 13px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.review {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--pc-fg);
+  background: var(--pc-bg);
+  border: 1px solid var(--pc-br);
+  border-radius: var(--r-chip);
+  padding: 2px 7px;
+  white-space: nowrap;
+}
+
+/* -- an expanded row ------------------------------------------------------- */
+.block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-group);
+}
+
+.reviewNote {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--pc-fg);
+}
+
+.subs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px 28px;
+}
+
+.sub {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--gap-group);
+}
+
+.subText {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--ink-body);
+}
+
+.quotesHead {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.quotesCount {
+  font-size: 12px;
+  color: var(--faint);
+}
+
+.quotes {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.rationale {
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--ink-body);
+  max-width: 900px;
+}
+
+.critFoot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 30px;
+  border-top: 1px solid var(--divider-2);
+  padding-top: 14px;
+  font-size: 12px;
+  color: var(--muted-2);
+}
+
+.banner {
+  margin-bottom: -8px;
+}
+
+/* The trace id, on a finished run. Always visible on an analysis: it is what
+ * makes the log walkthrough possible -- read it here, grep .run/app.jsonl for
+ * it, and every line of the run comes back. */
+.reportFoot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 30px;
+  padding-top: 4px;
+  font-size: 12px;
+  color: var(--muted-2);
+}

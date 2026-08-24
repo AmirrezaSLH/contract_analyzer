@@ -1,0 +1,11 @@
+.tile {
+  padding: 15px 18px;
+  gap: 5px;
+}
+
+.value {
+  font-family: var(--serif);
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.25;
+}

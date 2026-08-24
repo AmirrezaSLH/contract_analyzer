@@ -162,9 +162,10 @@
   padding-top: 16px;
 }
 
-/* The trace id is always visible. It is what makes the log walkthrough
- * possible: read it here, grep .run/app.jsonl for it. */
-.trace {
+/* What this deployment is, from /health. The same line ./start.bash prints,
+ * and it is here because a demo that has silently fallen back to a different
+ * embedder should say so somewhere a reader will look. */
+.deployment {
   display: flex;
   justify-content: space-between;
   gap: 8px;
@@ -172,10 +173,10 @@
   color: var(--muted-2);
 }
 
-.traceValue {
-  font-family: var(--mono);
+.deploymentValue {
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* -- main ------------------------------------------------------------------ */
@@ -207,10 +208,15 @@
   font-size: 30px;
   font-weight: 600;
   letter-spacing: -0.015em;
+  line-height: 1.2;
+  /* A document title is a filename, and filenames are long unbroken tokens.
+   * Without this the title runs under the header's own buttons. */
+  overflow-wrap: anywhere;
 }
 
 .subtitle {
   font-size: 13px;
+  line-height: 1.5;
   color: var(--muted-2);
 }
 

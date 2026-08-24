@@ -17,19 +17,23 @@ from ..logger import get_logger
 
 log = get_logger(__name__)
 
-#: (input, output) USD per 1M tokens. Cached: 2026-06-24.
+#: (input, output) USD per 1M tokens. Cached: 2026-08-24.
 PRICES: dict[str, tuple[float, float]] = {
     "claude-fable-5": (10.0, 50.0),
     "claude-opus-5": (5.0, 25.0),
     "claude-opus-4-8": (5.0, 25.0),
     "claude-opus-4-7": (5.0, 25.0),
     "claude-opus-4-6": (5.0, 25.0),
-    "claude-sonnet-5": (3.0, 15.0),
+    # The launch price became the standard price; the announced rise to
+    # $3/$15 on 2026-09-01 was cancelled.
+    "claude-sonnet-5": (2.0, 10.0),
     "claude-sonnet-4-6": (3.0, 15.0),
     "claude-haiku-4-5": (1.0, 5.0),
 }
 
 CACHE_READ_FACTOR = 0.1
+#: For the 5-minute cache, the only TTL this project requests. A 1-hour
+#: cache write bills at 2x and would need its own factor.
 CACHE_WRITE_FACTOR = 1.25
 
 _warned: set[str] = set()

@@ -2,7 +2,7 @@
 
 PYTHON ?= .venv/bin/python
 
-.PHONY: help venv ingest reingest search chat analyze test lint fmt logs \
+.PHONY: help venv ingest reingest search chat analyze api openapi test lint fmt logs \
 	docker-build docker-up docker-down docker-logs docker-shell docker-test
 
 help:  ## List the targets
@@ -26,6 +26,12 @@ chat:  ## Multi-turn cited conversation over an ingested contract
 
 analyze:  ## The five criteria over one contract: make analyze F=path.pdf
 	$(PYTHON) scripts/analyze.py "$(F)"
+
+api:  ## Run the HTTP API locally on :8000 (reload on edit)
+	$(PYTHON) -m uvicorn contract_analyzer.api.main:app --reload --port $(or $(PORT),8000)
+
+openapi:  ## Re-export docs/openapi.json, the connector specification
+	$(PYTHON) scripts/export_openapi.py
 
 test:  ## The whole suite. No network, no key, no corpus files.
 	$(PYTHON) -m pytest -q

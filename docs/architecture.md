@@ -69,9 +69,13 @@ Two modules cut across everything and were built first:
 | `retrieval/` | vector KNN + BM25 fused with RRF, per document | [retrieval.md](retrieval.md) | done, tested on the sample contract |
 | `generation/` | one tool-using agent loop; analysis finisher (structured, validated) and chat finisher (streamed, cited) | [generation.md](generation.md) | done, tested offline against the real SDK |
 | `compliance/` | the five criteria with sub-requirements, the result schema, the structural validator | [compliance.md](compliance.md) | done, tested |
-| `agents/` | router / extractor / evaluator state machine | -- | Phase B |
-| `api/`, `ui/`, `mcp/` | surfaces | -- | Phase C |
-| `Dockerfile`, `docker-compose.yml`, `docker/` | build and run the whole thing in a container | [docker.md](docker.md) | foundation laid; `api`/`ui` verbs await Phase C |
+| `documents.py` | the document catalogue: list, get, outline, delete | [storage.md](storage.md#the-document-catalogue-documentspy) | done, tested |
+| `report.py` | five criteria over one contract, in parallel, as one `AnalysisReport` | [compliance.md](compliance.md#the-document-runner-reportpy-at-the-package-root) | done, tested |
+| `api/` | the HTTP surface: upload, analyses as jobs, streamed cited chat | [api.md](api.md) | done, tested; `/metrics/*` declared and 503 until the store lands |
+| `metrics/` | `runs` / `spans` / `criterion_results`, and the KPI queries | -- | next |
+| `evaluator` | the critic pass over each result | -- | next |
+| `ui/`, `mcp/` | the other two surfaces | -- | Phase C |
+| `Dockerfile`, `docker-compose.yml`, `docker/` | build and run the whole thing in a container | [docker.md](docker.md) | `api` live; the `ui` verb awaits Phase C |
 
 ## Data flow, end to end (Phase A)
 
@@ -128,20 +132,45 @@ Two modules cut across everything and were built first:
 | One retrying transport, SDK retries off | a single, tested, logged policy; a retry storm cannot come from two layers | trusting each SDK's defaults |
 | One logger with contextvars | every line under a request carries the same trace id without threading it through signatures | per-module `logging.getLogger` with ad-hoc formats |
 | No LangChain / LangGraph | five fixed criteria and a deterministic loop; plain Python is easier to log, test with stubs, and explain | framework abstractions that hide the prompt and the retries |
+| Analyses are jobs, not long requests | measured: 187 s sequential, ~60 s at five workers, $0.96 -- past every browser, proxy and MCP client timeout | a synchronous POST that the client cannot wait for |
+| The API contains no logic the CLI does not have | `POST /analyses` and `scripts/analyze.py` call one `analyze_document()`; a handler that decides something is a decision the command line cannot reach | business logic in route handlers |
+| Every upload mints a new `document_id` | `ingest_file` keys uniqueness on path, so a uuid in the stored path is how two people demoing at once stay isolated | content-hash dedupe, which would share one document between sessions |
+| Ids are the only server state | one dict of jobs, no sessions, no server-side transcript; the UI, an MCP tool and a connector can all watch the same job | a session store between four consumers |
 
 ## Repository layout
 
 ```
 src/contract_analyzer/   the package (src layout; `pip install -e .`)
   logger.py http_client.py config.py db.py schema.sql models.py tokens.py
+  documents.py           the catalogue: what is ingested, and dropping it
+  report.py              five criteria over one contract -> AnalysisReport
   parse/  ingest/  embeddings/  retrieval/  generation/  compliance/
-scripts/                 CLIs (ingest, search, chat, parse_report)
+  api/                   the HTTP surface (see below)
+scripts/                 CLIs (analyze, export_openapi, ingest, search, chat)
 tests/                   offline suite: fake embedder, scripted SSE API, mock transport
 docker/                  entrypoint.sh (one verb per surface); Dockerfile at the root
-docs/                    this folder -- one file per module plus this one
+docs/                    this folder -- one file per module, plus openapi.json
 plan_implement_docs/     plans before, reports after, per phase
 data/samples/            the sample contract; data/*.db and data/raw are gitignored
 .run/                    app.jsonl (structured log), gitignored
+```
+
+`documents.py` and `report.py` sit at the package root rather than inside
+`compliance/` or `retrieval/` because they are the application layer over the
+pipeline: they use several packages below them and none of those may import
+them back. The runner proved it -- putting it in `compliance/` closed an import
+cycle through `generation`.
+
+```
+src/contract_analyzer/api/
+  main.py      create_app, the lifespan, the trace middleware
+  deps.py      what a handler is given: settings, embedder, runner, connection
+  errors.py    one error envelope, and everything that maps onto it
+  schemas.py   the wire types -- library models reused, not mirrored
+  uploads.py   client bytes onto disk, safely
+  jobs.py      analyses as background jobs
+  sse.py       event framing, and the fan-out behind both streams
+  routes/      one module per resource
 ```
 
 ## Environment
@@ -158,6 +187,17 @@ inside it. See [docker.md](docker.md).
 
 ## Change log of this document
 
+* Checkpoint 6 (2026-08-24): the document runner and the HTTP API. `report.py`
+  runs the five criteria in parallel -- one connection per criterion, the trace
+  id carried across the pool, events tagged with their criterion and delivered
+  under a lock -- into one `AnalysisReport` that is written to disk and returned
+  over the wire unchanged. `documents.py` is the catalogue a surface binds a
+  session to. `api/` is the HTTP surface: sanitized streaming uploads, analyses
+  as jobs with an SSE fan-out that replays for late subscribers, streamed cited
+  chat, one error envelope with hints a model can act on, and one trace id from
+  the request header down to the tool calls. `scripts/analyze.py` and
+  `scripts/export_openapi.py`; `docs/openapi.json` is the connector spec. 352
+  tests. Metrics store, evaluator, UI and MCP pending.
 * Checkpoint 5 (2026-08-24): generation. One tool-using loop
   (`search_contract`, `get_section`, evidence ledger, three caps) serving two
   finishers: the compliance analysis as validated structured output with

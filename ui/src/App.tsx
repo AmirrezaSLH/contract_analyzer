@@ -25,7 +25,10 @@ export function App() {
   const navigate = useNavigate();
   const onLibrary = useMatch("/library") !== null;
   const onMetrics = useMatch("/metrics") !== null;
-  const appPath = useLastAppPath(onMetrics);
+  const onLogs = useMatch("/logs") !== null;
+  const offApp = onMetrics || onLogs;
+  const appPath = useLastAppPath(offApp);
+  const mode = onMetrics ? "kpi" : onLogs ? "log" : "app";
 
   const doc = active.data;
   const rows = documents.data ?? [];
@@ -38,9 +41,9 @@ export function App() {
           <span className={styles.brandSub}>Compliance review workspace</span>
         </div>
 
-        <ModeToggle appPath={appPath} mode={onMetrics ? "kpi" : "app"} />
+        <ModeToggle appPath={appPath} mode={mode} />
 
-        {onMetrics ? null : (
+        {offApp ? null : (
           <>
             <div className={styles.group}>
               <Label>Active document</Label>
@@ -117,19 +120,19 @@ export function App() {
 }
 
 /**
- * The app page to come back to from the dashboard.
+ * The app page to come back to from the dashboard or the log.
  *
- * The KPI route carries no `:id`, so the scope cannot be read off the URL
+ * Those routes carry no `:id`, so the scope cannot be read off the URL
  * while you are there. Remembering the last app path is what makes the round
  * trip lossless: leave from a document's analysis, come back to it.
  */
-function useLastAppPath(onMetrics: boolean): string {
+function useLastAppPath(offApp: boolean): string {
   const { pathname } = useLocation();
   const last = useRef("/library");
   useEffect(() => {
-    if (!onMetrics) last.current = pathname;
-  }, [onMetrics, pathname]);
-  return onMetrics ? last.current : pathname;
+    if (!offApp) last.current = pathname;
+  }, [offApp, pathname]);
+  return offApp ? last.current : pathname;
 }
 
 /** The scope, read from the URL. `useMatch` rather than `useParams` because

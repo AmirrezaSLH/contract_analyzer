@@ -90,6 +90,16 @@ logger`, never the other way. See [metrics.md](metrics.md).
 trace legitimately contains an upload *and* an analysis, so a waterfall needs
 to know which spans belong to the run.
 
+## The live console
+
+The API hangs a second handler off the same logger that formats each record
+the way stderr does and fans it out to `GET /api/logs/events`. Each event
+carries `source: api`. The connector is a second process, so its lines are
+followed from `.run/mcp.log` and tagged `mcp`. The Log tab draws the same
+`api │` / `mcp │` prefixes `start.bash` prints. Call sites do not change; a
+forgotten browser tab cannot stall a run, because publish drops rather than
+blocks.
+
 ## What is deliberately not here yet
 
 OpenTelemetry export and sampling. Spans are stored in full: one analysis is

@@ -20,15 +20,16 @@ stays empty because the browser never makes a cross-origin request.
 ## Running it
 
 ```bash
-./start.bash              # API on BACKEND_PORT (8100); UI at /
-./start.bash --dev        # plus Vite on FRONTEND_PORT (8101), proxying /api
+./start.bash              # builds the UI, then API on BACKEND_PORT (8100); UI at /
+./start.bash --dev        # skip the bundle; Vite on FRONTEND_PORT (8101), proxying /api
 make docker-up            # same as the first: one port, one origin
 ```
 
-`make api` after `make ui-build` is the same as a plain `./start.bash`. A
-fresh clone with no bundle still starts the API; `/` is absent until the
-bundle exists. Docker builds the bundle in a Node stage and copies it into
-the Python image, so `make docker-up` does not need Node on the host.
+`make api` after `make ui-build` is what `./start.bash` does in one step — it
+runs the build so a restart cannot serve yesterday's bundle. A fresh clone
+needs `make ui-install` first. Docker builds the bundle in a Node stage and
+copies it into the Python image, so `make docker-up` does not need Node on the
+host.
 
 ## The shape
 
@@ -40,22 +41,23 @@ the Python image, so `make docker-up` does not need Node on the host.
 | **Everything is scoped to one contract** | Not a UI convention: `retrieve()`, `chat()` and `analyze_document()` all take a `document_id`, and nothing on screen may come from another. |
 | **The server is the state** | The ids are. A reload loses none of the work. Chat's transcript is the exception: the API is stateless, so the list in memory *is* the conversation. |
 
-The KPI dashboard, when it lands, is a **third sidebar entry** — application
-level, spanning every document — not a fifth tab.
+The KPI dashboard and the live log sit behind the **App / KPI / Log** toggle
+at the top of the sidebar. Both are application-level -- they span every
+document -- so in those modes the sidebar drops the document scope.
 
 Routes: `/upload`, `/library`, `/documents/:id/analysis`,
-`/documents/:id/chat`. `/_gaps` exists in development only, so every analysis
-state in the spec can be looked at against a sample that is otherwise
-all-green.
+`/documents/:id/chat`, `/metrics`, `/logs`. `/_gaps` exists in development
+only, so every analysis state in the spec can be looked at against a sample
+that is otherwise all-green.
 
 ## Module layout
 
 ```
 ui/
   src/api/         client.ts, errors.ts, sse.ts, types.gen.ts
-  src/hooks/       TanStack Query: documents, analysis (poll), chat, health
+  src/hooks/       TanStack Query: documents, analysis (poll), chat, health, metrics, logs
   src/components/  chips, quote cards, error surfaces, the shell pieces
-  src/views/       Upload, Library, Analysis, Chat
+  src/views/       Upload, Library, Analysis, Chat, Metrics, Logs
   src/styles/      tokens.css, global.css
 ```
 
@@ -64,7 +66,7 @@ call hooks; hooks call `client.ts`; nothing else in `ui/` mentions `fetch`.
 
 ## Decisions worth defending
 
-### The poll is a query; chat is SSE
+### The poll is a query; chat and the live log are SSE
 
 Analysis is a job: submit, poll `GET /analyses/{id}` until a terminal status,
 read the report. TanStack Query's `refetchInterval` with a terminal-status
@@ -74,7 +76,7 @@ array on that endpoint is exactly the progress table the running view draws.
 
 Chat is a stream. `sse.ts` splits frames so a token that arrives split across
 TCP packets is still one event. Buffering that stream would look like a hung
-request.
+request. The Log tab is the same reader over `GET /api/logs/events`.
 
 ### Depth is an abstraction, and the number never reaches the screen
 
@@ -125,5 +127,4 @@ and the depth mapping.
 * **Streaming tool trail.** Tool calls are collected and not displayed.
 * **Analysis history.** `GET /analyses?document_id=` returns every run; this
   shows the newest.
-* **The KPI dashboard.** `KPI_plan.md`. Third sidebar entry.
 * **Responsive behaviour below ~1100px.** The design is specified at 1440.

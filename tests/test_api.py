@@ -847,6 +847,15 @@ def test_two_subscribers_both_see_the_whole_run(client, api, searches, small_pdf
         assert events[-1][0] == "done"
 
 
+def test_the_log_stream_is_published(client):
+    """Mounted and documented. The body never closes -- that is the point --
+    so the lines themselves are asserted in `test_log_stream.py` against the
+    hub, not against a TestClient that would wait on EOF."""
+    paths = client.get("/openapi.json").json()["paths"]
+    assert "/api/logs/events" in paths
+    assert "get" in paths["/api/logs/events"]
+
+
 # --------------------------------------------------------------------------
 # Chat
 # --------------------------------------------------------------------------

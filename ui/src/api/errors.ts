@@ -170,6 +170,11 @@ const TABLE: Record<string, Row> = {
     title: "Metrics are not available yet.",
     retry: null,
   },
+  logs_unavailable: {
+    placement: "replaces-card",
+    title: "The live log is not available.",
+    retry: "Retry",
+  },
   internal: {
     placement: "replaces-card",
     title: "The analyzer failed to handle that.",

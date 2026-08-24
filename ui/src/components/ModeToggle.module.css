@@ -1,11 +1,11 @@
-/* The App/KPI toggle: two halves of one control, at the top of the sidebar.
+/* The App/KPI/Log toggle: three thirds of one control, at the top of the sidebar.
  *
- * A segmented control rather than two nav rows because the two are exclusive
- * and equal -- you are in one or the other, never both, and neither is a
- * child of the other.
+ * A segmented control rather than three nav rows because the three are
+ * exclusive and equal -- you are in one, never two, and none is a child of
+ * another.
  *
  * The look is `Segmented.module.css`, shared with the KPI page's window
- * selector. Only the geometry is here: these halves split the sidebar's width,
+ * selector. Only the geometry is here: these thirds split the sidebar's width,
  * where the window selector's options are sized by their labels. */
 .track {
   composes: track from "./Segmented.module.css";

@@ -13,7 +13,8 @@ layer down where `scripts/analyze.py` can reach it too.
       schemas.py   the wire types (library models reused, not mirrored)
       uploads.py   client bytes onto disk, safely
       jobs.py      analyses as background jobs
-      sse.py       event framing and the fan-out behind both streams
+      sse.py       event framing and the fan-out behind the streams
+      log_stream.py  a logging handler that fans console lines to /logs/events
       routes/      one module per resource
 
 See docs/api.md.

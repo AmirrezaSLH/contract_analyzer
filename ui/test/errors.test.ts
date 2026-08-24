@@ -47,6 +47,7 @@ describe("the codes the API can return", () => {
     "not_running",
     "not_live_here",
     "metrics_unavailable",
+    "logs_unavailable",
     "unknown_route",
     "internal",
   ];

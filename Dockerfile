@@ -39,7 +39,9 @@ RUN python -m venv "$VIRTUAL_ENV"
 COPY pyproject.toml ./
 RUN mkdir -p src/contract_analyzer && touch src/contract_analyzer/__init__.py
 
-ARG EXTRAS=""
+# The HTTP surface is in the runtime image; the ~800 MB `local` embedder is
+# not. Override to add it: `--build-arg EXTRAS="[api,local]"`.
+ARG EXTRAS="[api]"
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --upgrade pip && pip install -e ".${EXTRAS}"
 
@@ -64,8 +66,8 @@ RUN chmod +x /usr/local/bin/entrypoint \
 
 USER app
 
-# 8000 FastAPI, 8501 Streamlit. Both surfaces are Phase C; the entrypoint says
-# so plainly instead of dying on an ImportError.
+# 8000 FastAPI (live), 8501 Streamlit (Phase C -- the entrypoint says which
+# module is missing instead of dying on an ImportError).
 EXPOSE 8000 8501
 
 ENTRYPOINT ["entrypoint"]

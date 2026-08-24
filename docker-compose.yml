@@ -31,16 +31,19 @@ x-app: &app
   volumes:
     - ./data:/app/data
     - ./.run:/app/.run
-  # Deliberately no `restart:` while api/ui are unimplemented -- a restart
-  # policy would turn their "not implemented yet" exit into a loop. Add
-  # `restart: unless-stopped` to the servers once Phase C lands.
+  # No `restart:` here: `ui` is still unimplemented and a restart policy would
+  # turn its "not implemented yet" exit into a loop. `api` sets its own below.
 
 services:
-  # The HTTP API. Phase C -- until api/ lands the container exits with a
-  # message naming the missing module.
+  # The HTTP API: the only process that touches the database and the model.
+  # Everything else -- the UI, the MCP server, a connector -- is a client of it.
   api:
     <<: *app
     command: ["api"]
+    # Safe to restart: jobs in flight are marked failed on shutdown rather than
+    # left for a client to poll forever. Analyses live in memory, so a restart
+    # loses them -- GET /analyses/{id} says so in its 404 hint.
+    restart: unless-stopped
     ports:
       - "${API_PORT:-8000}:8000"
     healthcheck:

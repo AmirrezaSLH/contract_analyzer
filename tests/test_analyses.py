@@ -5,15 +5,19 @@ every poll correctly, and then the report was gone -- which is exactly the kind
 of bug that comes back. So the claims are pinned here rather than left to a
 manual check:
 
-* `mark_running` **upserts**, so the API's queued row is transitioned and the
-  CLI's row is created, and neither surface overwrites the other's;
+* a report written by `analyze_document` **round-trips out of `report_json`**
+  as an equal `AnalysisReport`, which is the "no second schema" claim again;
 * `reconcile` turns `queued` and `running` into `interrupted` and **leaves
   every finished status alone**;
 * **deleting a document keeps its analyses and their reports** -- the one that
-  would be silently wrong if anybody added a foreign key.
+  would be silently wrong if anybody added a foreign key;
+* a cancelled run keeps its partial report and its skipped ids, and a failed
+  one keeps its error and has no report;
+* the run writes `surface='cli'` when nothing says otherwise, so `make analyze`
+  and the API fill one table rather than two.
 
-No model and no embedder: these are about the row. What the *runs* write into
-it arrives with `analyze_document`, in the next commit.
+Offline and keyless throughout: the model is the scripted SSE transport and the
+embedder is never called, because retrieval is stubbed.
 """
 
 from __future__ import annotations
@@ -23,7 +27,9 @@ import struct
 
 import pytest
 
+from conftest import ScriptedAPI, make_chunk, scripted_client
 from contract_analyzer.analyses import (
+    fail_analysis,
     finish_analysis,
     get_analysis,
     list_analyses,
@@ -36,7 +42,9 @@ from contract_analyzer.compliance import get_criteria
 from contract_analyzer.config import Settings
 from contract_analyzer.db import get_db
 from contract_analyzer.documents import delete_document
-from contract_analyzer.report import AnalysisReport
+from contract_analyzer.generation import tools as T
+from contract_analyzer.report import AnalysisReport, analyze_document
+from test_report import script
 
 DIM = 4
 CLAUSE = "Supplier shall rotate credentials and encrypt data in transit at all times."
@@ -82,6 +90,24 @@ def conn(settings):
     conn.close()
 
 
+@pytest.fixture
+def searches(monkeypatch):
+    """Every `search_contract` returns the one clause, whoever asks."""
+    from contract_analyzer.retrieval.base import RetrievalResult
+
+    def retrieve(question, conn, embedder=None, settings=None, *, document_id, mode=None,
+                 top_k=None, candidates=None):
+        return RetrievalResult(question=question, mode=mode or "hybrid", document_id=document_id,
+                               chunks=[make_chunk(1, CLAUSE)], candidates=20, top_k=top_k or 6)
+
+    monkeypatch.setattr(T, "retrieve", retrieve)
+
+
+def run(settings, conn, api=None, **kw):
+    """One analysis of document 1, through the scripted model."""
+    return analyze_document(1, conn, object(), settings, scripted_client(api or script()), **kw)
+
+
 def stored(conn, analysis_id="a1", *, document_id=1, filename="contract.pdf", status="done"):
     """A finished analysis without going near a model: enough for the tests
     that are about the row rather than about the run."""
@@ -98,6 +124,66 @@ def stored(conn, analysis_id="a1", *, document_id=1, filename="contract.pdf", st
 # --------------------------------------------------------------------------
 # What a run leaves behind
 # --------------------------------------------------------------------------
+
+
+def test_a_run_writes_one_row_and_the_report_round_trips_out_of_it(settings, conn, searches):
+    """The no-second-schema claim: the bytes in `report_json` are the report."""
+    report = run(settings, conn)
+
+    record = get_analysis(conn, report.analysis_id)
+    assert record is not None
+    assert record.status == "done" and record.surface == "cli"
+    assert record.document_id == 1 and record.filename == "contract.pdf"
+    assert record.trace_id == report.trace_id
+    assert record.created_at and record.started_at and record.completed_at
+    assert record.report() == report
+
+
+def test_the_derived_columns_are_filled_from_the_report(settings, conn, searches):
+    """They are field reads off a report this function is already holding, so
+    the metrics store inherits a populated table instead of a backfill."""
+    report = run(settings, conn)
+    record = get_analysis(conn, report.analysis_id)
+
+    assert record.criteria_requested == len(CRITERIA)
+    assert record.criteria_completed == len(report.results)
+    assert record.criteria_skipped == 0
+    assert record.cost_usd == report.totals.cost_usd
+    assert record.input_tokens == report.totals.input_tokens
+    assert record.output_tokens == report.totals.output_tokens
+    assert record.tool_calls == report.totals.tool_calls
+    assert record.mean_confidence == report.totals.mean_confidence
+    assert record.needs_review == report.totals.needs_review
+
+    quotes = [q for r in report.results for q in r.relevant_quotes]
+    assert record.quotes_total == len(quotes) > 0
+    assert record.quotes_verified == sum(1 for q in quotes if q.verified)
+
+    # Declared, and honestly empty until the evaluator lands.
+    assert record.evaluator_accepted is None
+    assert record.evaluator_revised is None
+    assert record.evaluator_fallback is None
+
+
+def test_a_cancelled_run_persists_its_partial_report_and_its_skipped_ids(settings, conn, searches):
+    report = run(settings, conn, cancelled=lambda: True)
+    record = get_analysis(conn, report.analysis_id)
+
+    assert record.status == "cancelled"
+    assert record.criteria_skipped == len(CRITERIA) and record.criteria_completed == 0
+    assert record.report().skipped == [c.id for c in CRITERIA]
+
+
+def test_a_failed_run_persists_the_error_and_no_report(settings, conn, searches):
+    api = ScriptedAPI(500)
+    with pytest.raises(Exception):  # noqa: B017 - the SDK's own status error
+        run(settings, conn, api, analysis_id="fixed-id")
+
+    record = get_analysis(conn, "fixed-id")
+    assert record.status == "failed"
+    assert record.error and record.report_json is None
+    assert record.report() is None
+    assert record.completed_at
 
 
 def test_queueing_then_running_keeps_the_surface_that_queued_it(conn):
@@ -140,6 +226,14 @@ def test_reconcile_interrupts_the_unfinished_and_leaves_the_rest(conn):
 
     # Idempotent: a second startup has nothing left to close.
     assert reconcile(conn) == 0
+
+
+def test_a_finished_row_is_not_reopened_by_a_late_failure(conn, settings, searches):
+    """`fail_analysis` only touches a run that has not ended, so the API's
+    belt-and-braces call cannot overwrite a report that already landed."""
+    report = run(settings, conn)
+    assert fail_analysis(conn, report.analysis_id, "too late") is False
+    assert get_analysis(conn, report.analysis_id).status == "done"
 
 
 def test_live_analyses_is_what_a_delete_checks(conn):

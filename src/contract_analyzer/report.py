@@ -40,6 +40,13 @@ runner tags each event before passing it on. It also holds a lock while calling
 and never needs a lock of its own -- the CLI can print, the API can fan out to
 its subscribers, neither has to think about it.
 
+It is also **the only place that writes the analysis record**. `analyses.py`
+holds the table; `analyze_document` marks the run running on entry and finishes
+or fails it on exit, on the connection it was handed. That is here rather than
+in the API's job runner because the API is meant to contain no logic the
+command line does not have -- so `make analyze` fills the same table, and its
+report comes back out of `GET /analyses/{id}`.
+
 Cancellation is honest rather than aspirational: `cancelled()` is checked
 before a criterion starts, so it skips whatever has not begun. At
 `workers >= len(criteria)` everything starts at once and there is nothing left
@@ -61,6 +68,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from . import analyses
 from .compliance.criteria import Criterion, get_criteria
 from .compliance.schemas import ComplianceResult
 from .config import Settings, get_settings
@@ -145,6 +153,7 @@ def analyze_document(
     cancelled: Callable[[], bool] | None = None,
     workers: int | None = None,
     analysis_id: str | None = None,
+    surface: str = "cli",
 ) -> AnalysisReport:
     """Assess one contract against every criterion, in parallel.
 
@@ -153,6 +162,13 @@ def analyze_document(
     `cancelled` is polled before each criterion starts. Raises `KeyError` for
     an unknown document or criterion id, and `AnswerUnavailable` before any
     request when there is no API key.
+
+    **The run is recorded in `analyses` on `conn`**, from here rather than from
+    the API's job runner: the invariant of the HTTP layer is that it contains
+    no logic the command line does not have, and durability is not an exception
+    to it. `make analyze` therefore writes the same row `POST /analyses` does,
+    and `surface` -- `cli` or `api` -- is the only thing that differs. The two
+    argument errors above are raised *before* any row exists: nothing began.
     """
     settings = settings or get_settings()
     client = client or get_client(settings)
@@ -190,15 +206,35 @@ def analyze_document(
                 criterion, document_id, target, embedder, settings, client, emit, cancelled
             )
 
-        if parallel:
-            with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="criterion") as pool:
-                futures = {
-                    pool.submit(contextvars.copy_context().run, one, criterion, db_path): criterion
-                    for criterion in selected
-                }
-                outcomes = [(futures[f], f.result()) for f in futures]
-        else:
-            outcomes = [(criterion, one(criterion, conn)) for criterion in selected]
+        analyses.mark_running(
+            conn,
+            analysis_id,
+            document_id=document_id,
+            filename=document.filename,
+            criteria=[c.id for c in selected],
+            trace_id=trace_id,
+            surface=surface,
+        )
+        try:
+            if parallel:
+                with ThreadPoolExecutor(
+                    max_workers=workers, thread_name_prefix="criterion"
+                ) as pool:
+                    futures = {
+                        pool.submit(
+                            contextvars.copy_context().run, one, criterion, db_path
+                        ): criterion
+                        for criterion in selected
+                    }
+                    outcomes = [(futures[f], f.result()) for f in futures]
+            else:
+                outcomes = [(criterion, one(criterion, conn)) for criterion in selected]
+        except BaseException as exc:
+            # The row is closed out before the exception leaves this function,
+            # so a caller that dies handling it still leaves a readable record
+            # rather than a row stuck at `running` until the next reconcile.
+            analyses.fail_analysis(conn, analysis_id, f"{type(exc).__name__}: {exc}")
+            raise
 
         for criterion, result in outcomes:
             if result is None:
@@ -219,6 +255,7 @@ def analyze_document(
             created_at=created_at,
             completed_at=_now(),
         )
+        analyses.finish_analysis(conn, analysis_id, report)
         bag.update(
             parallel=parallel,
             status=report.status,

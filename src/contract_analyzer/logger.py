@@ -11,16 +11,18 @@ enforces that). Centralising it buys three things the assignment asks for:
 * **Structured output.** The file handler writes one JSON object per line with
   the fields an observability platform would index: timestamp, level, logger,
   message, and whatever ``extra={...}`` the caller attached.
-* **Trace correlation.** ``trace_id`` / ``span_id`` / ``parent_span_id`` are
-  carried in :mod:`contextvars`, so a request sets them once and every log
-  line beneath it -- parser, retriever, HTTP retries, LLM calls -- carries
-  them without threading arguments through every signature.
+* **Trace correlation.** ``trace_id`` / ``span_id`` / ``parent_span_id`` /
+  ``run_id`` are carried in :mod:`contextvars`, so a request sets them once
+  and every log line beneath it -- parser, retriever, HTTP retries, LLM calls
+  -- carries them without threading arguments through every signature.
 * **Extras.** ``log.info("parsed", extra={"pages": 21})`` is the idiom.
   Python reserves a few names (``filename``, ``module``, ``name``, ``msg``)
   for the record itself -- use ``file``/``path`` instead of ``filename``.
 * **Spans.** :func:`span` is a context manager that logs ``span.start`` and
-  ``span.end`` with the elapsed time and status. It is the seam the later
-  metrics store hangs off; in this phase it only logs.
+  ``span.end`` with the elapsed time and status. It is the seam the metrics
+  store hangs off: `metrics/` attaches a handler here that turns every
+  ``span.end`` into a row, which is why no module that emits a span had to
+  learn about the store.
 
 The console handler prints a compact human line (``12:01:03 INFO parse.pdf
 parsed 21 pages trace=ab12``) because a demo audience reads the terminal, and
@@ -48,6 +50,12 @@ _span_id: contextvars.ContextVar[str | None] = contextvars.ContextVar("span_id",
 _parent_span_id: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "parent_span_id", default=None
 )
+#: The analysis a span belongs to. Separate from `trace_id` because one trace
+#: legitimately contains more than one thing: `make analyze path.pdf` ingests
+#: and *then* analyses under a single id, and attributing the ingest spans to
+#: the run would put the parse in the analysis's waterfall. Chat spans have no
+#: run id at all, which is correct -- chat is not a run.
+_run_id: contextvars.ContextVar[str | None] = contextvars.ContextVar("run_id", default=None)
 
 #: Attributes of a LogRecord that are not user ``extra`` fields.
 _RESERVED = frozenset(
@@ -55,7 +63,7 @@ _RESERVED = frozenset(
         "name", "msg", "args", "levelname", "levelno", "pathname", "filename", "module",
         "exc_info", "exc_text", "stack_info", "lineno", "funcName", "created", "msecs",
         "relativeCreated", "thread", "threadName", "processName", "process", "message",
-        "taskName", "asctime", "trace_id", "span_id", "parent_span_id",
+        "taskName", "asctime", "trace_id", "span_id", "parent_span_id", "run_id",
     }
 )
 
@@ -73,6 +81,10 @@ def current_span_id() -> str | None:
     return _span_id.get()
 
 
+def current_run_id() -> str | None:
+    return _run_id.get()
+
+
 @contextmanager
 def trace_context(trace_id: str | None = None) -> Iterator[str]:
     """Bind a trace id for everything logged inside the block.
@@ -86,6 +98,23 @@ def trace_context(trace_id: str | None = None) -> Iterator[str]:
         yield tid
     finally:
         _trace_id.reset(token)
+
+
+@contextmanager
+def run_context(run_id: str) -> Iterator[str]:
+    """Bind an analysis id to everything logged inside the block.
+
+    Set by `report.analyze_document` around a run, and by the API's job worker
+    around the span that covers queueing it. It is what makes
+    `/metrics/runs/{id}/spans` a waterfall of one run rather than a guess from
+    the trace, and what lets a chat turn share a process with an analysis
+    without joining it.
+    """
+    token = _run_id.set(run_id)
+    try:
+        yield run_id
+    finally:
+        _run_id.reset(token)
 
 
 @contextmanager
@@ -129,6 +158,7 @@ class _ContextFilter(logging.Filter):
         record.trace_id = _trace_id.get()
         record.span_id = _span_id.get()
         record.parent_span_id = _parent_span_id.get()
+        record.run_id = _run_id.get()
         return True
 
 
@@ -148,6 +178,7 @@ class JsonFormatter(logging.Formatter):
             "trace_id": getattr(record, "trace_id", None),
             "span_id": getattr(record, "span_id", None),
             "parent_span_id": getattr(record, "parent_span_id", None),
+            "run_id": getattr(record, "run_id", None),
         }
         payload.update(_extras(record))
         if record.exc_info:
@@ -182,6 +213,15 @@ def _short(value: Any, limit: int = 80) -> str:
 
 _ROOT = "contract_analyzer"
 _configured = False
+
+#: Re-exported so another module can build a handler without importing
+#: :mod:`logging` -- ``tests/test_logger.py`` allows exactly one file in the
+#: package to do that, and this is it. `metrics/` subclasses `Handler` to turn
+#: ``span.end`` records into rows; the dependency runs that way round and never
+#: the other, because a logger that imported the metrics store would make
+#: logging depend on telemetry.
+Handler = logging.Handler
+LogRecord = logging.LogRecord
 
 
 def configure_logging(
@@ -226,6 +266,39 @@ def configure_logging(
     for noisy in ("httpx", "httpcore", "anthropic", "openai", "urllib3"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
     _configured = True
+
+
+def attach_handler(handler: logging.Handler) -> logging.Handler:
+    """Add a handler to the project's root logger, stamped with the context.
+
+    Separate from `configure_logging` rather than a parameter of it, because
+    the order differs by surface: the API configures logging in its lifespan
+    and builds the metrics store two lines later, while a test may build the
+    store against an already-configured logger. `configure_logging` is
+    idempotent and would silently skip the second case.
+
+    The context filter goes on the handler, not on the logger: a logger's own
+    filters only see records logged to it directly, and every record here
+    arrives by propagation from a child.
+
+    An unconfigured project logger is levelled at INFO here rather than left
+    at NOTSET, where it would inherit WARNING from the root logger and drop
+    every span before any handler saw it. A metrics store that records nothing
+    and says nothing is the one failure mode this design refuses to have; a
+    level somebody actually chose is left alone.
+    """
+    root = logging.getLogger(_ROOT)
+    if root.level == logging.NOTSET:
+        root.setLevel(logging.INFO)
+    handler.addFilter(_ContextFilter())
+    root.addHandler(handler)
+    return handler
+
+
+def detach_handler(handler: logging.Handler) -> None:
+    """Remove a handler added by `attach_handler`. Never raises for one that is
+    not installed -- shutdown paths run in whatever order they run in."""
+    logging.getLogger(_ROOT).removeHandler(handler)
 
 
 def get_logger(name: str) -> logging.Logger:

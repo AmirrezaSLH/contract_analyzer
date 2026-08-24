@@ -55,7 +55,7 @@ from ..compliance.criteria import get_criteria
 from ..config import Settings
 from ..db import get_db
 from ..embeddings.base import Embedder
-from ..logger import get_logger, new_id, span, trace_context
+from ..logger import get_logger, new_id, run_context, span, trace_context
 from ..report import AnalysisReport, AnalysisTotals, analyze_document, totals_of
 from .schemas import Analysis, AnalysisSummary, CriterionProgress, JobStatus, Progress
 from .sse import Broadcast
@@ -468,7 +468,12 @@ class JobRunner:
     def _run(self, job: JobState) -> None:
         """One analysis, on a pool thread, under the trace of the request that
         asked for it. Every exit path ends the job and closes its stream."""
-        with trace_context(job.trace_id), span(
+        # `run_context` here as well as inside `analyze_document`, so that the
+        # span covering the whole job -- queued through finished -- belongs to
+        # the run too. Without it the waterfall's root would be
+        # `analysis.document` and the time the job spent waiting for a worker
+        # would be missing from the one view that should show it.
+        with trace_context(job.trace_id), run_context(job.analysis_id), span(
             "api.analysis", log, analysis_id=job.analysis_id, document_id=job.document_id
         ):
             job.running()

@@ -61,10 +61,14 @@ exists for what a schema cannot say:
 | `compliance_question` equals the criterion text | equality to an input | `not_verbatim` |
 | no duplicate quotes; ≤ 300 chars; non-empty; rationale non-empty; `raw_confidence` in [0, 1] | sanity | `duplicate`, `too_long`, `empty`, `range` |
 
-**Verbatim** is forgiving of what a PDF does to text and nothing else: NFKC,
-curly quotes and dashes folded to ASCII, whitespace collapsed, case folded,
-then a substring test against the chunk's `text_for_model()` and `content`.
-"sixty (60)" for "ninety (90)" fails; `“default”` for `"default"` passes.
+**Verbatim** is forgiving of what a PDF does to text, and of what the
+chunker does to a table, and nothing else: NFKC, curly quotes and dashes
+folded to ASCII, markdown `|` folded to a space, whitespace collapsed, case
+folded, then a substring test against the chunk's `text_for_model()`.
+"sixty (60)" for "ninety (90)" fails; `“default”` for `"default"` passes;
+`GOV-01 Security governance program Annually` matches the grid row
+`| GOV-01 | Security governance program | Annually |` -- a table chunk's
+text *is* its grid, and exhibits are where the evidence lives.
 
 Each failure is a `StructuralError(path, code, message)` whose message is the
 feedback the model gets: what is malformed and where, **never what the answer

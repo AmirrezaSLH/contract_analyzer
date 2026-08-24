@@ -34,7 +34,7 @@ module:
 | | analysis finisher | chat finisher |
 |---|---|---|
 | Wants | a validated `ComplianceResult` | a streamed answer with verbatim quotes |
-| Request | `output_config.format` = the draft schema; citations off; tools off; the ledger *not* re-sent (it is already in the conversation as tool results) | one document block per ledger entry, citations on, no tools, no `format` |
+| Request | `output_config.format` = the draft schema; citations off; the tool definitions kept with `tool_choice: none` (same `tools → system` prefix as the loop, for caching); the ledger *not* re-sent (it is already in the conversation as tool results) | one document block per ledger entry, citations on, no tools, no `format` |
 | Quotes | written by the model, **verified deterministically** against the ledger | **extracted by the API** from the passages sent (`char_location`), so verbatim by construction |
 | Effort | `ANALYSIS_EFFORT` (medium) | `CHAT_EFFORT` (low) |
 
@@ -67,6 +67,19 @@ system prompt + task + tool definitions
 * **dedupe** -- an identical `(tool, args)` is answered from the ledger at
   zero retrieval cost, so a model that repeats itself runs out of calls
   without burning the index.
+
+Two rules of the loop that are easy to get wrong and fail quietly:
+
+* **The assistant turn goes back wholesale.** `content_params()` echoes
+  every block of the response -- thinking blocks with their signatures
+  included -- as the next request's assistant message. Rebuilding the turn
+  from text + `tool_use` alone would drop blocks the model expects back on
+  the same model, and the symptom looks like a model problem, not a bug.
+* **All of one turn's tool results go back in one user message.** A response
+  may carry several `tool_use` blocks; they are executed in order and their
+  `tool_result`s returned together. Splitting them across messages silently
+  teaches the model to stop calling in parallel. `max_tool_calls` counts
+  *executions*, so three parallel calls in one turn consume three.
 
 On any cap the finisher is still invoked with what exists. A capped run is
 never an error; it is a result with `ended_by="cap"`, which the confidence

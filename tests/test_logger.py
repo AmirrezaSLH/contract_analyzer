@@ -61,7 +61,8 @@ def test_span_logs_start_and_end_with_latency_and_parent(json_log):
         ("span.end", "outer"),
     ]
     outer_end = recs[-1]
-    assert outer_end["status"] == "ok" and outer_end["pages"] == 21 and outer_end["stage"] == "parse"
+    assert outer_end["status"] == "ok"
+    assert outer_end["pages"] == 21 and outer_end["stage"] == "parse"
     assert outer_end["latency_ms"] >= 0
     inner_start = recs[1]
     assert inner_start["parent_span_id"] == recs[0]["span_id"]

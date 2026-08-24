@@ -133,7 +133,9 @@ class _ContextFilter(logging.Filter):
 
 
 def _extras(record: logging.LogRecord) -> dict[str, Any]:
-    return {k: v for k, v in record.__dict__.items() if k not in _RESERVED and not k.startswith("_")}
+    return {
+        k: v for k, v in record.__dict__.items() if k not in _RESERVED and not k.startswith("_")
+    }
 
 
 class JsonFormatter(logging.Formatter):

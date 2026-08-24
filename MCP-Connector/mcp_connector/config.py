@@ -18,6 +18,13 @@ The one file it does read is the repository's, when there is one. Reading
 work in a checkout without a wrapper script; a copy running anywhere else
 simply finds no file and falls through to the defaults below, which are the
 same values.
+
+**`.env` carries the port and nothing else.** Where the API is and which
+transport to serve are not facts about an environment -- they are decisions
+whoever launches this has already made, and they arrive as flags from
+`start.bash`, as service environment from compose, or as a desktop client's
+config. Every field below is still read from the process environment, which is
+how each of those overrides it; none of them needs a line in a file first.
 """
 
 from __future__ import annotations
@@ -72,17 +79,29 @@ class ConnectorSettings(BaseSettings):
             file_secret_settings,
         )
 
-    # ===== .env: where things are ==========================================
+    # ===== where things are ================================================
+    # Defaults that work, rather than fields a reader has to fill in. Of these
+    # only `MCP_PORT` is in `.env.example`: a port is a fact about the machine,
+    # while a transport and an API URL are decisions the thing doing the
+    # launching has already made -- `start.bash` passes them as flags, compose
+    # sets them on the service, and a desktop client's config carries its own.
+    # Each is still read from the process environment, which is how those two
+    # override it.
+
     #: The API's base URL, *without* the `/api` prefix -- `http://api:8100`,
     #: not `http://api:8100/api`. Unset means "the API on this machine", built
     #: from `BACKEND_PORT` so a moved port does not have to be spelled twice.
     ca_api_url: str | None = None
     backend_port: int = Field(default=8100, gt=0, lt=65536)
     #: The API's `X-API-Key`, when it demands one. The same secret the browser
-    #: would send: this connector is a client of that API exactly as the UI is.
-    #: Production is OAuth 2.1 and this field is the demo -- see the README.
+    #: would send: this connector is a client of that API exactly as the UI is,
+    #: and `API_KEY` is the analyzer's own field. Production is OAuth 2.1 and
+    #: this is the demo -- see docs/mcp.md.
     api_key: SecretStr | None = None
 
+    #: `stdio` by default, because the default caller is a desktop client that
+    #: spawned this process and is holding the other end of the pipe. Anything
+    #: serving a port says so.
     mcp_transport: Transport = "stdio"
     #: Only used by `http`. `0.0.0.0` inside a container, which compose sets.
     mcp_host: str = "127.0.0.1"
@@ -116,10 +135,12 @@ class ConnectorSettings(BaseSettings):
     @field_validator("ca_api_url", "api_key", "mcp_upload_root", mode="before")
     @classmethod
     def _blank_is_unset(cls, v: object) -> object:
-        # `.env.example` ships these keys empty, because a key a reader can see
-        # is a key a reader can fill in. An empty line means "use the default",
-        # not `Path("")` or a base URL of "" -- the analyzer's config.py makes
-        # the same call for the same reason.
+        # An unset variable and one set to "" mean the same thing, and both
+        # happen: `CA_API_URL=` left in a copied `.env`, and compose's
+        # `${CA_API_URL:-}` when the host has none. Neither should become a
+        # base URL of "" that fails at the first request with nothing useful to
+        # say -- the analyzer's config.py makes the same call for the same
+        # reason.
         return None if isinstance(v, str) and not v.strip() else v
 
     @property

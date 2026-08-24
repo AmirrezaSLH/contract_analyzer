@@ -56,13 +56,17 @@ arrive empty) and then dispatches:
 | `mcp` | runtime | `MCP_PORT` (8102) | yes, after `api` is healthy |
 | `tools` | dev | – | no (profile `tools`) |
 
+* **`MCP_TRANSPORT` and `CA_API_URL` are set on the service, not in `.env`.**
+  They are defaults in the connector's own config that a launcher overrides;
+  compose is one launcher and `./start.bash` (which passes flags) is the other.
+  Only `MCP_PORT` is an environment field. See [mcp.md](mcp.md).
 * **The `mcp` service mounts nothing.** `x-app` gives every service the `data/`
   and `.run/` bind mounts; the connector overrides `volumes` to `[]`, because it
   reaches the API over `CA_API_URL` and has no database to open. An empty mount
   list makes that structural rather than a promise in a comment. It also runs
   the HTTP transport rather than stdio: a container's stdin is not where a
   desktop client is. See
-  [MCP-Connector/README.md](../MCP-Connector/README.md).
+  [mcp.md](mcp.md).
 * **One origin.** The API serves the bundle. There is no second UI container
   and no `FRONTEND_PORT` mapping. `api_cors_origins` stays empty because the
   browser never leaves that origin. `FRONTEND_PORT` is still in `.env` for

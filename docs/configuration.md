@@ -29,11 +29,7 @@ below, and `settings.json` only ever needs the fields in the second table.
 | `ASSETS_DIR` | `data/assets` | extracted figure images |
 | `LOG_FILE` | `.run/app.jsonl` | blank disables the JSON file |
 | `API_KEY` | – | `SecretStr`; the `X-API-Key` the HTTP API demands. Blank means open, which is the local demo. |
-| `MCP_TRANSPORT` | `stdio` | The MCP connector: `stdio` for a local desktop client, `http` for a port. |
-| `MCP_PORT` | `8102` | Host port for the connector, `http` transport only. |
-| `MCP_HOST` | `127.0.0.1` | The same; compose sets `0.0.0.0`. |
-| `CA_API_URL` | `http://127.0.0.1:$BACKEND_PORT` | Where the connector finds the API. **No `/api` suffix.** |
-| `MCP_UPLOAD_ROOT` | – | When set, the connector's `path` uploads must live under it. |
+| `MCP_PORT` | `8102` | Host port for the MCP connector on its HTTP transport (`./start.bash`, compose). A stdio connector binds nothing. |
 
 ## `settings.json` fields
 
@@ -72,7 +68,13 @@ below, and `settings.json` only ever needs the fields in the second table.
 client of the API, not part of the analyzer -- so it builds its own
 `BaseSettings` over the same two files, with the same precedence. `Settings` in
 `config.py` ignores the `mcp_*` keys; the connector ignores everything else.
-See [MCP-Connector/README.md](../MCP-Connector/README.md).
+
+It also reads `CA_API_URL`, `MCP_TRANSPORT`, `MCP_HOST` and `MCP_UPLOAD_ROOT`
+from the process environment, and they are deliberately **not** in
+`.env.example`: each has a default that works, and the two things that run the
+connector as a server -- `./start.bash` and compose -- set what they need on
+the command line or on the service. A port is a fact about the machine; a
+transport is a decision the launcher has already made. See [mcp.md](mcp.md).
 
 ## Four behaviours worth knowing
 

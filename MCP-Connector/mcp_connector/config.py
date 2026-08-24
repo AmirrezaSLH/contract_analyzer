@@ -25,7 +25,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import (
     BaseSettings,
     JsonConfigSettingsSource,
@@ -112,6 +112,15 @@ class ConnectorSettings(BaseSettings):
     #: Bytes accepted from `upload_contract(url=...)`, before the API's own
     #: `api_max_upload_mb` gets a chance to refuse it.
     mcp_max_download_mb: float = Field(default=25.0, gt=0)
+
+    @field_validator("ca_api_url", "api_key", "mcp_upload_root", mode="before")
+    @classmethod
+    def _blank_is_unset(cls, v: object) -> object:
+        # `.env.example` ships these keys empty, because a key a reader can see
+        # is a key a reader can fill in. An empty line means "use the default",
+        # not `Path("")` or a base URL of "" -- the analyzer's config.py makes
+        # the same call for the same reason.
+        return None if isinstance(v, str) and not v.strip() else v
 
     @property
     def api_url(self) -> str:

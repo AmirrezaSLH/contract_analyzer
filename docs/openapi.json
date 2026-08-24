@@ -467,6 +467,22 @@
         "title": "Body_upload_api_documents_post",
         "type": "object"
       },
+      "BucketChat": {
+        "properties": {
+          "cost_usd": {
+            "default": 0.0,
+            "title": "Cost Usd",
+            "type": "number"
+          },
+          "turns": {
+            "default": 0,
+            "title": "Turns",
+            "type": "integer"
+          }
+        },
+        "title": "BucketChat",
+        "type": "object"
+      },
       "ChatRequest": {
         "properties": {
           "document_id": {
@@ -545,6 +561,45 @@
           "question"
         ],
         "title": "ChatRequest",
+        "type": "object"
+      },
+      "ChatSummary": {
+        "description": "Chat is stateless and writes no run row, so this is `spans WHERE name =\n'chat'`. **`latency_ms` is milliseconds** while `latency_s` in the same\npayload is seconds.",
+        "properties": {
+          "cost_per_turn": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Per Turn"
+          },
+          "cost_usd": {
+            "default": 0.0,
+            "title": "Cost Usd",
+            "type": "number"
+          },
+          "errors": {
+            "default": 0,
+            "title": "Errors",
+            "type": "integer"
+          },
+          "latency_ms": {
+            "$ref": "#/components/schemas/Percentiles"
+          },
+          "turns": {
+            "default": 0,
+            "title": "Turns",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "latency_ms"
+        ],
+        "title": "ChatSummary",
         "type": "object"
       },
       "CitationOut": {
@@ -722,6 +777,50 @@
           "model"
         ],
         "title": "ComplianceResult",
+        "type": "object"
+      },
+      "CostSummary": {
+        "properties": {
+          "mean": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mean"
+          },
+          "p50": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P50"
+          },
+          "p95": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P95"
+          },
+          "total": {
+            "default": 0.0,
+            "title": "Total",
+            "type": "number"
+          }
+        },
+        "title": "CostSummary",
         "type": "object"
       },
       "CriterionOut": {
@@ -1001,6 +1100,50 @@
         "title": "ErrorBody",
         "type": "object"
       },
+      "EvaluatorSlot": {
+        "description": "The accept-rate meter, honestly empty.\n\n`analyses.evaluator_*` are declared and `NULL` until the evaluator lands,\nso the slot reports what it is actually showing. A UI must label `value`\nby `showing` and never as an accept rate while `available` is false.",
+        "properties": {
+          "accept_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accept Rate"
+          },
+          "available": {
+            "default": false,
+            "title": "Available",
+            "type": "boolean"
+          },
+          "note": {
+            "default": "",
+            "title": "Note",
+            "type": "string"
+          },
+          "showing": {
+            "default": "cap_rate",
+            "title": "Showing",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "title": "EvaluatorSlot",
+        "type": "object"
+      },
       "Health": {
         "properties": {
           "analyses_running": {
@@ -1150,6 +1293,67 @@
         "title": "LastAnalysisOut",
         "type": "object"
       },
+      "LatencyPercentiles": {
+        "properties": {
+          "mean": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mean"
+          },
+          "p50": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P50"
+          },
+          "p95": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P95"
+          }
+        },
+        "title": "LatencyPercentiles",
+        "type": "object"
+      },
+      "LiveCounts": {
+        "description": "Workers busy and runs queued, from `JobRunner` -- not from a table.\n\nMerged in by the route, because a table read would be describing the last\nrequest rather than this process.",
+        "properties": {
+          "active": {
+            "default": 0,
+            "title": "Active",
+            "type": "integer"
+          },
+          "queued": {
+            "default": 0,
+            "title": "Queued",
+            "type": "integer"
+          },
+          "running": {
+            "default": 0,
+            "title": "Running",
+            "type": "integer"
+          }
+        },
+        "title": "LiveCounts",
+        "type": "object"
+      },
       "Message": {
         "properties": {
           "content": {
@@ -1170,6 +1374,212 @@
           "content"
         ],
         "title": "Message",
+        "type": "object"
+      },
+      "MetricsBucket": {
+        "description": "One point on the trend charts.\n\n**The last bucket in a series is the current one and is partial**, so its\nbar is always short: mark it or drop it, but do not let a reader read the\npresent as a fall.",
+        "properties": {
+          "bucket": {
+            "title": "Bucket",
+            "type": "string"
+          },
+          "chat": {
+            "$ref": "#/components/schemas/BucketChat"
+          },
+          "cost_percentiles": {
+            "$ref": "#/components/schemas/Percentiles"
+          },
+          "cost_usd": {
+            "default": 0.0,
+            "title": "Cost Usd",
+            "type": "number"
+          },
+          "done": {
+            "default": 0,
+            "title": "Done",
+            "type": "integer"
+          },
+          "failed": {
+            "default": 0,
+            "title": "Failed",
+            "type": "integer"
+          },
+          "latency_s": {
+            "$ref": "#/components/schemas/Percentiles"
+          },
+          "mean_confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mean Confidence"
+          },
+          "needs_review_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Needs Review Rate"
+          },
+          "quote_verification_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quote Verification Rate"
+          },
+          "runs": {
+            "default": 0,
+            "title": "Runs",
+            "type": "integer"
+          },
+          "states": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "States",
+            "type": "object"
+          }
+        },
+        "required": [
+          "bucket",
+          "latency_s",
+          "cost_percentiles",
+          "states",
+          "chat"
+        ],
+        "title": "MetricsBucket",
+        "type": "object"
+      },
+      "MetricsSummary": {
+        "description": "`GET /metrics/summary`: every tile and meter on the KPI page.",
+        "properties": {
+          "chat": {
+            "$ref": "#/components/schemas/ChatSummary"
+          },
+          "cost_by_model": {
+            "items": {
+              "$ref": "#/components/schemas/ModelCost"
+            },
+            "title": "Cost By Model",
+            "type": "array"
+          },
+          "cost_usd": {
+            "$ref": "#/components/schemas/CostSummary"
+          },
+          "documents": {
+            "default": 0,
+            "title": "Documents",
+            "type": "integer"
+          },
+          "generated_at": {
+            "title": "Generated At",
+            "type": "string"
+          },
+          "latency_s": {
+            "$ref": "#/components/schemas/LatencyPercentiles"
+          },
+          "live": {
+            "$ref": "#/components/schemas/LiveCounts"
+          },
+          "quality": {
+            "$ref": "#/components/schemas/Quality"
+          },
+          "reliability": {
+            "$ref": "#/components/schemas/Reliability"
+          },
+          "runs": {
+            "$ref": "#/components/schemas/RunCounts"
+          },
+          "since": {
+            "title": "Since",
+            "type": "string"
+          },
+          "spans": {
+            "$ref": "#/components/schemas/SpanCounts"
+          },
+          "surfaces": {
+            "items": {
+              "$ref": "#/components/schemas/SurfaceCost"
+            },
+            "title": "Surfaces",
+            "type": "array"
+          },
+          "tokens": {
+            "$ref": "#/components/schemas/TokenCounts"
+          },
+          "window": {
+            "title": "Window",
+            "type": "string"
+          }
+        },
+        "required": [
+          "window",
+          "since",
+          "generated_at",
+          "live",
+          "runs",
+          "reliability",
+          "latency_s",
+          "cost_usd",
+          "tokens",
+          "quality",
+          "surfaces",
+          "cost_by_model",
+          "chat",
+          "spans"
+        ],
+        "title": "MetricsSummary",
+        "type": "object"
+      },
+      "ModelCost": {
+        "description": "From `agent.call` spans, so it covers analysis and chat in one pass.\nEmpty for a window with no calls, or a database whose spans predate the\ntable; token counts are best-effort.",
+        "properties": {
+          "calls": {
+            "default": 0,
+            "title": "Calls",
+            "type": "integer"
+          },
+          "cost_usd": {
+            "default": 0.0,
+            "title": "Cost Usd",
+            "type": "number"
+          },
+          "input_tokens": {
+            "default": 0,
+            "title": "Input Tokens",
+            "type": "integer"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "output_tokens": {
+            "default": 0,
+            "title": "Output Tokens",
+            "type": "integer"
+          }
+        },
+        "title": "ModelCost",
         "type": "object"
       },
       "PassageOut": {
@@ -1227,6 +1637,35 @@
         "title": "PassageOut",
         "type": "object"
       },
+      "Percentiles": {
+        "description": "Nearest-rank p50 and p95. `None` when nothing was measured.\n\nAt n=1 both are the one value and at n=2 p50 is the lower: small windows\nshowing `p50 == p95` are correct, not a bug.",
+        "properties": {
+          "p50": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P50"
+          },
+          "p95": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P95"
+          }
+        },
+        "title": "Percentiles",
+        "type": "object"
+      },
       "Progress": {
         "properties": {
           "done": {
@@ -1241,6 +1680,121 @@
           }
         },
         "title": "Progress",
+        "type": "object"
+      },
+      "Quality": {
+        "description": "The three meters, each with the denominator it was computed over.",
+        "properties": {
+          "cap_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cap Rate"
+          },
+          "capped": {
+            "default": 0,
+            "title": "Capped",
+            "type": "integer"
+          },
+          "evaluator": {
+            "$ref": "#/components/schemas/EvaluatorSlot"
+          },
+          "mean_confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mean Confidence"
+          },
+          "needs_review": {
+            "default": 0,
+            "title": "Needs Review",
+            "type": "integer"
+          },
+          "needs_review_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Needs Review Rate"
+          },
+          "quote_verification_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quote Verification Rate"
+          },
+          "quotes_total": {
+            "default": 0,
+            "title": "Quotes Total",
+            "type": "integer"
+          },
+          "quotes_verified": {
+            "default": 0,
+            "title": "Quotes Verified",
+            "type": "integer"
+          },
+          "runs_capped": {
+            "default": 0,
+            "title": "Runs Capped",
+            "type": "integer"
+          },
+          "runs_needing_review": {
+            "default": 0,
+            "title": "Runs Needing Review",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "evaluator"
+        ],
+        "title": "Quality",
+        "type": "object"
+      },
+      "Reliability": {
+        "description": "`failed + interrupted` over `settled`. Three outcomes, not two:\ndone-but-`needs_review` is quality and is on its own meter.",
+        "properties": {
+          "failed": {
+            "default": 0,
+            "title": "Failed",
+            "type": "integer"
+          },
+          "failure_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Rate"
+          },
+          "interrupted": {
+            "default": 0,
+            "title": "Interrupted",
+            "type": "integer"
+          }
+        },
+        "title": "Reliability",
         "type": "object"
       },
       "ResolvedQuote": {
@@ -1286,6 +1840,260 @@
           "verified"
         ],
         "title": "ResolvedQuote",
+        "type": "object"
+      },
+      "RunCounts": {
+        "properties": {
+          "cancelled": {
+            "default": 0,
+            "title": "Cancelled",
+            "type": "integer"
+          },
+          "criteria": {
+            "default": 0,
+            "title": "Criteria",
+            "type": "integer"
+          },
+          "done": {
+            "default": 0,
+            "title": "Done",
+            "type": "integer"
+          },
+          "failed": {
+            "default": 0,
+            "title": "Failed",
+            "type": "integer"
+          },
+          "interrupted": {
+            "default": 0,
+            "title": "Interrupted",
+            "type": "integer"
+          },
+          "live": {
+            "default": 0,
+            "title": "Live",
+            "type": "integer"
+          },
+          "settled": {
+            "default": 0,
+            "title": "Settled",
+            "type": "integer"
+          },
+          "total": {
+            "default": 0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "title": "RunCounts",
+        "type": "object"
+      },
+      "RunRow": {
+        "description": "One row of the global runs table.\n\n`report_json` is deliberately absent -- a runs table wants none of thirty\nkilobytes of report per row. **`trace_id` is why this table exists**: it is\nthe join from a number on the KPI page to the lines in `.run/app.jsonl`\nthat produced it.",
+        "properties": {
+          "analysis_id": {
+            "title": "Analysis Id",
+            "type": "string"
+          },
+          "capped": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capped"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "cost_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Usd"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "criteria_completed": {
+            "default": 0,
+            "title": "Criteria Completed",
+            "type": "integer"
+          },
+          "criteria_requested": {
+            "default": 0,
+            "title": "Criteria Requested",
+            "type": "integer"
+          },
+          "criteria_skipped": {
+            "default": 0,
+            "title": "Criteria Skipped",
+            "type": "integer"
+          },
+          "document_id": {
+            "title": "Document Id",
+            "type": "integer"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "filename": {
+            "default": "",
+            "title": "Filename",
+            "type": "string"
+          },
+          "input_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Tokens"
+          },
+          "latency_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency S"
+          },
+          "mean_confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mean Confidence"
+          },
+          "needs_review": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Needs Review"
+          },
+          "output_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Tokens"
+          },
+          "quotes_total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quotes Total"
+          },
+          "quotes_verified": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quotes Verified"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "status": {
+            "default": "queued",
+            "title": "Status",
+            "type": "string"
+          },
+          "surface": {
+            "default": "api",
+            "title": "Surface",
+            "type": "string"
+          },
+          "tool_calls": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tool Calls"
+          },
+          "trace_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trace Id"
+          }
+        },
+        "required": [
+          "analysis_id",
+          "document_id",
+          "created_at"
+        ],
+        "title": "RunRow",
         "type": "object"
       },
       "SearchOut": {
@@ -1380,6 +2188,193 @@
         "title": "SectionOut",
         "type": "object"
       },
+      "SpanCounts": {
+        "description": "Spans recorded and spans thrown away. Reported because a metrics system\nthat silently loses data is worse than one that says it lost some.",
+        "properties": {
+          "dropped": {
+            "default": 0,
+            "title": "Dropped",
+            "type": "integer"
+          },
+          "written": {
+            "default": 0,
+            "title": "Written",
+            "type": "integer"
+          }
+        },
+        "title": "SpanCounts",
+        "type": "object"
+      },
+      "SpanNode": {
+        "description": "One span, carrying the spans it opened.\n\nThe tree is resolved server-side so the same `parent_span_id` algorithm is\nnot written again in TypeScript. A span whose parent is missing is promoted\nto a root rather than dropped, so a run can have more roots than the shape\n`api.analysis -> analysis.document -> ...` suggests.",
+        "properties": {
+          "attrs": {
+            "additionalProperties": true,
+            "title": "Attrs",
+            "type": "object"
+          },
+          "children": {
+            "items": {
+              "$ref": "#/components/schemas/SpanNode"
+            },
+            "title": "Children",
+            "type": "array"
+          },
+          "cost_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Usd"
+          },
+          "criterion": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Criterion"
+          },
+          "document_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Id"
+          },
+          "input_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Tokens"
+          },
+          "latency_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency Ms"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "output_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Tokens"
+          },
+          "parent_span_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Span Id"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
+          "span_id": {
+            "title": "Span Id",
+            "type": "string"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "surface": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Surface"
+          },
+          "trace_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trace Id"
+          },
+          "ts": {
+            "title": "Ts",
+            "type": "string"
+          }
+        },
+        "required": [
+          "span_id",
+          "name",
+          "ts",
+          "attrs",
+          "children"
+        ],
+        "title": "SpanNode",
+        "type": "object"
+      },
       "SubRequirementOut": {
         "properties": {
           "id": {
@@ -1436,6 +2431,54 @@
           "quote_indexes"
         ],
         "title": "SubRequirementResult",
+        "type": "object"
+      },
+      "SurfaceCost": {
+        "properties": {
+          "cost_usd": {
+            "default": 0.0,
+            "title": "Cost Usd",
+            "type": "number"
+          },
+          "runs": {
+            "default": 0,
+            "title": "Runs",
+            "type": "integer"
+          },
+          "surface": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Surface"
+          }
+        },
+        "title": "SurfaceCost",
+        "type": "object"
+      },
+      "TokenCounts": {
+        "properties": {
+          "input": {
+            "default": 0,
+            "title": "Input",
+            "type": "integer"
+          },
+          "output": {
+            "default": 0,
+            "title": "Output",
+            "type": "integer"
+          },
+          "tool_calls": {
+            "default": 0,
+            "title": "Tool Calls",
+            "type": "integer"
+          }
+        },
+        "title": "TokenCounts",
         "type": "object"
       },
       "UploadOut": {
@@ -3480,8 +4523,7 @@
               "application/json": {
                 "schema": {
                   "items": {
-                    "additionalProperties": true,
-                    "type": "object"
+                    "$ref": "#/components/schemas/RunRow"
                   },
                   "title": "Response Runs Api Metrics Runs Get",
                   "type": "array"
@@ -3623,8 +4665,7 @@
               "application/json": {
                 "schema": {
                   "items": {
-                    "additionalProperties": true,
-                    "type": "object"
+                    "$ref": "#/components/schemas/SpanNode"
                   },
                   "title": "Response Spans Api Metrics Runs  Run Id  Spans Get",
                   "type": "array"
@@ -3767,9 +4808,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Summary Api Metrics Summary Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/MetricsSummary"
                 }
               }
             },
@@ -3927,8 +4966,7 @@
               "application/json": {
                 "schema": {
                   "items": {
-                    "additionalProperties": true,
-                    "type": "object"
+                    "$ref": "#/components/schemas/MetricsBucket"
                   },
                   "title": "Response Timeseries Api Metrics Timeseries Get",
                   "type": "array"

@@ -590,6 +590,19 @@ export interface components {
              */
             file: string;
         };
+        /** BucketChat */
+        BucketChat: {
+            /**
+             * Cost Usd
+             * @default 0
+             */
+            cost_usd: number;
+            /**
+             * Turns
+             * @default 0
+             */
+            turns: number;
+        };
         /** ChatRequest */
         ChatRequest: {
             /**
@@ -625,6 +638,32 @@ export interface components {
              * @description Passages per search. Omit for the configured `retrieval_top_k`.
              */
             top_k?: number | null;
+        };
+        /**
+         * ChatSummary
+         * @description Chat is stateless and writes no run row, so this is `spans WHERE name =
+         *     'chat'`. **`latency_ms` is milliseconds** while `latency_s` in the same
+         *     payload is seconds.
+         */
+        ChatSummary: {
+            /** Cost Per Turn */
+            cost_per_turn?: number | null;
+            /**
+             * Cost Usd
+             * @default 0
+             */
+            cost_usd: number;
+            /**
+             * Errors
+             * @default 0
+             */
+            errors: number;
+            latency_ms: components["schemas"]["Percentiles"];
+            /**
+             * Turns
+             * @default 0
+             */
+            turns: number;
         };
         /**
          * CitationOut
@@ -716,6 +755,20 @@ export interface components {
             usage: {
                 [key: string]: number;
             };
+        };
+        /** CostSummary */
+        CostSummary: {
+            /** Mean */
+            mean?: number | null;
+            /** P50 */
+            p50?: number | null;
+            /** P95 */
+            p95?: number | null;
+            /**
+             * Total
+             * @default 0
+             */
+            total: number;
         };
         /**
          * CriterionOut
@@ -831,6 +884,35 @@ export interface components {
             /** Message */
             message: string;
         };
+        /**
+         * EvaluatorSlot
+         * @description The accept-rate meter, honestly empty.
+         *
+         *     `analyses.evaluator_*` are declared and `NULL` until the evaluator lands,
+         *     so the slot reports what it is actually showing. A UI must label `value`
+         *     by `showing` and never as an accept rate while `available` is false.
+         */
+        EvaluatorSlot: {
+            /** Accept Rate */
+            accept_rate?: number | null;
+            /**
+             * Available
+             * @default false
+             */
+            available: boolean;
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+            /**
+             * Showing
+             * @default cap_rate
+             */
+            showing: string;
+            /** Value */
+            value?: number | null;
+        };
         /** Health */
         Health: {
             /**
@@ -930,6 +1012,39 @@ export interface components {
              */
             status: "queued" | "running" | "done" | "failed" | "cancelled" | "interrupted";
         };
+        /** LatencyPercentiles */
+        LatencyPercentiles: {
+            /** Mean */
+            mean?: number | null;
+            /** P50 */
+            p50?: number | null;
+            /** P95 */
+            p95?: number | null;
+        };
+        /**
+         * LiveCounts
+         * @description Workers busy and runs queued, from `JobRunner` -- not from a table.
+         *
+         *     Merged in by the route, because a table read would be describing the last
+         *     request rather than this process.
+         */
+        LiveCounts: {
+            /**
+             * Active
+             * @default 0
+             */
+            active: number;
+            /**
+             * Queued
+             * @default 0
+             */
+            queued: number;
+            /**
+             * Running
+             * @default 0
+             */
+            running: number;
+        };
         /** Message */
         Message: {
             /** Content */
@@ -939,6 +1054,111 @@ export interface components {
              * @enum {string}
              */
             role: "user" | "assistant";
+        };
+        /**
+         * MetricsBucket
+         * @description One point on the trend charts.
+         *
+         *     **The last bucket in a series is the current one and is partial**, so its
+         *     bar is always short: mark it or drop it, but do not let a reader read the
+         *     present as a fall.
+         */
+        MetricsBucket: {
+            /** Bucket */
+            bucket: string;
+            chat: components["schemas"]["BucketChat"];
+            cost_percentiles: components["schemas"]["Percentiles"];
+            /**
+             * Cost Usd
+             * @default 0
+             */
+            cost_usd: number;
+            /**
+             * Done
+             * @default 0
+             */
+            done: number;
+            /**
+             * Failed
+             * @default 0
+             */
+            failed: number;
+            latency_s: components["schemas"]["Percentiles"];
+            /** Mean Confidence */
+            mean_confidence?: number | null;
+            /** Needs Review Rate */
+            needs_review_rate?: number | null;
+            /** Quote Verification Rate */
+            quote_verification_rate?: number | null;
+            /**
+             * Runs
+             * @default 0
+             */
+            runs: number;
+            /** States */
+            states: {
+                [key: string]: number;
+            };
+        };
+        /**
+         * MetricsSummary
+         * @description `GET /metrics/summary`: every tile and meter on the KPI page.
+         */
+        MetricsSummary: {
+            chat: components["schemas"]["ChatSummary"];
+            /** Cost By Model */
+            cost_by_model: components["schemas"]["ModelCost"][];
+            cost_usd: components["schemas"]["CostSummary"];
+            /**
+             * Documents
+             * @default 0
+             */
+            documents: number;
+            /** Generated At */
+            generated_at: string;
+            latency_s: components["schemas"]["LatencyPercentiles"];
+            live: components["schemas"]["LiveCounts"];
+            quality: components["schemas"]["Quality"];
+            reliability: components["schemas"]["Reliability"];
+            runs: components["schemas"]["RunCounts"];
+            /** Since */
+            since: string;
+            spans: components["schemas"]["SpanCounts"];
+            /** Surfaces */
+            surfaces: components["schemas"]["SurfaceCost"][];
+            tokens: components["schemas"]["TokenCounts"];
+            /** Window */
+            window: string;
+        };
+        /**
+         * ModelCost
+         * @description From `agent.call` spans, so it covers analysis and chat in one pass.
+         *     Empty for a window with no calls, or a database whose spans predate the
+         *     table; token counts are best-effort.
+         */
+        ModelCost: {
+            /**
+             * Calls
+             * @default 0
+             */
+            calls: number;
+            /**
+             * Cost Usd
+             * @default 0
+             */
+            cost_usd: number;
+            /**
+             * Input Tokens
+             * @default 0
+             */
+            input_tokens: number;
+            /** Model */
+            model?: string | null;
+            /**
+             * Output Tokens
+             * @default 0
+             */
+            output_tokens: number;
         };
         /**
          * PassageOut
@@ -983,6 +1203,19 @@ export interface components {
             /** Text */
             text: string;
         };
+        /**
+         * Percentiles
+         * @description Nearest-rank p50 and p95. `None` when nothing was measured.
+         *
+         *     At n=1 both are the one value and at n=2 p50 is the lower: small windows
+         *     showing `p50 == p95` are correct, not a bug.
+         */
+        Percentiles: {
+            /** P50 */
+            p50?: number | null;
+            /** P95 */
+            p95?: number | null;
+        };
         /** Progress */
         Progress: {
             /**
@@ -995,6 +1228,70 @@ export interface components {
              * @default 0
              */
             total: number;
+        };
+        /**
+         * Quality
+         * @description The three meters, each with the denominator it was computed over.
+         */
+        Quality: {
+            /** Cap Rate */
+            cap_rate?: number | null;
+            /**
+             * Capped
+             * @default 0
+             */
+            capped: number;
+            evaluator: components["schemas"]["EvaluatorSlot"];
+            /** Mean Confidence */
+            mean_confidence?: number | null;
+            /**
+             * Needs Review
+             * @default 0
+             */
+            needs_review: number;
+            /** Needs Review Rate */
+            needs_review_rate?: number | null;
+            /** Quote Verification Rate */
+            quote_verification_rate?: number | null;
+            /**
+             * Quotes Total
+             * @default 0
+             */
+            quotes_total: number;
+            /**
+             * Quotes Verified
+             * @default 0
+             */
+            quotes_verified: number;
+            /**
+             * Runs Capped
+             * @default 0
+             */
+            runs_capped: number;
+            /**
+             * Runs Needing Review
+             * @default 0
+             */
+            runs_needing_review: number;
+        };
+        /**
+         * Reliability
+         * @description `failed + interrupted` over `settled`. Three outcomes, not two:
+         *     done-but-`needs_review` is quality and is on its own meter.
+         */
+        Reliability: {
+            /**
+             * Failed
+             * @default 0
+             */
+            failed: number;
+            /** Failure Rate */
+            failure_rate?: number | null;
+            /**
+             * Interrupted
+             * @default 0
+             */
+            interrupted: number;
         };
         /** ResolvedQuote */
         ResolvedQuote: {
@@ -1010,6 +1307,124 @@ export interface components {
             text: string;
             /** Verified */
             verified: boolean;
+        };
+        /** RunCounts */
+        RunCounts: {
+            /**
+             * Cancelled
+             * @default 0
+             */
+            cancelled: number;
+            /**
+             * Criteria
+             * @default 0
+             */
+            criteria: number;
+            /**
+             * Done
+             * @default 0
+             */
+            done: number;
+            /**
+             * Failed
+             * @default 0
+             */
+            failed: number;
+            /**
+             * Interrupted
+             * @default 0
+             */
+            interrupted: number;
+            /**
+             * Live
+             * @default 0
+             */
+            live: number;
+            /**
+             * Settled
+             * @default 0
+             */
+            settled: number;
+            /**
+             * Total
+             * @default 0
+             */
+            total: number;
+        };
+        /**
+         * RunRow
+         * @description One row of the global runs table.
+         *
+         *     `report_json` is deliberately absent -- a runs table wants none of thirty
+         *     kilobytes of report per row. **`trace_id` is why this table exists**: it is
+         *     the join from a number on the KPI page to the lines in `.run/app.jsonl`
+         *     that produced it.
+         */
+        RunRow: {
+            /** Analysis Id */
+            analysis_id: string;
+            /** Capped */
+            capped?: number | null;
+            /** Completed At */
+            completed_at?: string | null;
+            /** Cost Usd */
+            cost_usd?: number | null;
+            /** Created At */
+            created_at: string;
+            /**
+             * Criteria Completed
+             * @default 0
+             */
+            criteria_completed: number;
+            /**
+             * Criteria Requested
+             * @default 0
+             */
+            criteria_requested: number;
+            /**
+             * Criteria Skipped
+             * @default 0
+             */
+            criteria_skipped: number;
+            /** Document Id */
+            document_id: number;
+            /** Error */
+            error?: string | null;
+            /**
+             * Filename
+             * @default
+             */
+            filename: string;
+            /** Input Tokens */
+            input_tokens?: number | null;
+            /** Latency S */
+            latency_s?: number | null;
+            /** Mean Confidence */
+            mean_confidence?: number | null;
+            /** Needs Review */
+            needs_review?: number | null;
+            /** Output Tokens */
+            output_tokens?: number | null;
+            /** Quotes Total */
+            quotes_total?: number | null;
+            /** Quotes Verified */
+            quotes_verified?: number | null;
+            /** Started At */
+            started_at?: string | null;
+            /**
+             * Status
+             * @default queued
+             */
+            status: string;
+            /**
+             * Surface
+             * @default api
+             */
+            surface: string;
+            /** Tool Calls */
+            tool_calls?: number | null;
+            /** Trace Id */
+            trace_id?: string | null;
         };
         /**
          * SearchOut
@@ -1072,6 +1487,70 @@ export interface components {
              */
             title: string;
         };
+        /**
+         * SpanCounts
+         * @description Spans recorded and spans thrown away. Reported because a metrics system
+         *     that silently loses data is worse than one that says it lost some.
+         */
+        SpanCounts: {
+            /**
+             * Dropped
+             * @default 0
+             */
+            dropped: number;
+            /**
+             * Written
+             * @default 0
+             */
+            written: number;
+        };
+        /**
+         * SpanNode
+         * @description One span, carrying the spans it opened.
+         *
+         *     The tree is resolved server-side so the same `parent_span_id` algorithm is
+         *     not written again in TypeScript. A span whose parent is missing is promoted
+         *     to a root rather than dropped, so a run can have more roots than the shape
+         *     `api.analysis -> analysis.document -> ...` suggests.
+         */
+        SpanNode: {
+            /** Attrs */
+            attrs: {
+                [key: string]: unknown;
+            };
+            /** Children */
+            children: components["schemas"]["SpanNode"][];
+            /** Cost Usd */
+            cost_usd?: number | null;
+            /** Criterion */
+            criterion?: string | null;
+            /** Document Id */
+            document_id?: number | null;
+            /** Input Tokens */
+            input_tokens?: number | null;
+            /** Latency Ms */
+            latency_ms?: number | null;
+            /** Model */
+            model?: string | null;
+            /** Name */
+            name: string;
+            /** Output Tokens */
+            output_tokens?: number | null;
+            /** Parent Span Id */
+            parent_span_id?: string | null;
+            /** Run Id */
+            run_id?: string | null;
+            /** Span Id */
+            span_id: string;
+            /** Status */
+            status?: string | null;
+            /** Surface */
+            surface?: string | null;
+            /** Trace Id */
+            trace_id?: string | null;
+            /** Ts */
+            ts: string;
+        };
         /** SubRequirementOut */
         SubRequirementOut: {
             /** Id */
@@ -1098,6 +1577,39 @@ export interface components {
              * @enum {string}
              */
             status: "met" | "partial" | "missing" | "not_determined";
+        };
+        /** SurfaceCost */
+        SurfaceCost: {
+            /**
+             * Cost Usd
+             * @default 0
+             */
+            cost_usd: number;
+            /**
+             * Runs
+             * @default 0
+             */
+            runs: number;
+            /** Surface */
+            surface?: string | null;
+        };
+        /** TokenCounts */
+        TokenCounts: {
+            /**
+             * Input
+             * @default 0
+             */
+            input: number;
+            /**
+             * Output
+             * @default 0
+             */
+            output: number;
+            /**
+             * Tool Calls
+             * @default 0
+             */
+            tool_calls: number;
         };
         /**
          * UploadOut
@@ -2733,9 +3245,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    }[];
+                    "application/json": components["schemas"]["RunRow"][];
                 };
             };
             /** @description Malformed request. */
@@ -2847,9 +3357,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    }[];
+                    "application/json": components["schemas"]["SpanNode"][];
                 };
             };
             /** @description Malformed request. */
@@ -2961,9 +3469,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["MetricsSummary"];
                 };
             };
             /** @description Malformed request. */
@@ -3076,9 +3582,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    }[];
+                    "application/json": components["schemas"]["MetricsBucket"][];
                 };
             };
             /** @description Malformed request. */

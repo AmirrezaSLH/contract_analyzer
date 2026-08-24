@@ -19,15 +19,22 @@ days of one-hour bars is 720 marks on a 900-pixel axis.
 they are facts about this process and a table would be describing the last one.
 `summary` merges them in, which is why it is the one handler that depends on
 the runner as well as on the store.
+
+**The four payloads are models, not `dict[str, Any]`.** `docs/openapi.json` is
+what the front end's types are generated from, and a handler that describes
+itself as `additionalProperties: true` makes the KPI page the one part of the
+UI with no type safety. The shapes live in `schemas.py`; `queries.py` remains
+the source of truth for what is in them.
 """
 
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Annotated
 
 from fastapi import APIRouter, Query
 
 from ..deps import ConnDep, MetricsDep, Protected, RunnerDep
+from ..schemas import MetricsBucket, MetricsSummary, RunRow, SpanNode
 
 router = APIRouter(prefix="/metrics", tags=["metrics"], dependencies=[Protected])
 
@@ -42,7 +49,7 @@ def summary(
     store: MetricsDep,
     runner: RunnerDep,
     window: Annotated[str, Query(pattern=_SPEC)] = "24h",
-) -> dict[str, Any]:
+) -> MetricsSummary:
     """Failure rate, p50/p95 latency, spend, and the three quality meters.
 
     `live` is the only part of this payload that is not a query: workers busy,
@@ -51,7 +58,7 @@ def summary(
     running, queued = runner.live
     payload = store.summary(conn, window=window)
     payload["live"] = {"running": running, "queued": queued, "active": running + queued}
-    return payload
+    return MetricsSummary.model_validate(payload)
 
 
 @router.get("/timeseries", summary="Historical trends, bucketed")
@@ -60,11 +67,12 @@ def timeseries(
     store: MetricsDep,
     window: Annotated[str, Query(pattern=_SPEC)] = "7d",
     bucket: Annotated[str | None, Query(pattern=_SPEC)] = None,
-) -> list[dict[str, Any]]:
+) -> list[MetricsBucket]:
     """One entry per bucket, oldest first. Buckets with no runs are present
     and zeroed: a chart that closes its gaps draws a busy night out of a quiet
     one. `bucket` defaults to the one the window is designed with."""
-    return store.timeseries(conn, window=window, bucket=bucket)
+    rows = store.timeseries(conn, window=window, bucket=bucket)
+    return [MetricsBucket.model_validate(row) for row in rows]
 
 
 @router.get("/runs", summary="The runs table")
@@ -72,14 +80,14 @@ def runs(
     conn: ConnDep,
     store: MetricsDep,
     limit: Annotated[int, Query(ge=1, le=500)] = 50,
-) -> list[dict[str, Any]]:
+) -> list[RunRow]:
     """Every run, newest first, whatever contract it was against. The report
     is not included -- open the analysis for that."""
-    return store.runs(conn, limit=limit)
+    return [RunRow.model_validate(row) for row in store.runs(conn, limit=limit)]
 
 
 @router.get("/runs/{run_id}/spans", summary="One run's span tree, for the waterfall")
-def spans(conn: ConnDep, store: MetricsDep, run_id: str) -> list[dict[str, Any]]:
+def spans(conn: ConnDep, store: MetricsDep, run_id: str) -> list[SpanNode]:
     """Every span of one run, as a tree: `api.analysis` -> `analysis.document`
     -> one `analysis.criterion` per criterion -> `agent.run` -> `agent.call` /
     `agent.tool` -> `retrieve`.
@@ -90,4 +98,4 @@ def spans(conn: ConnDep, store: MetricsDep, run_id: str) -> list[dict[str, Any]]
     this table existed, or from another machine -- and not a 404: the run may
     well be in `/metrics/runs` beside it.
     """
-    return store.spans(conn, run_id)
+    return [SpanNode.model_validate(root) for root in store.spans(conn, run_id)]

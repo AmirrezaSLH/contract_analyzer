@@ -15,7 +15,12 @@ not verbatim in E4 -- copy the exact text" is the whole of the feedback.
 
 Quote matching is deliberately forgiving of what a PDF does to text: NFKC,
 curly quotes and dashes folded to ASCII, whitespace collapsed, case folded,
-then a substring test. What it does not forgive is a changed word.
+then a substring test. It is also forgiving of what *the chunker* does to a
+table: a table chunk's text is a markdown grid, and a model quoting a
+requirement row drops the pipes and the cell padding, so `|` folds to a
+space on both sides before the comparison. Exhibit G's `GOV-01` rows are
+exactly where compliance evidence lives; without this every table quote
+would be a `needs_review`. What it does not forgive is a changed word.
 """
 
 from __future__ import annotations
@@ -49,6 +54,8 @@ _FOLD = str.maketrans(
         "“": '"', "”": '"', "„": '"', "‟": '"',
         "–": "-", "—": "-", "−": "-", " ": " ",
         "…": "...",
+        # Markdown table cell separators: a row quoted as prose has none.
+        "|": " ",
     }
 )
 _WS = re.compile(r"\s+")

@@ -140,6 +140,8 @@ class JobState:
                 entry.confidence = event.get("confidence")
                 entry.needs_review = event.get("needs_review")
                 entry.latency_s = event.get("latency_s")
+                entry.verdict = event.get("verdict")
+                entry.rounds = event.get("rounds")
             self.stage = f"criterion {self.done}/{len(self.progress)}"
         self.events.publish("criterion", {"criterion": criterion_id, **_progress_payload(self)})
 
@@ -292,6 +294,8 @@ def _criteria_of(report: AnalysisReport | None) -> list[CriterionProgress]:
             confidence=result.confidence,
             needs_review=result.needs_review,
             latency_s=result.latency_s,
+            verdict=result.verdict,
+            rounds=result.rounds,
         )
         for result in report.results
     ] + [CriterionProgress(id=criterion_id, status="skipped") for criterion_id in report.skipped]
@@ -517,6 +521,35 @@ class JobRunner:
                     "criterion": criterion,
                     "round": event.get("round"),
                     "errors": event.get("errors"),
+                },
+            )
+        elif kind == "evaluating":
+            # The two phases a criterion now has after its draft. They are
+            # published rather than folded into `stage` because a progress view
+            # showing "evaluating" and "revising (research)" is showing the
+            # three-agent loop happening, which is the point of having one.
+            job.events.publish(
+                "evaluating", {"criterion": criterion, "round": event.get("round")}
+            )
+        elif kind == "revising":
+            job.events.publish(
+                "revising",
+                {
+                    "criterion": criterion,
+                    "round": event.get("round"),
+                    "mode": event.get("mode"),
+                    "reasons": event.get("reasons"),
+                },
+            )
+        elif kind == "decision":
+            job.events.publish(
+                "decision",
+                {
+                    "criterion": criterion,
+                    "round": event.get("round"),
+                    "verdict": event.get("verdict"),
+                    "mode": event.get("mode"),
+                    "reasons": event.get("reasons"),
                 },
             )
 

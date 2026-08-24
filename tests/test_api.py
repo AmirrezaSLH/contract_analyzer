@@ -701,6 +701,36 @@ def test_the_stream_reports_every_criterion_and_then_closes(client, api, searche
     # unattributable otherwise.
     assert {t["criterion"] for t in tool_calls} == {c.id for c in CRITERIA}
 
+    # The critic is a phase a subscriber can see, not a silence in the middle
+    # of the run: five `evaluating` events and five `decision` events, each
+    # tagged with the criterion whose draft was being read.
+    evaluating = [data for name, data in events if name == "evaluating"]
+    decisions = [data for name, data in events if name == "decision"]
+    assert {e["criterion"] for e in evaluating} == {c.id for c in CRITERIA}
+    assert {d["verdict"] for d in decisions} == {"accept"}
+    assert "revising" not in names  # nothing was disputed, so nothing was redone
+
+
+def test_the_verdict_and_the_rounds_reach_the_wire(client, api, searches, small_pdf):
+    """A client that only knows `needs_review` cannot say *why* a criterion
+    needs one. `verdict` is what distinguishes an accepted result from one that
+    ran out of rounds and one the critic never managed to read."""
+    document_id = upload(client, small_pdf).json()["document_id"]
+    api.outcomes.extend(full_analysis())
+    analysis_id = client.post(
+        "/api/analyses", json={"document_id": document_id}
+    ).json()["analysis_id"]
+    body = poll(client, analysis_id)
+
+    assert [c["verdict"] for c in body["criteria"]] == ["accept"] * 5
+    assert [c["rounds"] for c in body["criteria"]] == [0] * 5
+    assert body["totals"]["accepted"] == 5
+    assert body["totals"]["evaluator_cost_usd"] > 0
+    result = body["report"]["results"][0]
+    assert result["verdict"] == "accept"
+    assert result["evaluator_findings"]["state_agreement"] == "agree"
+    assert result["confidence_components"]["critic"] == 0.85
+
 
 def test_subscribing_after_the_job_finished_replays_and_closes(client, api, searches, small_pdf):
     """A stream that hangs until a keepalive gives up is the failure this

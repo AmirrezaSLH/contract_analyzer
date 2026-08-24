@@ -173,7 +173,9 @@ def cancel(analysis_id: str, conn: ConnDep, runner: RunnerDep) -> AnalysisSummar
     "/{analysis_id}/events",
     summary="Progress as server-sent events",
     description=(
-        "`status`, one `criterion` per verdict, `tool_call` for each search the agents "
+        "`status`, one `criterion` per verdict, `evaluating` and `revising` as the "
+        "critic reads a draft and the Router sends one back, `decision` for what the "
+        "Router concluded, `tool_call` for each search the agents "
         "make, then `done` or `error`, after which the stream closes. Subscribing late "
         "replays what was missed; subscribing after the job finished returns the replay "
         "and closes, rather than hanging."

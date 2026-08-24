@@ -316,6 +316,11 @@
       "AnalysisTotals": {
         "description": "What the run cost, summed over its criteria. The KPI page's row.",
         "properties": {
+          "accepted": {
+            "default": 0,
+            "title": "Accepted",
+            "type": "integer"
+          },
           "capped": {
             "default": 0,
             "title": "Capped",
@@ -329,6 +334,16 @@
           "criteria": {
             "default": 0,
             "title": "Criteria",
+            "type": "integer"
+          },
+          "evaluator_cost_usd": {
+            "default": 0.0,
+            "title": "Evaluator Cost Usd",
+            "type": "number"
+          },
+          "fallback": {
+            "default": 0,
+            "title": "Fallback",
             "type": "integer"
           },
           "input_tokens": {
@@ -356,9 +371,19 @@
             "title": "Output Tokens",
             "type": "integer"
           },
+          "revised": {
+            "default": 0,
+            "title": "Revised",
+            "type": "integer"
+          },
           "tool_calls": {
             "default": 0,
             "title": "Tool Calls",
+            "type": "integer"
+          },
+          "unevaluated": {
+            "default": 0,
+            "title": "Unevaluated",
             "type": "integer"
           }
         },
@@ -644,6 +669,21 @@
             "title": "Ended By",
             "type": "string"
           },
+          "evaluator_cost_usd": {
+            "default": 0.0,
+            "title": "Evaluator Cost Usd",
+            "type": "number"
+          },
+          "evaluator_findings": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EvaluatorFindings"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "latency_s": {
             "default": 0.0,
             "title": "Latency S",
@@ -671,6 +711,11 @@
             },
             "title": "Relevant Quotes",
             "type": "array"
+          },
+          "rounds": {
+            "default": 0,
+            "title": "Rounds",
+            "type": "integer"
           },
           "structure_rounds": {
             "title": "Structure Rounds",
@@ -700,6 +745,16 @@
             },
             "title": "Usage",
             "type": "object"
+          },
+          "verdict": {
+            "default": "unevaluated",
+            "enum": [
+              "accept",
+              "fallback",
+              "unevaluated"
+            ],
+            "title": "Verdict",
+            "type": "string"
           }
         },
         "required": [
@@ -802,6 +857,17 @@
             ],
             "title": "Needs Review"
           },
+          "rounds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rounds"
+          },
           "state": {
             "anyOf": [
               {
@@ -829,6 +895,22 @@
             ],
             "title": "Status",
             "type": "string"
+          },
+          "verdict": {
+            "anyOf": [
+              {
+                "enum": [
+                  "accept",
+                  "fallback",
+                  "unevaluated"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verdict"
           }
         },
         "required": [
@@ -999,6 +1081,62 @@
           "message"
         ],
         "title": "ErrorBody",
+        "type": "object"
+      },
+      "EvaluatorFindings": {
+        "additionalProperties": false,
+        "description": "What the Evaluator returns: evidence, never authority.\n\nNo field here says what happens next. The Router reads these findings and\ndecides; the Analyzer never sees them raw. `critic_confidence` is the\ncritic's own estimate of the state, independent of the analyst's, and\nenters the composed confidence through `min()`.",
+        "properties": {
+          "critic_confidence": {
+            "description": "Your own estimate, 0 to 1, that compliance_state is correct.",
+            "title": "Critic Confidence",
+            "type": "number"
+          },
+          "missing_searches": {
+            "description": "Sub-requirement ids marked missing that were never searched for.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Missing Searches",
+            "type": "array"
+          },
+          "notes": {
+            "description": "Anything the fields above cannot carry. May be empty.",
+            "title": "Notes",
+            "type": "string"
+          },
+          "quote_support": {
+            "items": {
+              "$ref": "#/components/schemas/QuoteSupport"
+            },
+            "title": "Quote Support",
+            "type": "array"
+          },
+          "state_agreement": {
+            "enum": [
+              "agree",
+              "disagree"
+            ],
+            "title": "State Agreement",
+            "type": "string"
+          },
+          "status_agreement": {
+            "items": {
+              "$ref": "#/components/schemas/StatusAgreement"
+            },
+            "title": "Status Agreement",
+            "type": "array"
+          }
+        },
+        "required": [
+          "quote_support",
+          "status_agreement",
+          "state_agreement",
+          "missing_searches",
+          "critic_confidence",
+          "notes"
+        ],
+        "title": "EvaluatorFindings",
         "type": "object"
       },
       "Health": {
@@ -1188,6 +1326,46 @@
         "title": "Progress",
         "type": "object"
       },
+      "QuoteSupport": {
+        "additionalProperties": false,
+        "description": "The critic's reading of one quote against one sub-requirement.",
+        "properties": {
+          "note": {
+            "description": "One sentence saying why.",
+            "title": "Note",
+            "type": "string"
+          },
+          "quote_index": {
+            "description": "Index into relevant_quotes, as given.",
+            "title": "Quote Index",
+            "type": "integer"
+          },
+          "sub_requirement_id": {
+            "description": "The sub-requirement id this quote was cited for.",
+            "title": "Sub Requirement Id",
+            "type": "string"
+          },
+          "support": {
+            "description": "supports: the quote obliges what the sub-requirement asks. partial: it addresses it with a gap, a carve-out or hedged wording. irrelevant: it is about something else, however verbatim. contradicts: it says the opposite of the claim.",
+            "enum": [
+              "supports",
+              "partial",
+              "irrelevant",
+              "contradicts"
+            ],
+            "title": "Support",
+            "type": "string"
+          }
+        },
+        "required": [
+          "quote_index",
+          "sub_requirement_id",
+          "support",
+          "note"
+        ],
+        "title": "QuoteSupport",
+        "type": "object"
+      },
       "ResolvedQuote": {
         "properties": {
           "chunk_id": {
@@ -1259,6 +1437,37 @@
           }
         },
         "title": "SectionOut",
+        "type": "object"
+      },
+      "StatusAgreement": {
+        "additionalProperties": false,
+        "description": "Whether the analyst's status for one sub-requirement follows from its quotes.",
+        "properties": {
+          "agreement": {
+            "enum": [
+              "agree",
+              "too_strong",
+              "too_weak"
+            ],
+            "title": "Agreement",
+            "type": "string"
+          },
+          "note": {
+            "description": "One sentence saying why.",
+            "title": "Note",
+            "type": "string"
+          },
+          "sub_requirement_id": {
+            "title": "Sub Requirement Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sub_requirement_id",
+          "agreement",
+          "note"
+        ],
+        "title": "StatusAgreement",
         "type": "object"
       },
       "SubRequirementOut": {
@@ -1982,7 +2191,7 @@
     },
     "/api/analyses/{analysis_id}/events": {
       "get": {
-        "description": "`status`, one `criterion` per verdict, `tool_call` for each search the agents make, then `done` or `error`, after which the stream closes. Subscribing late replays what was missed; subscribing after the job finished returns the replay and closes, rather than hanging.",
+        "description": "`status`, one `criterion` per verdict, `evaluating` and `revising` as the critic reads a draft and the Router sends one back, `decision` for what the Router concluded, `tool_call` for each search the agents make, then `done` or `error`, after which the stream closes. Subscribing late replays what was missed; subscribing after the job finished returns the replay and closes, rather than hanging.",
         "operationId": "events_api_analyses__analysis_id__events_get",
         "parameters": [
           {

@@ -77,7 +77,7 @@ export interface paths {
         };
         /**
          * Progress as server-sent events
-         * @description `status`, one `criterion` per verdict, `tool_call` for each search the agents make, then `done` or `error`, after which the stream closes. Subscribing late replays what was missed; subscribing after the job finished returns the replay and closes, rather than hanging.
+         * @description `status`, one `criterion` per verdict, `evaluating` and `revising` as the critic reads a draft and the Router sends one back, `decision` for what the Router concluded, `tool_call` for each search the agents make, then `done` or `error`, after which the stream closes. Subscribing late replays what was missed; subscribing after the job finished returns the replay and closes, rather than hanging.
          */
         get: operations["events_api_analyses__analysis_id__events_get"];
         put?: never;
@@ -434,6 +434,11 @@ export interface components {
          */
         AnalysisTotals: {
             /**
+             * Accepted
+             * @default 0
+             */
+            accepted: number;
+            /**
              * Capped
              * @default 0
              */
@@ -448,6 +453,16 @@ export interface components {
              * @default 0
              */
             criteria: number;
+            /**
+             * Evaluator Cost Usd
+             * @default 0
+             */
+            evaluator_cost_usd: number;
+            /**
+             * Fallback
+             * @default 0
+             */
+            fallback: number;
             /**
              * Input Tokens
              * @default 0
@@ -474,10 +489,20 @@ export interface components {
              */
             output_tokens: number;
             /**
+             * Revised
+             * @default 0
+             */
+            revised: number;
+            /**
              * Tool Calls
              * @default 0
              */
             tool_calls: number;
+            /**
+             * Unevaluated
+             * @default 0
+             */
+            unevaluated: number;
         };
         /** AnalyzeRequest */
         AnalyzeRequest: {
@@ -644,6 +669,12 @@ export interface components {
             /** Ended By */
             ended_by: string;
             /**
+             * Evaluator Cost Usd
+             * @default 0
+             */
+            evaluator_cost_usd: number;
+            evaluator_findings?: components["schemas"]["EvaluatorFindings"] | null;
+            /**
              * Latency S
              * @default 0
              */
@@ -658,6 +689,11 @@ export interface components {
             raw_confidence: number;
             /** Relevant Quotes */
             relevant_quotes: components["schemas"]["ResolvedQuote"][];
+            /**
+             * Rounds
+             * @default 0
+             */
+            rounds: number;
             /** Structure Rounds */
             structure_rounds: number;
             /** Sub Requirements */
@@ -670,6 +706,12 @@ export interface components {
             usage: {
                 [key: string]: number;
             };
+            /**
+             * Verdict
+             * @default unevaluated
+             * @enum {string}
+             */
+            verdict: "accept" | "fallback" | "unevaluated";
         };
         /**
          * CriterionOut
@@ -705,6 +747,8 @@ export interface components {
             latency_s?: number | null;
             /** Needs Review */
             needs_review?: boolean | null;
+            /** Rounds */
+            rounds?: number | null;
             /** State */
             state?: ("Fully Compliant" | "Partially Compliant" | "Non-Compliant") | null;
             /**
@@ -713,6 +757,8 @@ export interface components {
              * @enum {string}
              */
             status: "queued" | "running" | "done" | "skipped" | "failed";
+            /** Verdict */
+            verdict?: ("accept" | "fallback" | "unevaluated") | null;
         };
         /**
          * DocumentDetail
@@ -784,6 +830,41 @@ export interface components {
             hint?: string | null;
             /** Message */
             message: string;
+        };
+        /**
+         * EvaluatorFindings
+         * @description What the Evaluator returns: evidence, never authority.
+         *
+         *     No field here says what happens next. The Router reads these findings and
+         *     decides; the Analyzer never sees them raw. `critic_confidence` is the
+         *     critic's own estimate of the state, independent of the analyst's, and
+         *     enters the composed confidence through `min()`.
+         */
+        EvaluatorFindings: {
+            /**
+             * Critic Confidence
+             * @description Your own estimate, 0 to 1, that compliance_state is correct.
+             */
+            critic_confidence: number;
+            /**
+             * Missing Searches
+             * @description Sub-requirement ids marked missing that were never searched for.
+             */
+            missing_searches: string[];
+            /**
+             * Notes
+             * @description Anything the fields above cannot carry. May be empty.
+             */
+            notes: string;
+            /** Quote Support */
+            quote_support: components["schemas"]["QuoteSupport"][];
+            /**
+             * State Agreement
+             * @enum {string}
+             */
+            state_agreement: "agree" | "disagree";
+            /** Status Agreement */
+            status_agreement: components["schemas"]["StatusAgreement"][];
         };
         /** Health */
         Health: {
@@ -907,6 +988,33 @@ export interface components {
              */
             total: number;
         };
+        /**
+         * QuoteSupport
+         * @description The critic's reading of one quote against one sub-requirement.
+         */
+        QuoteSupport: {
+            /**
+             * Note
+             * @description One sentence saying why.
+             */
+            note: string;
+            /**
+             * Quote Index
+             * @description Index into relevant_quotes, as given.
+             */
+            quote_index: number;
+            /**
+             * Sub Requirement Id
+             * @description The sub-requirement id this quote was cited for.
+             */
+            sub_requirement_id: string;
+            /**
+             * Support
+             * @description supports: the quote obliges what the sub-requirement asks. partial: it addresses it with a gap, a carve-out or hedged wording. irrelevant: it is about something else, however verbatim. contradicts: it says the opposite of the claim.
+             * @enum {string}
+             */
+            support: "supports" | "partial" | "irrelevant" | "contradicts";
+        };
         /** ResolvedQuote */
         ResolvedQuote: {
             /** Chunk Id */
@@ -941,6 +1049,24 @@ export interface components {
              * @default
              */
             title: string;
+        };
+        /**
+         * StatusAgreement
+         * @description Whether the analyst's status for one sub-requirement follows from its quotes.
+         */
+        StatusAgreement: {
+            /**
+             * Agreement
+             * @enum {string}
+             */
+            agreement: "agree" | "too_strong" | "too_weak";
+            /**
+             * Note
+             * @description One sentence saying why.
+             */
+            note: string;
+            /** Sub Requirement Id */
+            sub_requirement_id: string;
         };
         /** SubRequirementOut */
         SubRequirementOut: {

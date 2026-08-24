@@ -293,7 +293,11 @@ def test_a_clean_draft_needs_no_correction_and_the_finisher_request_is_structure
     finisher = api.requests[2]
     assert finisher["output_config"]["format"]["type"] == "json_schema"
     assert finisher["output_config"]["effort"] == "medium"
-    assert "tools" not in finisher and "citations" not in json.dumps(finisher)
+    # The definitions stay (same prefix as the loop, tool blocks never orphaned)
+    # but no further call is wanted.
+    assert [t["name"] for t in finisher["tools"]] == ["search_contract", "get_section"]
+    assert finisher["tool_choice"] == {"type": "none"}
+    assert "citations" not in json.dumps(finisher)
     assert "thinking" not in finisher
     # The ledger is not re-sent: the last user turn is the finish instruction, text only.
     assert isinstance(finisher["messages"][-1]["content"], str)
@@ -323,6 +327,7 @@ def test_a_non_verbatim_quote_triggers_exactly_one_correction_turn(searches):
     # The rejected draft went back as the assistant turn before it.
     assert api.requests[3]["messages"][-2]["role"] == "assistant"
     assert api.requests[3]["output_config"]["format"]["type"] == "json_schema"
+    assert api.requests[3]["tool_choice"] == {"type": "none"} and "tools" in api.requests[3]
 
 
 def test_errors_that_survive_the_rounds_drop_the_quote_and_flag_review(searches):

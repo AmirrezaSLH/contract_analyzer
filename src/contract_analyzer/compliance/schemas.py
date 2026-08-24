@@ -93,6 +93,12 @@ class ComplianceResult(BaseModel):
     usage: dict[str, int]
     cost_usd: float
     model: str
+    #: Wall-clock seconds for this criterion alone -- the agent loop plus the
+    #: structured finisher. Defaulted rather than required so a report written
+    #: before this field existed still parses; a run that produced one always
+    #: sets it. The five criteria run in parallel, so these do not sum to the
+    #: run's `totals.latency_s` and are not meant to.
+    latency_s: float = 0.0
 
     @property
     def confidence_bucket(self) -> str:

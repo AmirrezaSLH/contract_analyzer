@@ -644,6 +644,11 @@
             "title": "Ended By",
             "type": "string"
           },
+          "latency_s": {
+            "default": 0.0,
+            "title": "Latency S",
+            "type": "number"
+          },
           "model": {
             "title": "Model",
             "type": "string"
@@ -774,6 +779,17 @@
           "id": {
             "title": "Id",
             "type": "string"
+          },
+          "latency_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency S"
           },
           "needs_review": {
             "anyOf": [
@@ -992,9 +1008,19 @@
             "title": "Analyses Running",
             "type": "integer"
           },
+          "analysis_workers": {
+            "default": 5,
+            "title": "Analysis Workers",
+            "type": "integer"
+          },
           "answer_model": {
             "title": "Answer Model",
             "type": "string"
+          },
+          "api_workers": {
+            "default": 2,
+            "title": "Api Workers",
+            "type": "integer"
           },
           "auth_required": {
             "default": false,

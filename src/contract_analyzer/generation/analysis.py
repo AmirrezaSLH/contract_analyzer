@@ -29,6 +29,7 @@ changing the schema.
 from __future__ import annotations
 
 import sqlite3
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -102,12 +103,22 @@ def analyze_criterion(
         )
 
     with span("analysis.criterion", log, criterion=criterion.id, document_id=document_id) as bag:
+        started = time.perf_counter()
         run = run_agent(
             task, tools=tools, finisher=finisher, settings=settings, client=client,
             on_event=on_event,
         )
         result: ComplianceResult = run.result
+        # Timed here rather than inside `finish_analysis`: what a reviewer means
+        # by "how long did criterion 3 take" is the whole of it -- the agent's
+        # searches and the structured finisher -- and only this frame sees both.
+        result.latency_s = round(time.perf_counter() - started, 3)
+        if on_event is not None:
+            on_event({"type": "result", "surface": "analysis", "criterion": criterion.id,
+                      "state": result.compliance_state, "confidence": result.confidence,
+                      "needs_review": result.needs_review, "latency_s": result.latency_s})
         bag.update(
+            latency_s=result.latency_s,
             state=result.compliance_state,
             confidence=result.confidence,
             needs_review=result.needs_review,
@@ -165,10 +176,11 @@ def finish_analysis(
             f"the model never produced a parseable draft for {criterion.id}: "
             + "; ".join(str(e) for e in errors)
         )
-    result = build_result(draft, errors, run, criterion=criterion, structure_rounds=rounds)
-    on_event({"type": "result", "surface": "analysis", "criterion": criterion.id,
-              "state": result.compliance_state, "confidence": result.confidence})
-    return result
+    # The `result` event is *not* emitted here. It is emitted by
+    # `analyze_criterion`, one frame out, because that is the only frame that
+    # knows how long the criterion took -- and a progress row that has to be
+    # told the verdict now and the latency later is two events for one fact.
+    return build_result(draft, errors, run, criterion=criterion, structure_rounds=rounds)
 
 
 def _draft_call(

@@ -139,6 +139,7 @@ class JobState:
                 entry.state = event.get("state")
                 entry.confidence = event.get("confidence")
                 entry.needs_review = event.get("needs_review")
+                entry.latency_s = event.get("latency_s")
             self.stage = f"criterion {self.done}/{len(self.progress)}"
         self.events.publish("criterion", {"criterion": criterion_id, **_progress_payload(self)})
 
@@ -266,6 +267,7 @@ def _criteria_of(report: AnalysisReport | None) -> list[CriterionProgress]:
             state=result.compliance_state,
             confidence=result.confidence,
             needs_review=result.needs_review,
+            latency_s=result.latency_s,
         )
         for result in report.results
     ] + [CriterionProgress(id=criterion_id, status="skipped") for criterion_id in report.skipped]

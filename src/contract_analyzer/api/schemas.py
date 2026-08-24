@@ -182,6 +182,9 @@ class CriterionProgress(BaseModel):
     state: ComplianceState | None = None
     confidence: float | None = None
     needs_review: bool | None = None
+    #: Wall-clock seconds, once this criterion is `done`. The five run in
+    #: parallel, so these do not sum to `totals.latency_s`.
+    latency_s: float | None = None
 
 
 class Progress(BaseModel):

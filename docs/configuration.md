@@ -12,8 +12,13 @@ process environment and from `.env` at the project root, once, via
 | Generation | `ANTHROPIC_API_KEY` | – | `SecretStr`; never printed |
 | | `ANSWER_MODEL` | `claude-opus-5` | chat/citation model |
 | | `ANSWER_MAX_TOKENS` | 8000 | streaming, so generous |
-| | `ANSWER_EFFORT` | `low` | `output_config.effort`; the cost lever |
-| | `PROMPTS_PATH` | `src/…/generation/prompts.json` | the chat prompt library, validated on load |
+| | `CHAT_EFFORT` | `low` | `output_config.effort` for the chat loop and finisher |
+| | `ANALYSIS_EFFORT` | `medium` | the same for the compliance analysis; where to spend |
+| | `CHAT_MAX_TOOL_CALLS` | 4 | tool executions per chat run |
+| | `ANALYSIS_MAX_TOOL_CALLS` | 8 | per criterion |
+| | `MAX_EVIDENCE_TOKENS` | 12000 | the evidence ledger's total per run |
+| | `STRUCTURE_FIX_ROUNDS` | 2 | structural self-correction rounds before `needs_review` |
+| | `PROMPTS_PATH` | `src/…/generation/prompts.json` | the prompt library, validated on load |
 | HTTP | `HTTP_TIMEOUT_SECONDS` | 60 | see http-client.md |
 | | `HTTP_RETRIES` | 3 | retries after the first attempt |
 | Logging | `LOG_LEVEL` | `INFO` | |

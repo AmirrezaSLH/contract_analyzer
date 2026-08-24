@@ -36,6 +36,13 @@ same client and raises on non-2xx.
 | Failure | `HttpFailure(method, url, attempts, elapsed, status, cause)` -- a one-line message such as `POST https://api.anthropic.com/v1/messages failed after 4 attempt(s) in 7.3s: HTTP 503`. Callers inspect `.status` (HTTP) or `.cause` (network) |
 | Timeout | `HTTP_TIMEOUT_SECONDS` (default 60) for connect/read/write/pool |
 
+Both SDKs catch what the transport raised and re-raise it as their own
+`APIConnectionError("Connection error.")` with the `HttpFailure` as
+`__cause__`. `unwrap_http_failure(exc)` returns that cause, or `None` when
+the SDK wrapped something else; `embeddings/openai.py` and
+`generation/client.py` both use it so a caller sees the one-line failure
+rather than a generic connection error two layers above it.
+
 Streaming responses (the chat answer) pass through unchanged: a retry only
 happens before any response body has been handed to the caller.
 

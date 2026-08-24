@@ -24,20 +24,23 @@ flowchart LR
         C --> E[embeddings/]
         E --> DB[(SQLite<br/>chunks + vec0 + FTS5)]
         DB --> R[retrieval/ hybrid RRF]
-        R --> G[generation/ cited answers]
+        R --> T[generation/tools<br/>search_contract · get_section]
+        T --> A[generation/agent loop]
+        A --> CH[chat finisher<br/>citations]
+        A --> AN[analysis finisher<br/>structured + validated]
     end
     subgraph Analysis["Phase B -- agentic analyzer"]
-        R --> Router --> Extractors --> Evaluator --> JSON[validated JSON]
+        AN --> Evaluator --> JSON[validated JSON]
     end
     subgraph Later["Phase C -- surfaces"]
         API[FastAPI] --> UI[Streamlit + KPI]
         API --> MCP[MCP server]
     end
-    G -.-> API
+    CH -.-> API
     JSON -.-> API
     L[logger.py] -.->|every module| Foundation
     H[http_client.py] -.->|every external call| E
-    H -.-> G
+    H -.-> A
 ```
 
 Two modules cut across everything and were built first:
@@ -64,8 +67,8 @@ Two modules cut across everything and were built first:
 | `ingest/` | elements → chunks → embeddings → rows | [chunking.md](chunking.md), [ingestion.md](ingestion.md) | done, tested on the sample contract |
 | `embeddings/` | OpenAI / local / fake embedders | [ingestion.md](ingestion.md) | done, tested |
 | `retrieval/` | vector KNN + BM25 fused with RRF, per document | [retrieval.md](retrieval.md) | done, tested on the sample contract |
-| `generation/` | cited conversational answers (Claude citations) | generation.md | pending |
-| `compliance/` | the five criteria and the result schema | -- | criteria file only |
+| `generation/` | one tool-using agent loop; analysis finisher (structured, validated) and chat finisher (streamed, cited) | [generation.md](generation.md) | done, tested offline against the real SDK |
+| `compliance/` | the five criteria with sub-requirements, the result schema, the structural validator | [compliance.md](compliance.md) | done, tested |
 | `agents/` | router / extractor / evaluator state machine | -- | Phase B |
 | `api/`, `ui/`, `mcp/` | surfaces | -- | Phase C |
 | `Dockerfile`, `docker-compose.yml`, `docker/` | build and run the whole thing in a container | [docker.md](docker.md) | foundation laid; `api`/`ui` verbs await Phase C |
@@ -96,9 +99,18 @@ Two modules cut across everything and were built first:
    `document_id` is required -- a forgotten scope would cite another contract
    in a well-formed citation. `retrieve_by_section()` is the structural way in
    ("give me Exhibit G"), no embedder involved.
-5. `answer()` sends the chunks as Claude *document blocks* with citations
-   enabled and streams the reply; citations are resolved back to chunk ids and
-   pages. Quotes come from the API feature, so they cannot be invented.
+5. The model retrieves **itself**, through `search_contract` and
+   `get_section`, in a `while stop_reason == "tool_use"` loop bounded by a
+   tool-call cap, an evidence-token cap and dedupe. Every chunk a tool
+   returns lands in a per-run evidence ledger (`E1, E2, …`).
+6. Two finishers, because `output_config.format` and citations cannot share
+   a request (a 400). **Analysis** asks for a `ComplianceDraft` as structured
+   output and validates it in pure Python against the ledger -- quotes
+   verbatim, state derived from sub-requirement statuses, question copied --
+   feeding the errors back up to two rounds, then dropping any quote that
+   still fails and flagging `needs_review`. **Chat** sends the ledger as
+   document blocks with citations enabled and streams the reply; the quotes
+   come from the API, so they cannot be invented.
 
 ## Design decisions to be able to defend
 
@@ -108,6 +120,10 @@ Two modules cut across everything and were built first:
 | Section-aware 400-token chunks with breadcrumb prefix | a clause is the unit of meaning; a citation should land on the obligation, not the section | fixed-size sliding windows (split obligations, no provenance) |
 | SQLite + sqlite-vec + FTS5 | one file, zero infrastructure, hybrid retrieval is a JOIN; the interface hides the store so pgvector/Qdrant is a swap | a vector DB service for a 21-page document |
 | Hybrid retrieval with RRF | compliance language mixes exact jargon ("TLS 1.2", "PASS-02", "SAML") that BM25 nails with paraphrase ("secure admin pathway" ≈ "bastion") that vectors catch | vector-only (misses identifiers), keyword-only (misses paraphrase) |
+| The model retrieves through tools, not a fixed pipeline | the model writes the query, picks the mode and loops; every decision is a logged tool call with its arguments; `document_id` is bound in Python so scope cannot leak | a router call that plans queries once, executed by Python |
+| Caps as counters, not prompts | `max_tool_calls`, `max_evidence_tokens`, dedupe; a capped run finishes with what it has and is marked `ended_by=cap` | trusting "stop when you have enough" |
+| Two finishers | structured output and citations cannot share a request; analysis verifies its quotes deterministically, chat gets API-extracted quotes | one finisher that asks for JSON *with* `[1]` markers |
+| Structural self-correction is deterministic | a validator lists what is malformed and the model fixes only that; no model judges structure | an LLM critic for JSON shape |
 | Claude native citations for chat | the quote is produced by the API from the document block we sent; it cannot be hallucinated | asking the model to write `[1]` markers |
 | One retrying transport, SDK retries off | a single, tested, logged policy; a retry storm cannot come from two layers | trusting each SDK's defaults |
 | One logger with contextvars | every line under a request carries the same trace id without threading it through signatures | per-module `logging.getLogger` with ad-hoc formats |
@@ -120,7 +136,7 @@ src/contract_analyzer/   the package (src layout; `pip install -e .`)
   logger.py http_client.py config.py db.py schema.sql models.py tokens.py
   parse/  ingest/  embeddings/  retrieval/  generation/  compliance/
 scripts/                 CLIs (ingest, search, chat, parse_report)
-tests/                   offline suite: fake embedder, stub LLM client, mock transport
+tests/                   offline suite: fake embedder, scripted SSE API, mock transport
 docker/                  entrypoint.sh (one verb per surface); Dockerfile at the root
 docs/                    this folder -- one file per module plus this one
 plan_implement_docs/     plans before, reports after, per phase
@@ -141,6 +157,13 @@ inside it. See [docker.md](docker.md).
 
 ## Change log of this document
 
+* Checkpoint 5 (2026-08-24): generation. One tool-using loop
+  (`search_contract`, `get_section`, evidence ledger, three caps) serving two
+  finishers: the compliance analysis as validated structured output with
+  bounded self-correction and a first confidence design, and the chat with
+  API-extracted citations streamed. `compliance/` gains sub-requirements, the
+  result schema and the validator. 281 tests, all offline, the SDK driven by
+  canned SSE. CLIs, API, evaluator and surfaces pending.
 * Checkpoint 1 (2026-08-23): foundation scaffold, logger, HTTP client, settings,
   storage, parser copied. Section spine, chunker, embeddings, retrieval,
   generation pending.

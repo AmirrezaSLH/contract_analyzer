@@ -50,6 +50,7 @@ from typing import Any
 from fastapi import APIRouter, FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException
 
 from ..analyses import reconcile
 from ..config import Settings, get_settings
@@ -113,14 +114,16 @@ def create_app(
     *,
     embedder: Any | None = None,
     client: Any | None = None,
+    static_dir: Path | None = None,
 ) -> FastAPI:
     """Build the application. One call per process, or one per test.
 
-    `embedder` and `client` are seams, not configuration: passing them in is how
-    the tests drive a fake embedder and a scripted model without monkeypatching
-    a module, and it is why the job runner can be handed the same scripted
-    client the request handlers use. Left as None they are built from settings,
-    which is what every real process does.
+    `embedder`, `client` and `static_dir` are seams, not configuration: passing
+    them in is how the tests drive a fake embedder, a scripted model and a
+    front-end bundle that is or is not there, without monkeypatching a module
+    or depending on whether someone has run `make ui-build` in this checkout.
+    Left as None they are built from settings and from `STATIC_DIR`, which is
+    what every real process does.
     """
     settings = settings or get_settings()
 
@@ -219,7 +222,7 @@ def create_app(
     # operation rather than two spellings of it.
     app.add_api_route("/health", health.health, include_in_schema=False)
 
-    _serve_front_end(app)
+    _serve_front_end(app, STATIC_DIR if static_dir is None else static_dir)
     return app
 
 
@@ -244,13 +247,35 @@ async def _unknown_route(rest: str) -> None:
     )
 
 
-def _serve_front_end(app: FastAPI) -> None:
+class _SinglePageFiles(StaticFiles):
+    """`StaticFiles`, plus the fallback a client-side router needs.
+
+    `html=True` is not enough on its own, and it is worth being precise about
+    why: it serves `index.html` for a *directory* -- `/` -- and 404s everything
+    else with no file behind it. But `/documents/1/analysis` is not a directory
+    and never will be a file; it is a route the browser resolves. A hard
+    refresh there has to return the app, and without this it returns a 404.
+
+    Only `GET` and `HEAD`, and only a 404. A missing asset under `/assets/` is
+    a build that went wrong, and answering it with HTML would turn a broken
+    bundle into a blank page with a MIME error in the console instead of a
+    clean 404 in the network panel.
+    """
+
+    async def get_response(self, path: str, scope):  # type: ignore[override]
+        try:
+            return await super().get_response(path, scope)
+        except HTTPException as exc:
+            if exc.status_code != 404 or path.startswith("assets/"):
+                raise
+            return await super().get_response("index.html", scope)
+
+
+def _serve_front_end(app: FastAPI, directory: Path) -> None:
     """Mount the built front end at `/`, last, if there is one.
 
-    **Last** is the whole trick. Every API route is already registered, so this
-    only ever sees what they did not claim, and `html=True` returns index.html
-    for a path with no file behind it -- which is what makes a hard refresh on
-    `/documents/1/analysis` load the app rather than 404.
+    **Last** is the whole trick. Every API route is already registered by the
+    time this runs, so the mount only ever sees what they did not claim.
 
     **If there is one.** The bundle is a build artefact, so a fresh clone, the
     test suite and `make api` before `make ui-build` all run without it. A
@@ -258,11 +283,11 @@ def _serve_front_end(app: FastAPI) -> None:
     refuses to start because nobody has run npm is not an improvement on one
     that serves JSON and says where the front end went.
     """
-    if not (STATIC_DIR / "index.html").exists():
-        log.info("api.static_absent", extra={"path": str(STATIC_DIR)})
+    if not (directory / "index.html").exists():
+        log.info("api.static_absent", extra={"path": str(directory)})
         return
-    app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="ui")
-    log.info("api.static_mounted", extra={"path": str(STATIC_DIR)})
+    app.mount("/", _SinglePageFiles(directory=directory, html=True), name="ui")
+    log.info("api.static_mounted", extra={"path": str(directory)})
 
 
 def _reconcile(settings: Settings) -> int:

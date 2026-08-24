@@ -682,3 +682,35 @@ def test_the_connector_never_reaches_past_the_api():
         source = Path(module.__file__).read_text(encoding="utf-8")
         assert "import contract_analyzer" not in source
         assert "from contract_analyzer" not in source
+
+
+# --------------------------------------------------------------------------
+# Configuration
+# --------------------------------------------------------------------------
+
+
+def test_a_blank_env_line_means_the_default_not_an_empty_value(monkeypatch):
+    """`.env.example` ships these keys empty, because a key a reader can see is
+    a key a reader can fill in. `CA_API_URL=` must not become a base URL of
+    "", which fails at the first request with nothing useful to say."""
+    for name in ("CA_API_URL", "MCP_UPLOAD_ROOT", "API_KEY"):
+        monkeypatch.setenv(name, "")
+    settings = ConnectorSettings()
+    assert settings.api_url == f"http://127.0.0.1:{settings.backend_port}"
+    assert settings.mcp_upload_root is None
+    assert settings.api_key_value is None
+
+
+def test_the_api_url_is_the_root_and_the_prefix_is_the_clients():
+    """`CA_API_URL` is `http://api:8100`, never `.../api`: a caller that has to
+    know where the prefix goes is a caller that will put it in twice."""
+    settings = ConnectorSettings(ca_api_url="http://api:8100/")
+    assert settings.api_url == "http://api:8100"
+    assert str(ApiClient(settings).client.base_url).rstrip("/") == "http://api:8100/api"
+
+
+def test_the_port_is_read_from_the_environment_like_every_other_one():
+    """The project moved off hardcoded ports on purpose -- BACKEND_PORT,
+    FRONTEND_PORT, MCP_PORT all live in .env together."""
+    assert ConnectorSettings(mcp_port=9999).mcp_port == 9999
+    assert ConnectorSettings(backend_port=9000).api_url == "http://127.0.0.1:9000"

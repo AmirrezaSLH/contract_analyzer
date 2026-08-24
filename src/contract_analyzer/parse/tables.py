@@ -200,7 +200,7 @@ def caption_band(
         bbox = pymupdf.Rect(block["bbox"])
         if bbox.y0 < caption_bbox.y1 - 2:
             continue
-        if bbox.y0 / height >= 0.85:
+        if bbox.y0 / height >= profile.footer_band:
             break  # the footer: past the bottom of the text area
         if profile.reaches_text_width(bbox.x1):
             break  # ordinary prose resumed, so the table has ended

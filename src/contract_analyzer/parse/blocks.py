@@ -43,8 +43,14 @@ CAPTION_RE = re.compile(
     r"^\s*(Figure|Table)\s+(?:[A-Z]\.?)?\d+(?:\.\d+)*\s*[.:](?=\s|$)", re.I
 )
 
-#: A page number standing alone -- arabic or roman, either case.
-_BARE_NUMBER = re.compile(r"^[ivxlcdm\d]+$", re.I)
+#: A page number standing alone: arabic digits, or a roman numeral that
+#: actually parses. Character membership alone is not enough -- "LLC",
+#: "civil" and "did" are made entirely of roman letters, and a signature
+#: block's "LLC" alone in the footer band is content, not furniture.
+_ARABIC = re.compile(r"^\d{1,5}$")
+_ROMAN = re.compile(
+    r"^m{0,3}(cm|cd|d?c{0,3})(xc|xl|l?x{0,3})(ix|iv|v?i{0,3})$", re.I
+)
 
 _WS = re.compile(r"\s+")
 _DIGITS = re.compile(r"\d+")
@@ -66,8 +72,12 @@ _FIRST_TOKEN = re.compile(r"^([A-Za-z]+)")
 #: runs (CMBX12 at the body's own 12.0pt) are deliberately excluded by this.
 HEADING_SIZE_MARGIN = 0.5
 
-#: Fraction of a page's height below which nothing is treated as footer
-#: furniture. The corpus footers sit at y0 = 691 of 792 (0.872).
+#: Fallback header and footer bands, as fractions of page height, used only
+#: when a document has no full-width multi-line block to measure its text
+#: area from. The measured bands (`DocumentProfile.header_band` /
+#: `footer_band`) are where the body text actually starts and stops, so a
+#: contract whose text runs to 0.95 of the page does not have its last lines
+#: eyed as furniture.
 _FOOTER_BAND = 0.85
 _HEADER_BAND = 0.06
 
@@ -75,6 +85,14 @@ _HEADER_BAND = 0.06
 #: running furniture rather than content.
 _REPEAT_SHARE = 0.20
 _REPEAT_MIN_PAGES = 3
+
+
+def is_page_number(text: str) -> bool:
+    """Whether a block's whole text is a bare page number."""
+    text = text.strip()
+    if not text:
+        return False
+    return bool(_ARABIC.match(text) or _ROMAN.match(text))
 
 
 def normalize_ws(text: str) -> str:
@@ -124,6 +142,14 @@ class DocumentProfile:
     paragraph_indent: float = 0.0
     #: Digit-masked texts that recur in the header/footer bands.
     furniture_patterns: set[str] = field(default_factory=set)
+    #: The text area, as fractions of page height: a block starting above
+    #: `header_band` or below `footer_band` is in a margin band and may be
+    #: furniture. Measured from the full-width multi-line blocks.
+    header_band: float = _HEADER_BAND
+    footer_band: float = _FOOTER_BAND
+
+    def in_margin_band(self, top: float) -> bool:
+        return top >= self.footer_band or top <= self.header_band
 
     def is_heading_size(self, size: float) -> bool:
         return size > self.body_size + HEADING_SIZE_MARGIN
@@ -215,10 +241,14 @@ def profile_document(doc: pymupdf.Document) -> DocumentProfile:
     sizes: Counter[float] = Counter()
     hyphenated: Counter[str] = Counter()
     words: Counter[str] = Counter()
-    band_texts: Counter[str] = Counter()
     extents: Counter[tuple[float, float]] = Counter()
     edges: Counter[tuple[float, float]] = Counter()
     breaks: list[tuple[str, str]] = []
+    #: (top fraction, digit-masked text) of every block, judged for the
+    #: margin bands once those have been measured.
+    positioned: list[tuple[float, str]] = []
+    #: Vertical extent of full-width multi-line blocks, as page fractions.
+    text_area: list[tuple[float, float]] = []
 
     for page in doc:
         height = page.rect.height or 1.0
@@ -245,33 +275,62 @@ def profile_document(doc: pymupdf.Document) -> DocumentProfile:
                 # Three or more lines makes a block a paragraph beyond much
                 # doubt, so its width is a fair sample of the text column.
                 extents[(round(block["bbox"][0]), round(block["bbox"][2]))] += 1
+            if len(block["lines"]) >= 2:
+                text_area.append((block["bbox"][1] / height, block["bbox"][3] / height))
 
             # Every block, whatever its height, for the left margin below: in a
             # double-spaced document each line is its own block, so a rule that
             # only looks at 3-line blocks never sees the body text at all.
             edges[(round(block["bbox"][0]), round(block["bbox"][2]))] += 1
 
-            top = block["bbox"][1] / height
-            if top >= _FOOTER_BAND or top <= _HEADER_BAND:
-                joined = normalize_ws(" ".join(_block_lines(block)))
-                if joined:
-                    # Mask digits so "Chapter 4 | 71" and "Chapter 5 | 93"
-                    # count as the same running header.
-                    band_texts[_DIGITS.sub("#", joined)] += 1
+            joined = normalize_ws(" ".join(lines))
+            if joined:
+                # Mask digits so "Chapter 4 | 71" and "Chapter 5 | 93"
+                # count as the same running header.
+                positioned.append((block["bbox"][1] / height, _DIGITS.sub("#", joined)))
 
     threshold = max(_REPEAT_MIN_PAGES, int(doc.page_count * _REPEAT_SHARE))
     _, right = extents.most_common(1)[0][0] if extents else (0.0, 0.0)
+    left = _text_left(edges, right)
+    header_band, footer_band = _margin_bands(text_area, edges, left, right)
+    band_texts: Counter[str] = Counter(
+        masked for top, masked in positioned if top >= footer_band or top <= header_band
+    )
     return DocumentProfile(
         body_size=sizes.most_common(1)[0][0] if sizes else 12.0,
         page_count=doc.page_count,
-        body_left=_text_left(edges, right),
+        body_left=left,
         body_right=right,
-        paragraph_indent=paragraph_indent(edges, _text_left(edges, right), right),
+        paragraph_indent=paragraph_indent(edges, left, right),
+        header_band=header_band,
+        footer_band=footer_band,
         hyphenated=hyphenated,
         words=words,
         breaks_hyphenate=infer_breaks_hyphenate(breaks, hyphenated, words),
         furniture_patterns={t for t, n in band_texts.items() if n >= threshold},
     )
+
+
+def _margin_bands(
+    text_area: list[tuple[float, float]],
+    edges: Counter[tuple[float, float]],
+    left: float,
+    right: float,
+) -> tuple[float, float]:
+    """Where the body text starts and stops, as fractions of page height.
+
+    Anything above the top of the text area or below its bottom is in a
+    margin band. The extremes over the document's full-width multi-line
+    blocks are used, because those are body paragraphs beyond doubt; a
+    running header or page number is neither multi-line nor full width, so
+    it cannot push the bands outward. Without any such block the historical
+    fractions stand in.
+    """
+    if not text_area or not right:
+        return _HEADER_BAND, _FOOTER_BAND
+    top = min(t for t, _ in text_area)
+    bottom = max(b for _, b in text_area)
+    return top, bottom
 
 
 def _text_left(edges: Counter[tuple[float, float]], right: float, tolerance: float = 8.0) -> float:
@@ -432,9 +491,8 @@ def classify(block: dict, profile: DocumentProfile, page_height: float) -> str:
         return "furniture"
 
     top = block["bbox"][1] / page_height
-    in_band = top >= _FOOTER_BAND or top <= _HEADER_BAND
-    if in_band and (
-        _BARE_NUMBER.match(joined) or _DIGITS.sub("#", joined) in profile.furniture_patterns
+    if profile.in_margin_band(top) and (
+        is_page_number(joined) or _DIGITS.sub("#", joined) in profile.furniture_patterns
     ):
         return "furniture"
 
@@ -514,6 +572,7 @@ __all__ = [
     "extract_text_elements",
     "headings_of",
     "infer_breaks_hyphenate",
+    "is_page_number",
     "join_lines",
     "normalize_ws",
     "paragraph_indent",

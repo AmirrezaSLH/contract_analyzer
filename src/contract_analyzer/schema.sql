@@ -18,8 +18,8 @@ CREATE TABLE IF NOT EXISTS documents (
     content_hash  TEXT    NOT NULL,
     page_count    INTEGER,
     -- Diagnostics: which tool produced the PDF, and whether it carried an
-    -- outline. A file with no outline had its sections inferred from font
-    -- size, which is worth knowing when a citation looks wrong.
+    -- outline. A file with no outline had its sections inferred, which is
+    -- worth knowing when a citation looks wrong.
     producer      TEXT,
     has_outline   INTEGER NOT NULL DEFAULT 0,
     ingested_at   TEXT    NOT NULL DEFAULT (datetime('now'))
@@ -34,16 +34,16 @@ CREATE TABLE IF NOT EXISTS chunks (
     content         TEXT    NOT NULL,
     -- 0-based physical page: what to open the file at.
     page            INTEGER,
-    -- The *printed* page ("37", "xxi"), which is not the physical index
-    -- whenever there is roman-numbered front matter -- an offset of 13 and 20
-    -- pages in the two corpus files. This is the one a citation must show.
+    -- The *printed* page ("4", "A-2"), which is not the physical index
+    -- whenever a contract numbers its exhibits separately from its body.
+    -- This is the one a citation must show.
     page_label      TEXT,
     -- The last page the chunk's text touches, when its element was rejoined
     -- or stitched across a page break; NULL when it sits on one page.
     page_end        INTEGER,
     page_label_end  TEXT,
     section         TEXT,
-    -- JSON breadcrumb: ["2 Background...", "2.1 Building Airtightness"].
+    -- JSON breadcrumb: ["6. Identity, Access...", "6.6 Password Management"].
     section_path    TEXT,
     -- What kind of element this chunk came from: paragraph, table, figure...
     -- Retrieval and rendering both branch on it.
@@ -51,7 +51,7 @@ CREATE TABLE IF NOT EXISTS chunks (
     -- JSON [x0, y0, x1, y1] on the page, for highlighting the cited region.
     bbox            TEXT,
     -- Figure image on disk. Assets live in data/assets/ rather than as blobs
-    -- here, which keeps rag.db small and the files inspectable.
+    -- here, which keeps contracts.db small and the files inspectable.
     asset_path      TEXT,
     -- Structured payload the chunk text flattens: a table's markdown grid.
     payload         TEXT,

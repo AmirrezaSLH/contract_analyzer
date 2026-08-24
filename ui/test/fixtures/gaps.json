@@ -1,0 +1,699 @@
+{
+  "analysis_id": "fixture-gaps",
+  "document_id": 0,
+  "filename": "CONSTRUCTED FIXTURE \u2014 not a real run.pdf",
+  "status": "done",
+  "trace_id": "fixture-0000-0000",
+  "results": [
+    {
+      "criterion_id": "password_management",
+      "compliance_requirement": "Password Management",
+      "compliance_question": "The contract must require a documented password standard covering password length/strength, prohibition of default and known-compromised passwords, secure storage (no plaintext; salted hashing if stored), brute-force protections (lockout/rate limiting), prohibition on password sharing, vaulting of privileged credentials/recovery codes, and time-based rotation for break-glass credentials. Based on the contract language and exhibits, what is the compliance state for Password Management?",
+      "compliance_state": "Partially Compliant",
+      "sub_requirements": [
+        {
+          "id": "strength",
+          "requirement": "Password length/strength requirements",
+          "status": "met",
+          "quote_indexes": [
+            0,
+            1
+          ]
+        },
+        {
+          "id": "no_default",
+          "requirement": "Prohibition of default and known-compromised passwords",
+          "status": "partial",
+          "quote_indexes": [
+            2,
+            3,
+            4
+          ]
+        },
+        {
+          "id": "storage",
+          "requirement": "Secure storage: no plaintext; salted hashing if stored",
+          "status": "not_determined",
+          "quote_indexes": [
+            5
+          ]
+        },
+        {
+          "id": "brute_force",
+          "requirement": "Brute-force protections: lockout or rate limiting",
+          "status": "missing",
+          "quote_indexes": [
+            6,
+            7
+          ]
+        },
+        {
+          "id": "no_sharing",
+          "requirement": "Prohibition on password sharing",
+          "status": "met",
+          "quote_indexes": [
+            8
+          ]
+        },
+        {
+          "id": "vaulting",
+          "requirement": "Vaulting of privileged credentials and recovery codes",
+          "status": "met",
+          "quote_indexes": [
+            9,
+            10
+          ]
+        },
+        {
+          "id": "break_glass_rotation",
+          "requirement": "Time-based rotation for break-glass credentials",
+          "status": "met",
+          "quote_indexes": [
+            11,
+            12
+          ]
+        }
+      ],
+      "relevant_quotes": [
+        {
+          "text": "require passwords/passphrases of at least 14 characters for administrative accounts and at least 12 characters for other accounts, or, where supported, enforce equivalent strength via modern authentication controls",
+          "evidence_id": "E2",
+          "section_ref": "6.6 Password Management Standard",
+          "page_display": "5",
+          "chunk_id": 232,
+          "verified": false
+        },
+        {
+          "text": "|PASS-01|Password length/strength standard|admin 14+ chars; others 12+|password standard excerpt|annual review|",
+          "evidence_id": "E1",
+          "section_ref": "G3A. Password Management (Added)",
+          "page_display": "15",
+          "chunk_id": 283,
+          "verified": true
+        },
+        {
+          "text": "prohibit the use of default vendor passwords and prohibit known-compromised passwords through screening controls",
+          "evidence_id": "E2",
+          "section_ref": "6.6 Password Management Standard",
+          "page_display": "5",
+          "chunk_id": 232,
+          "verified": true
+        },
+        {
+          "text": "|PASS-04|Prohibit known-compromised passwords|screening/controls|policy + tool output summary|continuous|",
+          "evidence_id": "E1",
+          "section_ref": "G3A. Password Management (Added)",
+          "page_display": "15",
+          "chunk_id": 283,
+          "verified": true
+        },
+        {
+          "text": "|ASSET-03|Prohibit default passwords and insecure defaults|enforced at build/provision|build templates; audit results|continuous|",
+          "evidence_id": "E3",
+          "section_ref": "G2. Asset and Configuration Management",
+          "page_display": "14",
+          "chunk_id": 281,
+          "verified": true
+        },
+        {
+          "text": "require secure storage of passwords using salted hashing for any stored credentials and prohibit plaintext storage",
+          "evidence_id": "E2",
+          "section_ref": "6.6 Password Management Standard",
+          "page_display": "5",
+          "chunk_id": 232,
+          "verified": true
+        },
+        {
+          "text": "implement account lockout or rate limiting to mitigate brute force attacks",
+          "evidence_id": "E2",
+          "section_ref": "6.6 Password Management Standard",
+          "page_display": "5",
+          "chunk_id": 232,
+          "verified": true
+        },
+        {
+          "text": "|PASS-03|Brute force protections|lockout/rate limiting|configuration evidence|continuous|",
+          "evidence_id": "E1",
+          "section_ref": "G3A. Password Management (Added)",
+          "page_display": "15",
+          "chunk_id": 283,
+          "verified": true
+        },
+        {
+          "text": "prohibit password sharing, and prohibit reuse of privileged passwords across systems",
+          "evidence_id": "E2",
+          "section_ref": "6.6 Password Management Standard",
+          "page_display": "5",
+          "chunk_id": 232,
+          "verified": true
+        },
+        {
+          "text": "store administrative passwords and recovery codes only in a centralized approved vault with access logging",
+          "evidence_id": "E2",
+          "section_ref": "6.6 Password Management Standard",
+          "page_display": "5",
+          "chunk_id": 232,
+          "verified": true
+        },
+        {
+          "text": "|Password vault usage|% privileged credentials stored in vault|100%|100%|100%|100%|",
+          "evidence_id": "E13",
+          "section_ref": "Exhibit B \u2014 Security Metrics Pack (Quarterly) (Sample Data Structure)",
+          "page_display": "11",
+          "chunk_id": 274,
+          "verified": true
+        },
+        {
+          "text": "rotate \u201cbreak-glass\u201d credentials at least every 90 days and upon any suspected compromise or personnel change affecting authorized custodians",
+          "evidence_id": "E2",
+          "section_ref": "6.6 Password Management Standard",
+          "page_display": "5",
+          "chunk_id": 232,
+          "verified": true
+        },
+        {
+          "text": "|PASS-02|Break-glass credential controls|vault + rotation every 90 days|vault logs + rotation record|quarterly verification|",
+          "evidence_id": "E1",
+          "section_ref": "G3A. Password Management (Added)",
+          "page_display": "15",
+          "chunk_id": 283,
+          "verified": true
+        }
+      ],
+      "rationale": "Section 6.6 obliges Vendor to maintain and enforce a written password standard covering all seven elements: minimum lengths (14 admin / 12 other), prohibition of default and known-compromised passwords, salted hashing with no plaintext storage, lockout or rate limiting, prohibition on password sharing and privileged password reuse, centralized vaulting of administrative passwords and recovery codes with access logging, and 90-day rotation of break-glass credentials plus rotation on compromise or custodian change. Exhibit G G3A (PASS-01 through PASS-04) restates these as auditable requirements with evidence and frequency, ASSET-03 reinforces the default-password prohibition, and the quarterly metrics pack tracks vault usage. The general exception process in Section 4.5 is a governed deviation mechanism requiring justification and compensating controls, not a carve-out weakening these obligations, and no clause limiting Section 6.6 was found. All sub-requirements are met.",
+      "raw_confidence": 0.93,
+      "confidence": 0.61,
+      "confidence_components": {
+        "raw": 0.93,
+        "quote_term": 1.0,
+        "coverage": 1.0,
+        "cap": 1.0
+      },
+      "needs_review": false,
+      "unresolved_errors": [],
+      "structure_rounds": 0,
+      "ended_by": "model",
+      "tool_calls": 3,
+      "usage": {
+        "input_tokens": 22321,
+        "output_tokens": 2823,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0
+      },
+      "cost_usd": 0.18218,
+      "model": "claude-opus-5",
+      "latency_s": 28.6
+    },
+    {
+      "criterion_id": "it_asset_management",
+      "compliance_requirement": "IT Asset Management",
+      "compliance_question": "The contract must require an in-scope asset inventory (including cloud accounts/subscriptions, workloads, databases, security tooling), define minimum inventory fields, require at least quarterly reconciliation/review, and require secure configuration baselines with drift remediation and prohibition of insecure defaults. Based on the contract language and exhibits, what is the compliance state for IT Asset Management?",
+      "compliance_state": "Fully Compliant",
+      "sub_requirements": [
+        {
+          "id": "inventory",
+          "requirement": "In-scope asset inventory including cloud accounts/subscriptions, workloads, databases and security tooling",
+          "status": "not_determined",
+          "quote_indexes": [
+            0,
+            1
+          ]
+        },
+        {
+          "id": "fields",
+          "requirement": "Minimum inventory fields defined",
+          "status": "met",
+          "quote_indexes": [
+            0,
+            2,
+            3
+          ]
+        },
+        {
+          "id": "reconciliation",
+          "requirement": "At least quarterly reconciliation/review of the inventory",
+          "status": "met",
+          "quote_indexes": [
+            1,
+            4
+          ]
+        },
+        {
+          "id": "baselines",
+          "requirement": "Secure configuration baselines with drift remediation and prohibition of insecure defaults",
+          "status": "met",
+          "quote_indexes": [
+            5,
+            6,
+            7
+          ]
+        }
+      ],
+      "relevant_quotes": [
+        {
+          "text": "9.1 Asset Inventory. Vendor will maintain an inventory of in-scope assets, including cloud accounts/subscriptions, production workloads, databases, and security tooling. The inventory will identify environment (prod/non-prod), owner, and criticality.",
+          "evidence_id": "E1",
+          "section_ref": "9.1 Asset Inventory",
+          "page_display": "7",
+          "chunk_id": 244,
+          "verified": true
+        },
+        {
+          "text": "|ASSET-01|Maintain inventory of in-scope assets|include cloud accounts, clusters, databases|asset inventory export|quarterly|",
+          "evidence_id": "E2",
+          "section_ref": "G2. Asset and Configuration Management",
+          "page_display": "14",
+          "chunk_id": 281,
+          "verified": true
+        },
+        {
+          "text": "Asset Inventory Minimum Fields (semi-structured).",
+          "evidence_id": "E3",
+          "section_ref": "9.3 Secure Configuration Baselines",
+          "page_display": "7",
+          "chunk_id": 246,
+          "verified": true
+        },
+        {
+          "text": "|Asset ID|aws-prod-eks-01|",
+          "evidence_id": "E7",
+          "section_ref": "9.3 Secure Configuration Baselines",
+          "page_display": "7",
+          "chunk_id": 247,
+          "verified": true
+        },
+        {
+          "text": "9.2 Inventory Review. Vendor will review and reconcile the in-scope asset inventory at least quarterly and upon material changes.",
+          "evidence_id": "E4",
+          "section_ref": "9.2 Inventory Review",
+          "page_display": "7",
+          "chunk_id": 245,
+          "verified": true
+        },
+        {
+          "text": "9.3 Secure Configuration Baselines. Vendor will maintain secure configuration baselines (e.g., CIS benchmarks or equivalent) for in-scope systems and will remediate material drift in a timely manner.",
+          "evidence_id": "E3",
+          "section_ref": "9.3 Secure Configuration Baselines",
+          "page_display": "7",
+          "chunk_id": 246,
+          "verified": true
+        },
+        {
+          "text": "|ASSET-02|Maintain secure configuration baselines|CIS benchmarks or equivalent|baseline standard + drift report|annual + continuous monitoring|",
+          "evidence_id": "E2",
+          "section_ref": "G2. Asset and Configuration Management",
+          "page_display": "14",
+          "chunk_id": 281,
+          "verified": true
+        },
+        {
+          "text": "|ASSET-03|Prohibit default passwords and insecure defaults|enforced at build/provision|build templates; audit results|continuous|",
+          "evidence_id": "E2",
+          "section_ref": "G2. Asset and Configuration Management",
+          "page_display": "14",
+          "chunk_id": 281,
+          "verified": true
+        }
+      ],
+      "rationale": "Section 9 of the body and Exhibit G section G2 together address all four sub-requirements with binding \"will\" obligations. Section 9.1 requires an inventory of in-scope assets expressly naming cloud accounts/subscriptions, production workloads, databases and security tooling, mirrored by ASSET-01 in Exhibit G. Minimum fields are defined both inline in 9.1 (environment, owner, criticality) and by the \"Asset Inventory Minimum Fields\" table appended to 9.3, which enumerates Asset ID, asset type, environment, data sensitivity, owner, region and last reviewed. Section 9.2 requires review and reconciliation at least quarterly and upon material changes, with ASSET-01 frequency also stated as quarterly. Section 9.3 requires secure configuration baselines (CIS benchmarks or equivalent) with remediation of material drift, ASSET-02 adds a baseline standard plus drift report under continuous monitoring, and ASSET-03 prohibits default passwords and insecure defaults enforced at build/provision (reinforced by the password standard's prohibition on default vendor passwords). The only softness is the qualifier \"material drift ... in a timely manner\" with no fixed SLA, but the continuous monitoring cadence and drift-report deliverable keep the obligation enforceable, so all four are met.",
+      "raw_confidence": 0.9,
+      "confidence": 0.42,
+      "confidence_components": {
+        "raw": 0.9,
+        "quote_term": 1.0,
+        "coverage": 1.0,
+        "cap": 1.0
+      },
+      "needs_review": true,
+      "unresolved_errors": [
+        "quote 3 cites evidence E7, which was not in the retrieved passages",
+        "sub-requirement 'cadence' references quote index 5, which does not exist"
+      ],
+      "structure_rounds": 0,
+      "ended_by": "model",
+      "tool_calls": 2,
+      "usage": {
+        "input_tokens": 13505,
+        "output_tokens": 2589,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0
+      },
+      "cost_usd": 0.13225,
+      "model": "claude-opus-5",
+      "latency_s": 33.4
+    },
+    {
+      "criterion_id": "training_background_checks",
+      "compliance_requirement": "Security Training & Background Checks",
+      "compliance_question": "The contract must require security awareness training on hire and at least annually, and background screening for personnel with access to Company Data to the extent permitted by law, including maintaining a screening policy and attestation/evidence. Based on the contract language and exhibits, what is the compliance state for Security Training and Background Checks?",
+      "compliance_state": "Non-Compliant",
+      "sub_requirements": [
+        {
+          "id": "training",
+          "requirement": "Security awareness training on hire and at least annually",
+          "status": "missing",
+          "quote_indexes": []
+        },
+        {
+          "id": "screening",
+          "requirement": "Background screening for personnel with access to Company Data, to the extent permitted by law",
+          "status": "missing",
+          "quote_indexes": []
+        },
+        {
+          "id": "screening_policy",
+          "requirement": "A maintained screening policy with attestation or evidence",
+          "status": "missing",
+          "quote_indexes": []
+        }
+      ],
+      "relevant_quotes": [
+        {
+          "text": "3.8 \u201cVendor Personnel\u201d means Vendor employees, contractors, and agents who access Company Data or administer the In-Scope Environment.",
+          "evidence_id": "E7",
+          "section_ref": "3.8 \u201cVendor Personnel\u201d",
+          "page_display": "3",
+          "chunk_id": 217,
+          "verified": true
+        },
+        {
+          "text": "4.3 Policy Framework. Vendor will maintain policies and procedures addressing, at minimum: asset management; access control; cryptography; physical and environmental security; operations security; communications security; secure development (if applicable); supplier relationships",
+          "evidence_id": "E13",
+          "section_ref": "4.3 Policy Framework",
+          "page_display": "4",
+          "chunk_id": 221,
+          "verified": true
+        }
+      ],
+      "rationale": "Searches for training, background checks, personnel vetting/screening, and a personnel-security control family returned nothing: the body clauses on governance (4.2\u20134.4), policy framework (4.3), access management (6.x) and Exhibit G's control families (G1\u2013G10, covering governance, assets, IAM, crypto, vulnerability, logging, incident response, BC/DR, subprocessors, data lifecycle) contain no human-resources security requirements. Section 4.3's minimum policy list notably omits human resources/personnel security, and although 'Vendor Personnel' is defined as those accessing Company Data, no training-on-hire/annual obligation, no background screening obligation (even 'to the extent permitted by law'), and no screening policy or attestation/evidence deliverable appear anywhere in the contract or exhibits. All three sub-requirements are therefore missing, making the requirement Non-Compliant.",
+      "raw_confidence": 0.85,
+      "confidence": 0.5,
+      "confidence_components": {
+        "raw": 0.85,
+        "quote_term": 1.0,
+        "coverage": 1.0,
+        "cap": 0.5
+      },
+      "needs_review": false,
+      "unresolved_errors": [],
+      "structure_rounds": 1,
+      "ended_by": "cap",
+      "tool_calls": 8,
+      "usage": {
+        "input_tokens": 58054,
+        "output_tokens": 2423,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0
+      },
+      "cost_usd": 0.350845,
+      "model": "claude-opus-5",
+      "latency_s": 29.3
+    },
+    {
+      "criterion_id": "data_in_transit",
+      "compliance_requirement": "Data in Transit Encryption",
+      "compliance_question": "The contract must require encryption of Company Data in transit using TLS 1.2+ (preferably TLS 1.3 where feasible) for Company-to-Service traffic, administrative access pathways, and applicable Service-to-Subprocessor transfers, with certificate management and avoidance of insecure cipher suites. Based on the contract language and exhibits, what is the compliance state for Data in Transit Encryption?",
+      "compliance_state": "Fully Compliant",
+      "sub_requirements": [
+        {
+          "id": "tls_company",
+          "requirement": "TLS 1.2+ (preferably 1.3 where feasible) for Company-to-Service traffic",
+          "status": "met",
+          "quote_indexes": [
+            0,
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "id": "tls_admin",
+          "requirement": "Encryption of administrative access pathways",
+          "status": "met",
+          "quote_indexes": [
+            0,
+            1
+          ]
+        },
+        {
+          "id": "tls_subprocessor",
+          "requirement": "Encryption of applicable Service-to-Subprocessor transfers",
+          "status": "met",
+          "quote_indexes": [
+            0,
+            1,
+            4
+          ]
+        },
+        {
+          "id": "certificates",
+          "requirement": "Certificate management",
+          "status": "met",
+          "quote_indexes": [
+            1
+          ]
+        },
+        {
+          "id": "ciphers",
+          "requirement": "Avoidance of insecure cipher suites",
+          "status": "met",
+          "quote_indexes": [
+            1
+          ]
+        }
+      ],
+      "relevant_quotes": [
+        {
+          "text": "Vendor will enforce encryption in transit for all external and internal transmissions of Company Data over untrusted networks, including: (a) Company-to-Service connections (web and API); (b) Service-to-Subprocessor transmissions (e.g., email/SMS providers) to the extent they carry Company Data;",
+          "evidence_id": "E1",
+          "section_ref": "7.2 Data in Transit Requirements (TLS)",
+          "page_display": "5",
+          "chunk_id": 236,
+          "verified": true
+        },
+        {
+          "text": "Vendor will use TLS 1.2 or higher (TLS 1.3 where feasible), will not knowingly enable insecure cipher suites, and will manage certificates using documented procedures.",
+          "evidence_id": "E1",
+          "section_ref": "7.2 Data in Transit Requirements (TLS)",
+          "page_display": "5",
+          "chunk_id": 236,
+          "verified": true
+        },
+        {
+          "text": "|TLS|In transit encryption|TLS 1.2+ (prefer 1.3)|",
+          "evidence_id": "E3",
+          "section_ref": "7.4 Secrets Management",
+          "page_display": "6",
+          "chunk_id": 239,
+          "verified": true
+        },
+        {
+          "text": "|CRYP-01|Encrypt Company Data in transit|TLS 1.2+|architecture/config evidence|continuous|",
+          "evidence_id": "E4",
+          "section_ref": "G4. Cryptography and Secrets",
+          "page_display": "15",
+          "chunk_id": 284,
+          "verified": true
+        },
+        {
+          "text": "|4|Application \u2192 Subprocessor|SMS/email alerts|TLS; transfer approval; subprocessor contract|",
+          "evidence_id": "E6",
+          "section_ref": "Exhibit C \u2014 Data Flow and Control Mapping (Text Chart)",
+          "page_display": "11-12",
+          "chunk_id": 275,
+          "verified": true
+        }
+      ],
+      "rationale": "Section 7.2 is the governing clause and expressly covers all three traffic paths: Company-to-Service (web and API), Service-to-Subprocessor transmissions carrying Company Data, and administrative connections to production systems, each subject to the same standard of TLS 1.2 or higher with TLS 1.3 where feasible. The same clause prohibits knowingly enabling insecure cipher suites and requires certificate management under documented procedures. The standard is reinforced as an auditable continuous control by the crypto minimum-standard chart (TLS 1.2+, prefer 1.3) and Exhibit G CRYP-01 (TLS 1.2+, architecture/config evidence, continuous), and Exhibit C step 4 independently identifies TLS as the control point for Application-to-Subprocessor flows. The only softening is the word 'knowingly' in the cipher-suite prohibition, which is not material enough to downgrade that sub-requirement, so every sub-requirement is met.",
+      "raw_confidence": 0.92,
+      "confidence": 0.92,
+      "confidence_components": {
+        "raw": 0.92,
+        "quote_term": 1.0,
+        "coverage": 1.0,
+        "cap": 1.0
+      },
+      "needs_review": false,
+      "unresolved_errors": [],
+      "structure_rounds": 0,
+      "ended_by": "cap",
+      "tool_calls": 2,
+      "usage": {
+        "input_tokens": 13064,
+        "output_tokens": 2367,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0
+      },
+      "cost_usd": 0.124495,
+      "model": "claude-opus-5",
+      "latency_s": 59.5
+    },
+    {
+      "criterion_id": "network_auth",
+      "compliance_requirement": "Network Authentication & Authorization Protocols",
+      "compliance_question": "The contract must specify the authentication mechanisms (e.g., SAML SSO for users, OAuth/token-based for APIs), require MFA for privileged/production access, require secure admin pathways (bastion/secure gateway) with session logging, and require RBAC authorization. Based on the contract language and exhibits, what is the compliance state for Network Authentication and Authorization Protocols?",
+      "compliance_state": "Fully Compliant",
+      "sub_requirements": [
+        {
+          "id": "mechanisms",
+          "requirement": "Authentication mechanisms specified (e.g. SAML SSO for users, OAuth/token-based for APIs)",
+          "status": "met",
+          "quote_indexes": [
+            0,
+            1
+          ]
+        },
+        {
+          "id": "mfa",
+          "requirement": "MFA required for privileged/production access",
+          "status": "met",
+          "quote_indexes": [
+            2,
+            3
+          ]
+        },
+        {
+          "id": "admin_pathways",
+          "requirement": "Secure admin pathways (bastion/secure gateway) with session logging",
+          "status": "met",
+          "quote_indexes": [
+            4,
+            5,
+            6
+          ]
+        },
+        {
+          "id": "rbac",
+          "requirement": "RBAC authorization",
+          "status": "met",
+          "quote_indexes": [
+            7,
+            8,
+            9
+          ]
+        }
+      ],
+      "relevant_quotes": [
+        {
+          "text": "SAML 2.0 SSO is supported and is the default for Company; local user accounts (if enabled) must enforce MFA and password controls consistent with Section 6.6. (b) API authentication. API access will use OAuth 2.0 bearer tokens or signed tokens, with scoped permissions and configurable expiration.",
+          "evidence_id": "E2",
+          "section_ref": "6.7 Authentication and Authorization Protocols",
+          "page_display": "5",
+          "chunk_id": 233,
+          "verified": true
+        },
+        {
+          "text": "|End-user UI|SAML 2.0 SSO|Y|RBAC (tenant roles)|auth + role changes|",
+          "evidence_id": "E1",
+          "section_ref": "6.7 Authentication and Authorization Protocols",
+          "page_display": "5",
+          "chunk_id": 234,
+          "verified": true
+        },
+        {
+          "text": "6.2 MFA. Vendor will enforce multi-factor authentication (MFA) for (a) privileged accounts, (b) remote access, and (c) all access to production environments.",
+          "evidence_id": "E4",
+          "section_ref": "6.2 MFA",
+          "page_display": "4",
+          "chunk_id": 228,
+          "verified": true
+        },
+        {
+          "text": "|IAM-01|Enforce MFA for privileged access|MFA required for all privileged accounts|MFA policy + enforcement evidence|continuous|",
+          "evidence_id": "E9",
+          "section_ref": "G3. Identity and Access Management",
+          "page_display": "14-15",
+          "chunk_id": 282,
+          "verified": true
+        },
+        {
+          "text": "(c) Administrative access. Administrative access to production will occur only via the approved bastion/secure gateway with MFA and session logging.",
+          "evidence_id": "E2",
+          "section_ref": "6.7 Authentication and Authorization Protocols",
+          "page_display": "5",
+          "chunk_id": 233,
+          "verified": true
+        },
+        {
+          "text": "|Vendor admin to production|bastion + MFA|Y|least privilege + JIT elevation|session logs + admin actions|",
+          "evidence_id": "E1",
+          "section_ref": "6.7 Authentication and Authorization Protocols",
+          "page_display": "5",
+          "chunk_id": 234,
+          "verified": true
+        },
+        {
+          "text": "|NET-01|Secure admin network access|bastion/secure gateway + MFA|architecture diagram|annual review|",
+          "evidence_id": "E5",
+          "section_ref": "G13. Network Authentication and Authorization (Added)",
+          "page_display": "18",
+          "chunk_id": 293,
+          "verified": true
+        },
+        {
+          "text": "(d) Authorization. Vendor will enforce RBAC within the application and administrative tooling and will document the role model for Company upon request.",
+          "evidence_id": "E2",
+          "section_ref": "6.7 Authentication and Authorization Protocols",
+          "page_display": "5",
+          "chunk_id": 233,
+          "verified": true
+        },
+        {
+          "text": "6.1 Least Privilege. Vendor will implement least-privilege access and role-based access controls (RBAC) for the In-Scope Environment.",
+          "evidence_id": "E8",
+          "section_ref": "6.1 Least Privilege",
+          "page_display": "4",
+          "chunk_id": 227,
+          "verified": true
+        },
+        {
+          "text": "|NET-03|Authorization at service layer|RBAC enforced; least privilege|role model + tests|semi-annual review|",
+          "evidence_id": "E5",
+          "section_ref": "G13. Network Authentication and Authorization (Added)",
+          "page_display": "18",
+          "chunk_id": 293,
+          "verified": true
+        }
+      ],
+      "rationale": "Section 6.7 (Authentication and Authorization Protocols) directly addresses all four elements, and is reinforced by Section 6.1, 6.2 and Exhibit G (G3 IAM-01/02/03, G13 NET-01/02/03). Mechanisms are specified per access type: SAML 2.0 SSO as the default for end users, MFA-enforced local accounts, and OAuth 2.0 bearer/signed tokens with scoped permissions for API access. MFA is an unqualified obligation for privileged accounts, remote access and all production access, with continuous-frequency evidence duties in Exhibit G. Administrative access to production is restricted to an approved bastion/secure gateway with MFA and session logging, mirrored in the summary table (session logs + admin actions) and NET-01. RBAC is required within the application and administrative tooling, across the In-Scope Environment, with a documented role model and role matrix/tests as deliverables. Minor softeners exist inside otherwise-met controls (API call logging \"where feasible\"; JIT elevation \"where feasible\" in 6.3), but they do not undercut any of the four sub-requirements, since JIT is stated unconditionally for vendor admin access in the 6.7 table. All four sub-requirements are met, so the overall state is Fully Compliant.",
+      "raw_confidence": 0.93,
+      "confidence": 0.93,
+      "confidence_components": {
+        "raw": 0.93,
+        "quote_term": 1.0,
+        "coverage": 1.0,
+        "cap": 1.0
+      },
+      "needs_review": false,
+      "unresolved_errors": [],
+      "structure_rounds": 0,
+      "ended_by": "model",
+      "tool_calls": 2,
+      "usage": {
+        "input_tokens": 12850,
+        "output_tokens": 2863,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0
+      },
+      "cost_usd": 0.135825,
+      "model": "claude-opus-5",
+      "latency_s": 36.7
+    }
+  ],
+  "totals": {
+    "criteria": 5,
+    "latency_s": 31.234,
+    "cost_usd": 0.925595,
+    "input_tokens": 119794,
+    "output_tokens": 13065,
+    "tool_calls": 17,
+    "needs_review": 1,
+    "capped": 2,
+    "mean_confidence": 0.676
+  },
+  "cross_criterion_notes": [],
+  "skipped": [],
+  "error": null,
+  "created_at": "2026-08-24T17:23:32+00:00",
+  "completed_at": "2026-08-24T17:24:03+00:00"
+}

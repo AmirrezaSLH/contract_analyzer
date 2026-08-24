@@ -1,0 +1,36 @@
+/* The App/KPI toggle: two halves of one control, at the top of the sidebar.
+ *
+ * A segmented control rather than two nav rows because the two are exclusive
+ * and equal -- you are in one or the other, never both, and neither is a
+ * child of the other. */
+.track {
+  display: flex;
+  gap: 3px;
+  padding: 3px;
+  background: var(--toggle-track);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
+
+.half {
+  flex: 1 1 0;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 7px 0;
+  border-radius: var(--r-sm);
+  color: var(--muted);
+}
+
+.half:hover {
+  color: var(--ink-body);
+}
+
+/* The raised half. White against the warm track is the whole affordance, so
+ * it must be --surface and not a tint of it. */
+.active,
+.active:hover {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow-raise);
+}

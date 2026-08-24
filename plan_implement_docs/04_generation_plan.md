@@ -168,11 +168,15 @@ run_agent(task: AgentTask, *, tools, finisher, settings, client, on_event) -> Ag
 ```
 
 * Sends the system prompt, the task's messages and the tool definitions;
-  while `stop_reason == "tool_use"`, executes each tool call, appends the
-  `tool_result`, and calls again. When the model stops calling tools, the
+  while `stop_reason == "tool_use"`, executes every tool call in the
+  response, appends **all** their `tool_result`s in **one** user message,
+  and calls again. The assistant turn is echoed wholesale --
+  `response.content` unchanged, thinking blocks and signatures included --
+  never rebuilt from text + `tool_use`. When the model stops calling tools, the
   `finisher` produces the final turn from the conversation and the ledger.
 * **Not getting stuck** is enforced by counters, not prompts:
-  * `max_tool_calls` per run (analysis 8 per criterion, chat 4);
+  * `max_tool_calls` per run (analysis 8 per criterion, chat 4) -- counts
+    *executions*, not turns, so parallel calls consume several;
   * `max_evidence_tokens` — the ledger's total; once reached, tool results
     say so and the model is told to finish;
   * **dedupe** — an identical `(tool, args)` returns the ledger ids it
@@ -253,8 +257,9 @@ thread pool and adds the evaluator). The task carries the criterion text and
 its sub-requirements; the model searches, then the **analysis finisher**:
 
 1. A call with `output_config={"format": ComplianceDraft, "effort": …}`,
-   citations off, tools off, the ledger's chunks *not* re-sent (they are
-   already in the conversation as tool results).
+   citations off, the tool definitions kept with `tool_choice: none`, the
+   ledger's chunks *not* re-sent (they are already in the conversation as
+   tool results).
 2. `validate_structure(draft, evidence) -> list[StructuralError]`. Pure
    Python. `StructuralError(path, code, message)`.
 3. If errors and rounds remain: a user turn built from
@@ -273,7 +278,7 @@ The API's constrained decoding guarantees the draft parses: keys, types, the
 | Check | Why a schema cannot express it |
 |---|---|
 | every `quote.evidence_id` is an `E` id in the ledger | runtime cross-reference |
-| every quote text is verbatim in that chunk (NFKC, whitespace- and quote-folded, casefold substring) | needs the chunk text |
+| every quote text is verbatim in that chunk (NFKC, whitespace-, quote- and `\|`-folded, casefold substring -- a table chunk's text is its grid) | needs the chunk text |
 | `Fully Compliant` ⇒ all sub-requirements `met`; `Non-Compliant` ⇒ none `met`; otherwise `Partially` | cross-field rule |
 | a sub-requirement `met`/`partial` has ≥1 quote index; `missing`/`not_determined` has none | cross-field rule |
 | `compliance_question` equals the criterion text sent, verbatim | equality to an input |
@@ -491,6 +496,27 @@ as their own commits:
    enforce them, so they live in the validator where a failure gets a name.
 8. **`ComplianceResult.unresolved_errors`** keeps the validator messages
    that survived the rounds, so the UI can say *why* a result needs review.
+
+### Review after implementation (2026-08-24)
+
+Four points raised in review, and what was done (`6809804`…`5eb7772`):
+
+1. *The finisher will 400 without `tools` in a conversation carrying tool
+   blocks.* A live probe against `claude-opus-5` **did not reproduce it**:
+   both shapes were accepted. The finisher nonetheless now keeps the
+   definitions with `tool_choice: none` -- its request then shares the
+   loop's exact `tools → system` prefix, which is what prompt caching keys
+   on, and tool blocks are never sent without their definitions.
+2. *Echo the assistant turn wholesale.* Already the implementation
+   (`content_params()` dumps every block); now stated as a rule above and
+   in `docs/generation.md`.
+3. *Parallel tool calls in one user message; say what the cap counts.*
+   Already the implementation; now stated as a rule above. The cap counts
+   executions.
+4. *Verbatim check against a markdown grid.* Real: a table chunk's `content`
+   is also the grid, so the `content` fallback bought nothing and a quote
+   spanning cells failed on the pipes. `|` now folds to a space
+   (`15697dc`), with a cross-cell test.
 
 ### Open questions, updated
 

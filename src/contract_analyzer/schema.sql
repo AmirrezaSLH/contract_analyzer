@@ -9,6 +9,9 @@
 --   chunks_vec  vectors, queried by KNN                        (sqlite-vec)
 --   chunks_fts  the same text, queried by BM25                 (FTS5)
 -- chunks is the single source of truth; the other two are indexes over it.
+--
+-- A fifth table, `analyses`, records the work done *on* a contract -- see the
+-- comment above it, at the bottom of this file.
 
 CREATE TABLE IF NOT EXISTS documents (
     id            INTEGER PRIMARY KEY,
@@ -110,3 +113,74 @@ CREATE TRIGGER IF NOT EXISTS chunks_au AFTER UPDATE ON chunks BEGIN
         VALUES ('delete', old.id, old.content);
     INSERT INTO chunks_fts (rowid, content) VALUES (new.id, new.content);
 END;
+
+-- One row per analysis: the durable half of a run.
+--
+-- Here rather than in a metrics file because this is not telemetry. The line
+-- is that this file holds *what happened* -- the domain objects the system
+-- stores -- while the metrics store holds *how it went* (spans, per-criterion
+-- timings). An analysis is a domain object exactly as a document is, it is the
+-- deliverable a client comes back for, and the API's storage must not depend
+-- on the metrics module for it.
+--
+-- Written by `analyses.py`, from both surfaces: `analyze_document` records the
+-- lifecycle, so `make analyze` populates the same table the API does and a
+-- report produced on the command line is readable through GET /analyses/<id>.
+-- (Angle brackets, not braces: db.py runs this file through str.format, so a
+-- literal brace anywhere -- a comment included -- is a format placeholder.)
+--
+-- **No foreign key on document_id, and filename is denormalised beside it.**
+-- Deleting a contract must not take the analyses with it: the report is the
+-- deliverable, it is self-contained, and a record that vanishes when someone
+-- tidies up the corpus is not a record. tests/test_analyses.py asserts it.
+CREATE TABLE IF NOT EXISTS analyses (
+    analysis_id        TEXT PRIMARY KEY,
+    -- The id every log line of this run carries: the join key into app.jsonl,
+    -- and into the metrics store's spans when it lands.
+    trace_id           TEXT,
+    document_id        INTEGER NOT NULL,
+    filename           TEXT    NOT NULL DEFAULT '',
+    -- 'api' or 'cli': which surface asked for it.
+    surface            TEXT    NOT NULL DEFAULT 'api',
+    -- queued | running | done | failed | cancelled | interrupted.
+    -- 'interrupted' is what `reconcile` writes over a row the process died
+    -- holding: the model refusing and the machine going away are different
+    -- events, and a client is told to run it again rather than that it failed.
+    status             TEXT    NOT NULL DEFAULT 'queued',
+    criteria_requested INTEGER NOT NULL DEFAULT 0,
+    criteria_completed INTEGER NOT NULL DEFAULT 0,
+    criteria_skipped   INTEGER NOT NULL DEFAULT 0,
+    error              TEXT,
+    -- The AnalysisReport verbatim -- the same bytes scripts/analyze.py --out
+    -- writes, so there is still no second schema. ~30 KB for five criteria.
+    report_json        TEXT,
+    created_at         TEXT    NOT NULL,
+    started_at         TEXT,
+    completed_at       TEXT,
+
+    -- Derived from the report on completion. Not KPI work smuggled in early:
+    -- `finish_analysis` already holds the report to count the two criteria
+    -- columns, and these are field reads off `report.totals` plus one
+    -- comprehension over `report.results`. The metrics step inherits a
+    -- populated table instead of a backfill.
+    latency_s          REAL,
+    cost_usd           REAL,
+    input_tokens       INTEGER,
+    output_tokens      INTEGER,
+    tool_calls         INTEGER,
+    needs_review       INTEGER,
+    capped             INTEGER,
+    mean_confidence    REAL,
+    quotes_total       INTEGER,
+    quotes_verified    INTEGER,
+
+    -- Declared now, NULL until the evaluator lands. Declaring them costs
+    -- nothing and removes an ALTER TABLE from the middle of a later step --
+    -- the same argument as `cross_criterion_notes` on the report.
+    evaluator_accepted INTEGER,
+    evaluator_revised  INTEGER,
+    evaluator_fallback INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS idx_analyses_document ON analyses (document_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_analyses_status ON analyses (status);

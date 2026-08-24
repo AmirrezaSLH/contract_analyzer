@@ -18,7 +18,7 @@ from .config import Settings, get_settings
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
 
 #: Tables the schema is expected to create; used by `describe`.
-EXPECTED_TABLES = ("documents", "chunks", "chunks_vec", "chunks_fts")
+EXPECTED_TABLES = ("documents", "chunks", "chunks_vec", "chunks_fts", "analyses")
 
 _VEC_DIM_RE = re.compile(r"embedding\s+FLOAT\s*\[\s*(\d+)\s*\]", re.IGNORECASE)
 #: The partition key retrieval scopes on. A database built before it was added

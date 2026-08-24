@@ -27,7 +27,20 @@ dependencies = [
 # The torch download is ~800 MB, so the offline embedder is opt-in:
 #   pip install -e ".[local]"
 local = ["sentence-transformers>=3.0"]
-dev = ["pytest>=8.0", "ruff>=0.6"]
+# The HTTP surface. Separate from the core so the CLIs, the tests and the
+# ingest path install without a web framework:
+#   pip install -e ".[api]"
+api = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "sse-starlette>=2.1",
+    # Multipart form parsing, which FastAPI needs for file uploads.
+    "python-multipart>=0.0.9",
+]
+# `httpx` here is not a second HTTP stack: the application calls out through
+# `httpx2` only. This is what `fastapi.testclient.TestClient` is built on, and
+# it never leaves the test process.
+dev = ["pytest>=8.0", "ruff>=0.6", "contract-analyzer[api]", "httpx>=0.27"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

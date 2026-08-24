@@ -107,6 +107,10 @@ class Settings(BaseSettings):
     assets_dir: Path = Path("data/assets")
     #: One JSON object per line. Blank disables the file; the console stays.
     log_file: Path | None = Path(".run/app.jsonl")
+    #: `X-API-Key` the HTTP API demands. Unset means open, which is the local
+    #: demo; a deployment sets it. A secret, so it lives here and not in
+    #: settings.json -- see docs/api.md on what production would use instead.
+    api_key: SecretStr | None = None
 
     # ===== settings.json: tuning parameters =================================
     # Same value everywhere a given checkout runs, so these are versioned with
@@ -144,6 +148,27 @@ class Settings(BaseSettings):
     #: another domain without touching the package -- see generation/prompts.py.
     prompts_path: Path = Path("src/contract_analyzer/generation/prompts.json")
 
+    # HTTP API -- see api/ and docs/api.md
+    #: Analysis jobs in flight. SQLite serialises writes, so two is the honest
+    #: ceiling for a single-file store; a third request sees `queued`.
+    #: `api_workers * analysis_workers` is the concurrent-request ceiling
+    #: against the answer model, and the only rate limit a local demo has.
+    api_workers: int = Field(default=2, gt=0)
+    #: Rejected with 413, enforced while the body streams to disk rather than
+    #: after: `await file.read()` on an endpoint that is open by default is a
+    #: one-line way to run the container out of memory.
+    api_max_upload_mb: float = Field(default=25.0, gt=0)
+    #: The UI is a different origin only outside Docker, where compose puts
+    #: both behind one network. Empty means no CORS headers at all.
+    api_cors_origins: list[str] = Field(default_factory=list)
+    #: An SSE comment this often, so a proxy does not close an analysis stream
+    #: that is thinking rather than talking.
+    api_keepalive_seconds: float = Field(default=15.0, gt=0)
+    #: Per-subscriber queue depth, and how many events a client that connects
+    #: late gets replayed. Oldest dropped on overflow -- a stalled reader must
+    #: never block a criterion thread.
+    api_event_buffer: int = Field(default=256, gt=0)
+
     # HTTP -- every external call goes through http_client.py
     http_timeout_seconds: float = Field(default=60.0, gt=0)
     #: Retries after the first attempt: 3 means up to four requests.
@@ -173,6 +198,14 @@ class Settings(BaseSettings):
     retrieval_top_k: int = Field(default=6, gt=0)
     rrf_k: int = Field(default=60, gt=0)
 
+    @field_validator("api_cors_origins", mode="before")
+    @classmethod
+    def _split_origins(cls, v: object) -> object:
+        # `API_CORS_ORIGINS=http://a,http://b` in an .env is a string.
+        if isinstance(v, str):
+            return [o.strip() for o in v.split(",") if o.strip()]
+        return v
+
     @field_validator("embedding_model", "log_file", mode="before")
     @classmethod
     def _blank_is_unset(cls, v: object) -> object:
@@ -196,6 +229,15 @@ class Settings(BaseSettings):
     @property
     def openai_key(self) -> str | None:
         return self.openai_api_key.get_secret_value() if self.openai_api_key else None
+
+    @property
+    def api_key_value(self) -> str | None:
+        """The API key in the clear, at the one point of comparison."""
+        return self.api_key.get_secret_value() if self.api_key else None
+
+    @property
+    def max_upload_bytes(self) -> int:
+        return int(self.api_max_upload_mb * 1024 * 1024)
 
     @property
     def resolved_embedding_model(self) -> str:

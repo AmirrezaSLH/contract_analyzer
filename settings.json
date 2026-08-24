@@ -10,6 +10,12 @@
   "analysis_workers": 5,
   "prompts_path": "src/contract_analyzer/generation/prompts.json",
 
+  "api_workers": 2,
+  "api_max_upload_mb": 25,
+  "api_cors_origins": [],
+  "api_keepalive_seconds": 15,
+  "api_event_buffer": 256,
+
   "http_timeout_seconds": 60,
   "http_retries": 3,
 

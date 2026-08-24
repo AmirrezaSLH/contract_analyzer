@@ -150,6 +150,29 @@ def document_sections(conn: sqlite3.Connection, document_id: int) -> list[Sectio
     return sections
 
 
+def set_filename(conn: sqlite3.Connection, document_id: int, filename: str) -> bool:
+    """Rename what a document is *called*, leaving where it lives alone.
+
+    `ingest_file` takes the filename from the path, which is right for the CLI
+    -- the path is the name the user typed. It is wrong for an upload: the API
+    stores bytes under `<uuid>-<sanitized name>` so that two sessions cannot
+    collide on one path, and a client that uploaded "Sample Contract.pdf" must
+    not be shown "7c499d3e-Sample_Contract.pdf" in the list it picks from.
+
+    So the display name and the storage path are separated here rather than in
+    the route: it is a fact about the catalogue, and `documents.path` stays the
+    only thing that says where the bytes are.
+    """
+    filename = filename.strip()
+    if not filename:
+        return False
+    with conn:
+        cursor = conn.execute(
+            "UPDATE documents SET filename = ? WHERE id = ?", (filename, int(document_id))
+        )
+    return cursor.rowcount > 0
+
+
 def delete_document(
     conn: sqlite3.Connection,
     document_id: int,
@@ -227,4 +250,5 @@ __all__ = [
     "document_sections",
     "get_document",
     "list_documents",
+    "set_filename",
 ]

@@ -566,6 +566,99 @@ def test_chat_without_a_key_says_so_instead_of_offering_an_input():
     assert "Chat needs an answer key" in texts(at)
 
 
+def test_two_documents_and_an_answer_about_one_never_names_the_other():
+    """The isolation acceptance, from the UI's side. The library enforces it in
+    `retrieve()`; the UI's whole contribution is never asking about the wrong
+    id, and the scope indicator always names the contract being asked."""
+    stub = StubApi(documents=[document(1, "Alpha.pdf"), document(2, "Beta.pdf")])
+    at = app(stub, view="chat", document_id=2)
+
+    assert "Answers are drawn only from Beta.pdf." in texts(at)
+    at.chat_input[0].set_value("What does it say?").run()
+
+    asked = [c for c in stub.calls if c[0] == "chat"]
+    assert [c[1] for c in asked] == [2]
+    # And the transcript that comes back is filed under 2, not 1.
+    assert 1 not in at.session_state["chat_history"]
+
+
+# -- error surfaces ---------------------------------------------------------
+
+
+def test_every_error_code_the_api_can_return_has_a_headline():
+    """`01_ui_spec.md` §5.1 called error surfaces the highest-priority gap: the
+    codes and hints existed and the UI had nowhere to put them. This is the
+    assertion that no code was left without one -- and it reads the codes off
+    the API rather than a list copied here, so a new one fails this test."""
+    from contract_analyzer.api import errors as api_errors
+    from contract_analyzer.ui.errors import HEADLINES
+
+    produced = {
+        api_errors.document_not_found(1).code,
+        api_errors.analysis_not_found("a").code,
+        api_errors.no_api_key().code,
+        api_errors.unauthorized().code,
+        api_errors.from_ingest_error("EmbedderUnavailable: no key").code,
+        api_errors.from_ingest_error("RuntimeError: boom").code,
+    }
+    produced |= {code for _, _, code, _ in api_errors._MAPPED}
+    produced |= {
+        "validation", "internal", "payload_too_large", "unsupported_media_type",
+        "analysis_running", "not_live_here", "metrics_unavailable",
+    }
+
+    missing = produced - set(HEADLINES)
+    assert not missing, f"no error surface for {sorted(missing)}"
+
+
+def test_a_rejected_upload_shows_the_hint_and_leaves_no_result_card():
+    """A 413 or a 415 is a sentence with the API's hint under it, and the
+    success card does not survive underneath it.
+
+    `AppTest.from_function` re-executes the function's *source*, so the script
+    below closes over nothing -- everything it needs is built inside it.
+    """
+
+    def script():
+        import streamlit as st
+
+        from contract_analyzer.ui import state as ui_state
+        from contract_analyzer.ui.client import ApiError
+        from contract_analyzer.ui.views import upload as upload_view
+
+        ui_state.init()
+        st.session_state["upload_result"] = {"document_id": 9, "filename": "old.pdf"}
+
+        class Rejecting:
+            def upload(self, name, data, *, trace_id=None):
+                raise ApiError(
+                    "payload_too_large",
+                    "The upload is larger than the 25 MB limit.",
+                    "Raise api_max_upload_mb in settings.json, or send a smaller file.",
+                )
+
+        class Uploaded:
+            name, file_id = "huge.pdf", "f1"
+
+            @staticmethod
+            def getvalue():
+                return b"x" * 10
+
+        upload_view._ingest(Rejecting(), Uploaded())
+
+    run = AppTest.from_function(script, default_timeout=30)
+    run.run()
+
+    assert not run.exception
+    # The stale success card is cleared: a failure must not sit under one.
+    assert run.session_state["upload_result"] is None
+    rendered = "\n".join(
+        [str(e.value) for e in run.error] + [str(w.value) for w in run.warning]
+    )
+    assert "over the upload limit" in rendered
+    assert "send a smaller file" in rendered
+
+
 # -- copy rules -------------------------------------------------------------
 
 

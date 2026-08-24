@@ -13,8 +13,9 @@ manual check:
   would be silently wrong if anybody added a foreign key;
 * a cancelled run keeps its partial report and its skipped ids, and a failed
   one keeps its error and has no report;
-* the run writes `surface='cli'` when nothing says otherwise, so `make analyze`
-  and the API fill one table rather than two.
+* `make analyze` writes a row with `surface='cli'`, and that row is readable
+  through `GET /analyses/{id}` in an app built over the same database. That is
+  the API-adds-no-logic invariant demonstrated rather than asserted.
 
 Offline and keyless throughout: the model is the scripted SSE transport and the
 embedder is never called, because retrieval is stubbed.
@@ -26,6 +27,7 @@ import json
 import struct
 
 import pytest
+from fastapi.testclient import TestClient
 
 from conftest import ScriptedAPI, make_chunk, scripted_client
 from contract_analyzer.analyses import (
@@ -42,6 +44,7 @@ from contract_analyzer.compliance import get_criteria
 from contract_analyzer.config import Settings
 from contract_analyzer.db import get_db
 from contract_analyzer.documents import delete_document
+from contract_analyzer.embeddings.fake import FakeEmbedder
 from contract_analyzer.generation import tools as T
 from contract_analyzer.report import AnalysisReport, analyze_document
 from test_report import script
@@ -266,3 +269,58 @@ def test_deleting_a_document_keeps_its_analyses_and_their_reports(settings, conn
     assert record.filename == "contract.pdf"  # denormalised, so it still reads
     assert record.report() == report
     assert [r.analysis_id for r in list_analyses(conn, 1)] == [report.analysis_id]
+
+
+# --------------------------------------------------------------------------
+# The invariant: the API adds no logic the command line does not have
+# --------------------------------------------------------------------------
+
+
+def test_a_cli_run_is_readable_through_the_api(settings, conn, searches):
+    """`make analyze` with the API stopped, then the API started over the same
+    database. Demonstrated rather than asserted: the row the CLI wrote is the
+    row the HTTP layer reads."""
+    from contract_analyzer.api.main import create_app
+
+    report = run(settings, conn)
+    assert get_analysis(conn, report.analysis_id).surface == "cli"
+
+    app = create_app(settings, embedder=FakeEmbedder(settings), client=object())
+    with TestClient(app) as client:
+        body = client.get(f"/analyses/{report.analysis_id}").json()
+        assert body["status"] == "done"
+        assert AnalysisReport.model_validate(body["report"]) == report
+        assert [c["id"] for c in body["criteria"]] == [r.criterion_id for r in report.results]
+        assert body["progress"] == {"done": len(CRITERIA), "total": len(CRITERIA)}
+
+        listed = client.get("/analyses", params={"document_id": 1}).json()
+        assert [a["analysis_id"] for a in listed] == [report.analysis_id]
+        assert client.get("/documents/1").json()["analyses"][0]["analysis_id"] \
+            == report.analysis_id
+
+
+def test_streaming_and_cancelling_a_run_this_process_does_not_own_is_a_409(
+    settings, conn, searches
+):
+    """Durable is not distributed: the cancel flag and the event stream are
+    per-process objects. Saying so with a 409 beats a 404 that contradicts the
+    GET the client just made."""
+    from contract_analyzer.api.main import create_app
+
+    queue_analysis(conn, "elsewhere", 1, filename="contract.pdf", criteria=["a"])
+
+    app = create_app(settings, embedder=FakeEmbedder(settings), client=object())
+    with TestClient(app) as client:
+        # The lifespan reconciled the row it found queued, so it reads honestly.
+        assert client.get("/analyses/elsewhere").json()["status"] == "interrupted"
+
+        for response in (
+            client.post("/analyses/elsewhere/cancel"),
+            client.get("/analyses/elsewhere/events"),
+        ):
+            assert response.status_code == 409
+            assert response.json()["error"]["code"] == "not_live_here"
+
+        missing = client.post("/analyses/nosuchid/cancel")
+        assert missing.status_code == 404
+        assert missing.json()["error"]["code"] == "analysis_not_found"

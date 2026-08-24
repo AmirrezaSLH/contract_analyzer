@@ -34,9 +34,11 @@ import pytest
 from fastapi.testclient import TestClient
 
 from conftest import ScriptedAPI, make_chunk, scripted_client, sse_message, write_decoy_contract
+from contract_analyzer.analyses import queue_analysis
 from contract_analyzer.api.main import create_app
 from contract_analyzer.compliance import get_criteria
 from contract_analyzer.config import Settings
+from contract_analyzer.db import get_db
 from contract_analyzer.embeddings.fake import FakeEmbedder
 from contract_analyzer.generation import tools as T
 
@@ -493,6 +495,105 @@ def test_a_failing_model_fails_the_job_rather_than_hanging_it(client, api, searc
     assert done["status"] == "failed" and done["error"]
     assert done["report"] is None
 
+
+
+# --------------------------------------------------------------------------
+# Durability: what is still there after the process is not
+# --------------------------------------------------------------------------
+
+
+def restarted(settings, api) -> TestClient:
+    """A second app over the same database. What a restart looks like from the
+    outside, and the only way to falsify "the report survived it"."""
+    return TestClient(create_app(settings, embedder=FakeEmbedder(settings),
+                                 client=scripted_client(api)))
+
+
+def analysed(client, api, small_pdf) -> tuple[int, str, dict]:
+    """Upload, analyse, poll to `done`. Returns what the three tests below need."""
+    document_id = upload(client, small_pdf).json()["document_id"]
+    api.outcomes.extend(full_analysis())
+    analysis_id = client.post("/analyses", json={"document_id": document_id}).json()["analysis_id"]
+    return document_id, analysis_id, poll(client, analysis_id)
+
+
+def test_an_analysis_and_its_report_survive_a_restart(client, api, settings, searches, small_pdf):
+    """The bug this table exists for: before it, the second process answered
+    404 and the report was gone."""
+    document_id, analysis_id, done = analysed(client, api, small_pdf)
+
+    with restarted(settings, api) as fresh:
+        body = fresh.get(f"/analyses/{analysis_id}").json()
+        assert body["status"] == "done"
+        assert body["report"] == done["report"]
+        assert body["totals"] == done["totals"]
+        assert body["trace_id"] == done["trace_id"]
+        assert [c["id"] for c in body["criteria"]] == [c.id for c in CRITERIA]
+
+        listed = fresh.get("/analyses", params={"document_id": document_id}).json()
+        assert [a["analysis_id"] for a in listed] == [analysis_id]
+        detail = fresh.get(f"/documents/{document_id}").json()
+        assert [a["analysis_id"] for a in detail["analyses"]] == [analysis_id]
+
+
+def test_a_run_the_process_died_holding_reads_interrupted(client, api, settings, small_pdf):
+    """`failed` would say the model refused. It did not -- the machine went
+    away -- and the client is owed the difference."""
+    document_id = upload(client, small_pdf).json()["document_id"]
+    conn = get_db(settings)
+    queue_analysis(conn, "orphan", document_id, filename="x.pdf",
+                   criteria=[c.id for c in CRITERIA])
+    conn.execute("UPDATE analyses SET status = 'running' WHERE analysis_id = 'orphan'")
+    conn.commit()
+    conn.close()
+
+    with restarted(settings, api) as fresh:
+        body = fresh.get("/analyses/orphan").json()
+        assert body["status"] == "interrupted"
+        assert body["report"] is None and body["progress"]["total"] == len(CRITERIA)
+
+        # And an id that really is unknown no longer apologises about restarts.
+        hint = fresh.get("/analyses/nosuchid").json()["error"]["hint"]
+        assert "restart" not in hint
+
+
+def test_the_live_job_wins_where_both_have_an_answer(client, api, settings, searches, small_pdf):
+    """The dict is the live half and the row is the durable one. The process
+    running an analysis answers from the dict, which is why a row rewritten
+    underneath it does not change what it says -- and a process that never ran
+    it has only the row."""
+    _, analysis_id, _ = analysed(client, api, small_pdf)
+
+    conn = get_db(settings)
+    conn.execute(
+        "UPDATE analyses SET status = 'interrupted', report_json = NULL WHERE analysis_id = ?",
+        (analysis_id,),
+    )
+    conn.commit()
+    conn.close()
+
+    live = client.get(f"/analyses/{analysis_id}").json()
+    assert live["status"] == "done" and live["report"] is not None
+
+    with restarted(settings, api) as fresh:
+        assert fresh.get(f"/analyses/{analysis_id}").json()["status"] == "interrupted"
+
+
+def test_deleting_the_contract_leaves_the_analysis_and_its_report(
+    client, api, settings, searches, small_pdf
+):
+    """The report is the deliverable and it is self-contained. Asserted through
+    a restart, so it is the *row* that is shown to have survived, not the dict
+    still holding it."""
+    document_id, analysis_id, done = analysed(client, api, small_pdf)
+
+    assert client.delete(f"/documents/{document_id}").status_code == 204
+    assert client.get(f"/documents/{document_id}").status_code == 404
+
+    with restarted(settings, api) as fresh:
+        body = fresh.get(f"/analyses/{analysis_id}").json()
+        assert body["status"] == "done"
+        assert body["report"] == done["report"]
 
 # --------------------------------------------------------------------------
 # The event stream

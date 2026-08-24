@@ -81,7 +81,8 @@
               "running",
               "done",
               "failed",
-              "cancelled"
+              "cancelled",
+              "interrupted"
             ],
             "title": "Status",
             "type": "string"
@@ -276,7 +277,8 @@
               "running",
               "done",
               "failed",
-              "cancelled"
+              "cancelled",
+              "interrupted"
             ],
             "title": "Status",
             "type": "string"
@@ -1211,7 +1213,7 @@
   "paths": {
     "/analyses": {
       "get": {
-        "description": "`document_id` is required: a global list is a KPI question, and `/metrics/runs` is where it belongs.",
+        "description": "Live and stored analyses merged, so a run from a previous boot or from `make analyze` is listed too. `document_id` is required: a global list is a KPI question, and `/metrics/runs` is where it belongs.",
         "operationId": "index_analyses_get",
         "parameters": [
           {
@@ -1506,7 +1508,7 @@
     },
     "/analyses/{analysis_id}": {
       "get": {
-        "description": "`detail=summary` omits quotes and rationale -- the MCP default, because a full report is a lot of context to put in a model's window.",
+        "description": "Answered from the live job when this process is running it, and from the stored record otherwise -- a finished analysis returns its report after a restart. `detail=summary` omits quotes and rationale -- the MCP default, because a full report is a lot of context to put in a model's window.",
         "operationId": "detail_analyses__analysis_id__get",
         "parameters": [
           {
@@ -2457,6 +2459,7 @@
     },
     "/documents/{document_id}": {
       "delete": {
+        "description": "The analyses of this contract and their reports are kept: the report is the deliverable and it is self-contained. Refused with `409` while an analysis of it is still queued or running, in this process or another.",
         "operationId": "remove_documents__document_id__delete",
         "parameters": [
           {

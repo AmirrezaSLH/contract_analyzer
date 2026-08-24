@@ -47,12 +47,12 @@ clicks later.
 | `GET` | `/documents` | Everything stored, newest first. |
 | `GET` | `/documents/{id}` | One document, plus the analyses run against it. |
 | `GET` | `/documents/{id}/sections` | The outline, for a section picker. |
-| `DELETE` | `/documents/{id}` | The document, its chunks, its vectors, its file. `409` while an analysis is running. |
+| `DELETE` | `/documents/{id}` | The document, its chunks, its vectors, its file. Its **analyses are kept**. `409` while an analysis of it is queued or running. |
 | `POST` | `/analyses` | Queue a run. `202`, or `200` with the analysis already doing this. |
 | `GET` | `/analyses` | One document's analyses (`?document_id=` required). |
-| `GET` | `/analyses/{id}` | Status, progress, and the report once there is one. `?detail=summary` drops quotes and rationale. |
-| `GET` | `/analyses/{id}/events` | SSE: `status`, `criterion`, `tool_call`, `correction`, then `done` or `error`. |
-| `POST` | `/analyses/{id}/cancel` | Skip what has not started. |
+| `GET` | `/analyses/{id}` | Status, progress, and the report once there is one. Answered from the stored record after a restart. `?detail=summary` drops quotes and rationale. |
+| `GET` | `/analyses/{id}/events` | SSE: `status`, `criterion`, `tool_call`, `correction`, then `done` or `error`. `409` for an analysis this process is not running. |
+| `POST` | `/analyses/{id}/cancel` | Skip what has not started. `409` for an analysis this process is not running. |
 | `POST` | `/chat` | A cited answer over one contract, streamed or not. |
 | `GET` | `/metrics/*` | Declared; `503` until the metrics store lands. |
 
@@ -164,6 +164,52 @@ with `200` instead of starting a second run. At roughly a dollar a run, a
 double-clicked button is a real cost. `Idempotency-Key` overrides the match for
 a caller that genuinely wants a second opinion.
 
+### Two halves of one analysis, and which one wins
+
+An analysis is a **row** and a **live job**, and they hold different things.
+
+| | The `analyses` row | The `JobState` dict |
+|---|---|---|
+| Survives a restart | yes | no |
+| Visible to another worker | yes | no |
+| Carries the report | yes | yes, while the process lives |
+| `stage`, live `progress` | no | yes |
+| SSE stream, cancel flag | no | yes |
+
+`GET /analyses/{id}`, `GET /analyses` and the `analyses` array on
+`GET /documents/{id}` read **the dict first and the row second**: the dict is
+the one being updated, and the row answers everything else — which, after a
+restart, is everything. A row supplies the terminal values its status implies
+rather than invented ones: `stage` is the status, `progress` is what the row
+says finished, and the per-criterion list is rebuilt from the stored report.
+
+The lifecycle is written by `analyze_document`, not by the API, so `make
+analyze` fills the same table: a report produced on the command line comes back
+out of `GET /analyses/{id}`. The one state HTTP has and the CLI does not —
+accepted but not yet started — is the only row the job runner writes itself.
+
+`DELETE /documents/{id}` keeps the analyses. `analyses.document_id` carries no
+foreign key: the report is the deliverable, it is self-contained, and one that
+disappears because somebody tidied up the corpus is not a record. Roughly
+**30 KB per five-criterion report**, so a thousand analyses is ~30 MB; there is
+no retention policy and none is planned until someone asks for one.
+
+### Durable is not distributed
+
+With `uvicorn --workers 2`, a second worker can **read** a neighbour's analysis
+and its report. It cannot stream its events or cancel it, because `Broadcast`
+and the cancel `threading.Event` are per-process objects — both operations
+answer `409 not_live_here` with a hint to poll instead. For the same reason
+`POST /analyses` de-duplicates against **this** process's live jobs only: it
+cannot hand back a stream or a cancel handle it does not own, so a duplicate
+submission against another worker's run starts a second run. Fixing either
+means a broker, which is deliberately out of scope for a local demo.
+
+A run whose process was killed leaves a row saying `running`. The next startup
+reconciles it to **`interrupted`** — a sixth `JobStatus` — before serving
+anything. Not `failed`: nothing refused, the machine went away, and the client
+should be told to run it again.
+
 ### Cancellation, honestly
 
 `cancelled()` is polled before each criterion starts, so cancel skips whatever
@@ -266,14 +312,13 @@ python scripts/export_openapi.py
 
 ## What is not here yet
 
-* **`/metrics/*` returns 503.** The store (`runs`, `spans`,
-  `criterion_results`) is the next step. The endpoints are declared now because
+* **`/metrics/*` returns 503.** The store (`spans`, `criterion_results`, and
+  the query layer over them) is the next step; the `analyses` table it will
+  join against already exists and is populated. The endpoints are declared now because
   the UI and the connector are written against the spec, and an endpoint that
   is documented and honestly unavailable is a better contract than one that
   appears later and changes the spec's shape.
-* **Analyses do not survive a restart.** They live in a dict on the app; the
-  404 hint says so. The metrics `runs` row becomes the durable half, and the
-  dict stays as the live view — which is why `JobRunner` is an interface rather
-  than a bare dict.
+* **Streaming and cancellation are per-process.** The record is durable; the
+  stream and the cancel flag are not. See *Durable is not distributed* above.
 * **`/v1` prefix.** One caller (MCP) would have to change; deferred until there
   is a second version to distinguish it from.

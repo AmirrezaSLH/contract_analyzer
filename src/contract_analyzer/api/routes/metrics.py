@@ -1,8 +1,12 @@
 """The KPI page's data, over the metrics store.
 
-The store does not exist yet -- `runs`, `spans` and `criterion_results` are the
-next step -- so these four endpoints are declared and answer `503
-metrics_unavailable`. They are here rather than absent for one reason: the
+The store does not exist yet -- `spans`, `criterion_results` and the query
+layer over them are the next step -- so these four endpoints are declared and
+answer `503 metrics_unavailable`. The `analyses` table they will join against
+is already there and already populated, by `analyses.py`; what is missing is
+the per-criterion and per-span detail, and the percentile queries.
+
+The endpoints are here rather than absent for one reason: the
 OpenAPI document is a deliverable, the connector and the UI are written against
 it, and an endpoint that is documented and honestly unavailable is a better
 contract than one that appears later and changes the shape of the spec.
@@ -24,8 +28,9 @@ from ..errors import ApiError
 router = APIRouter(prefix="/metrics", tags=["metrics"], dependencies=[Protected])
 
 _HINT = (
-    "The metrics store is not implemented yet. GET /health reports live counts, and "
-    "GET /analyses/{id} carries the totals for one run."
+    "The metrics store is not implemented yet. GET /health reports live counts, "
+    "GET /analyses?document_id=... lists one contract's runs, and GET /analyses/{id} "
+    "carries the totals for one of them."
 )
 
 

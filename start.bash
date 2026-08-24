@@ -1,11 +1,23 @@
 #!/usr/bin/env bash
 # Start the whole app and follow its logs.
 #
-#   ./start.bash          the HTTP API (and the built React front end it serves)
+#   ./start.bash          the HTTP API (and the built React front end it serves),
+#                         plus the MCP connector on MCP_PORT
 #   ./start.bash --dev    plus the Vite dev server, proxying /api at the API
+#   ./start.bash --no-mcp just the API
 #   ./start.bash --detach start and return, leaving them running
 #
-# Ports come from `.env` (`BACKEND_PORT`, `FRONTEND_PORT`); see .env.example.
+# Ports come from `.env` (`BACKEND_PORT`, `FRONTEND_PORT`, `MCP_PORT`); see
+# .env.example. Everything else the connector needs is a flag on the command
+# line below -- where the API is, and which transport to serve -- because it is
+# this script's decision rather than the environment's.
+#
+# **The connector is started on HTTP, never stdio.** stdio is a client's own
+# subprocess reading its stdin -- a desktop client spawns `python -m
+# mcp_connector` itself, from its config -- so a background stdio server would
+# be a process with nobody on the other end of the pipe. Started here it is a
+# port an MCP client can be pointed at, and one more surface a demo can show
+# without a second terminal.
 # Process env overrides the file. One process serves both in the default
 # path: the front end is a static bundle the API builds and mounts, so the
 # browser only ever talks to BACKEND_PORT. FRONTEND_PORT is Vite, and only
@@ -55,11 +67,17 @@ if [[ -z "${FRONTEND_PORT:-}" ]]; then
     FRONTEND_PORT="$(dotenv FRONTEND_PORT)"
 fi
 FRONTEND_PORT="${FRONTEND_PORT:-8101}"
+if [[ -z "${MCP_PORT:-}" ]]; then
+    MCP_PORT="$(dotenv MCP_PORT)"
+fi
+MCP_PORT="${MCP_PORT:-8102}"
 RUN_DIR="$ROOT/.run"
 API_PID_FILE="$RUN_DIR/api.pid"
 UI_PID_FILE="$RUN_DIR/ui.pid"
+MCP_PID_FILE="$RUN_DIR/mcp.pid"
 API_LOG="$RUN_DIR/api.log"
 UI_LOG="$RUN_DIR/ui.log"
+MCP_LOG="$RUN_DIR/mcp.log"
 #: How long to wait for /health before giving up and showing the log. An
 #: import of the app pulls in pymupdf, sqlite-vec and both model SDKs, which is
 #: a few seconds on a cold filesystem.
@@ -67,11 +85,13 @@ HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-45}"
 
 DETACH=0
 DEV=0
+MCP=1
 for arg in "$@"; do
     case "$arg" in
         --detach|-d) DETACH=1 ;;
         --dev) DEV=1 ;;
-        *) printf 'usage: %s [--detach] [--dev]\n' "$0" >&2; exit 2 ;;
+        --no-mcp) MCP=0 ;;
+        *) printf 'usage: %s [--detach] [--dev] [--no-mcp]\n' "$0" >&2; exit 2 ;;
     esac
 done
 
@@ -87,6 +107,14 @@ die()  { printf '\033[31m✗\033[0m %s\n' "$*" >&2; exit 1; }
 
 "$PYTHON" -c 'import uvicorn' 2>/dev/null \
     || die "uvicorn is not installed. pip install -e '.[api]', or run 'make venv'."
+
+# Not fatal, unlike uvicorn's: the API is the demo and the connector is a
+# fourth surface on top of it. A checkout whose venv predates it should still
+# start, and be told what to install.
+if ((MCP)) && ! "$PYTHON" -c 'import mcp_connector' 2>/dev/null; then
+    MCP=0
+    MCP_MISSING=1
+fi
 
 if ((DEV)); then
     command -v npm >/dev/null 2>&1 || die "npm is not on PATH. Needed for --dev."
@@ -107,6 +135,7 @@ port_owner() {
 # so say so rather than letting uvicorn fail with a bare OSError.
 ports_to_claim=("API:$BACKEND_PORT")
 ((DEV)) && ports_to_claim+=("UI:$FRONTEND_PORT")
+((MCP)) && ports_to_claim+=("MCP:$MCP_PORT")
 for spec in "${ports_to_claim[@]}"; do
     name=${spec%%:*} port=${spec##*:}
     owner=$(port_owner "$port" || true)
@@ -141,6 +170,7 @@ api_pid=$(spawn "$API_PID_FILE" "$API_LOG" \
 FOLLOWERS=()
 shutting_down=0
 ui_pid=""
+mcp_pid=""
 
 stop_all() {
     (($#)) && true
@@ -207,6 +237,35 @@ print(f"           {h['embedder']} embeddings · chat {h['answer_model']} · "
          "not set: upload and the library work, analysis and chat do not."))
 PY
 
+if ((MCP)); then
+    # HTTP, and pointed at the API by flag: the connector's own defaults are
+    # for a client that launched it, and this script knows better than they do
+    # which API it just started.
+    mcp_pid=$(spawn "$MCP_PID_FILE" "$MCP_LOG" \
+        "$PYTHON" -m mcp_connector \
+        --transport http --host "$API_HOST" --port "$MCP_PORT" \
+        --api-url "http://$API_HOST:$BACKEND_PORT")
+    info "MCP      pid $mcp_pid  ->  $MCP_LOG"
+
+    # The port, not a request: the MCP endpoint answers 406 to a plain GET --
+    # it wants an SSE Accept header -- so "is it listening" is the honest probe
+    # and a status code would be a misleading one.
+    deadline=$((SECONDS + 30))
+    until [[ -n "$(port_owner "$MCP_PORT")" ]]; do
+        if ! kill -0 "$mcp_pid" 2>/dev/null; then
+            printf '\n\033[31m✗\033[0m The MCP connector exited during startup. Last lines of %s:\n\n' "$MCP_LOG" >&2
+            tail -20 "$MCP_LOG" >&2
+            rm -f "$MCP_PID_FILE"
+            exit 1
+        fi
+        ((SECONDS < deadline)) || { warn "The connector has not opened port $MCP_PORT yet; check $MCP_LOG."; break; }
+        sleep 0.5
+    done
+    ok "MCP      http://$API_HOST:$MCP_PORT/mcp  (7 tools; stdio clients spawn their own)"
+elif [[ -n "${MCP_MISSING:-}" ]]; then
+    warn "MCP connector not installed; skipped. pip install -e \".[mcp]\" to enable it."
+fi
+
 if ((DEV)); then
     ui_pid=$(spawn "$UI_PID_FILE" "$UI_LOG" \
         env npm --prefix "$ROOT/ui" run dev)
@@ -231,11 +290,10 @@ fi
 if ((DETACH)); then
     echo
     bold "Running in the background."
-    if ((DEV)); then
-        info "Logs:  tail -f $UI_LOG $API_LOG"
-    else
-        info "Logs:  tail -f $API_LOG"
-    fi
+    logs="$API_LOG"
+    ((MCP)) && logs="$logs $MCP_LOG"
+    ((DEV)) && logs="$UI_LOG $logs"
+    info "Logs:  tail -f $logs"
     info "Stop:  ./stop.bash"
     exit 0
 fi
@@ -262,6 +320,7 @@ echo
 bold "Logs. Ctrl-C stops the servers."
 echo
 follow api 36 "$API_LOG"   # cyan
+((MCP)) && follow mcp 33 "$MCP_LOG"   # yellow
 ((DEV)) && follow ui  35 "$UI_LOG"    # magenta
 
 # The main wait. Polling rather than `wait` on the followers: what this needs to
@@ -275,6 +334,10 @@ while :; do
     fi
     if [[ -n "$ui_pid" ]] && ! kill -0 "$ui_pid" 2>/dev/null; then
         printf '\n\033[31m✗\033[0m The UI exited. Stopping the API.\n' >&2
+        break
+    fi
+    if [[ -n "$mcp_pid" ]] && ! kill -0 "$mcp_pid" 2>/dev/null; then
+        printf '\n\033[31m✗\033[0m The MCP connector exited. Stopping the API.\n' >&2
         break
     fi
     sleep 1

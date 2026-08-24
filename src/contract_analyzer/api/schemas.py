@@ -162,6 +162,68 @@ class SectionOut(BaseModel):
     chunks: int = 0
 
 
+class SearchRequest(BaseModel):
+    """`POST /documents/{id}/search`: a question, and how much of the answer.
+
+    No `mode`. Which retriever runs is a *policy* this deployment owns -- hybrid
+    where there is an embedder, keyword where there is not -- and a client that
+    could ask for `vector` on a keyless deployment would be asking for a 503 it
+    has no way to anticipate. `POST /chat` exposes the knob because the model
+    behind it can read the mode back and try another one; a caller reading
+    passages cannot.
+    """
+
+    query: str = Field(
+        min_length=1,
+        description="What to look for, in the words the question uses. Matched against "
+                    "the contract's own vocabulary as well as its meaning.",
+        examples=["password rotation and complexity requirements"],
+    )
+    top_k: int | None = Field(
+        default=None, ge=1, le=20,
+        description="Passages to return. Omit for the configured `retrieval_top_k`.",
+    )
+
+
+class PassageOut(BaseModel):
+    """One retrieved chunk, as something to read and to cite.
+
+    `text`, not `quote`. A quote in this API is an extraction the model API
+    pulled out of a passage we sent, and `verified` says whether it survived
+    the check -- see `CitationOut`. This is the passage itself, unextracted and
+    unchecked, and calling it a quote would promise a guarantee it does not
+    carry.
+    """
+
+    chunk_id: int
+    #: The leaf section: `6.6 Password Management Standard`.
+    section: str = ""
+    #: The whole path, `A > B > C`, for a reader that has room for it.
+    breadcrumb: str = ""
+    page_display: str = ""
+    element_type: str = "paragraph"
+    text: str
+    #: Higher is better, whatever produced it -- RRF score in hybrid mode,
+    #: cosine similarity in vector, negated BM25 in keyword. Comparable within
+    #: one response and meaningless across two.
+    score: float = 0.0
+    similarity: float | None = None
+
+
+class SearchOut(BaseModel):
+    """`POST /documents/{id}/search`: the passages, and what produced them.
+
+    `mode` is echoed because it is not always the configured one: a deployment
+    with no embedding key answers in `keyword`, and a caller that shows "no
+    results" without knowing which retriever ran is guessing.
+    """
+
+    document_id: int
+    query: str
+    mode: str
+    passages: list[PassageOut] = Field(default_factory=list)
+
+
 # --------------------------------------------------------------------------
 # Analyses
 # --------------------------------------------------------------------------
@@ -403,7 +465,10 @@ __all__ = [
     "JobStatus",
     "LastAnalysisOut",
     "Message",
+    "PassageOut",
     "Progress",
+    "SearchOut",
+    "SearchRequest",
     "SectionOut",
     "UploadOut",
     "answer_of",

@@ -3,7 +3,7 @@
 # reads the same whether the surface exists yet or not.
 #
 #   api    FastAPI over uvicorn (also serves the built UI)
-#   mcp    MCP server on stdio
+#   mcp    MCP connector; MCP_TRANSPORT picks stdio or HTTP on MCP_PORT
 #
 #   test   the offline pytest suite                (dev image)
 #   lint   ruff
@@ -38,14 +38,17 @@ case "$verb" in
             --port "${BACKEND_PORT:-8100}" "$@"
         ;;
     mcp)
-        require contract_analyzer.mcp "the MCP server"
-        exec python -m contract_analyzer.mcp.server "$@"
+        # Its own package, in MCP-Connector/: the connector is a client of the
+        # API over CA_API_URL, not a module of the analyzer. It binds a port
+        # only when MCP_TRANSPORT=http; on stdio it talks over pipes.
+        require mcp_connector "the MCP connector"
+        exec python -m mcp_connector "$@"
         ;;
     test)
         exec python -m pytest -q "$@"
         ;;
     lint)
-        exec python -m ruff check src tests scripts "$@"
+        exec python -m ruff check src tests scripts MCP-Connector "$@"
         ;;
     shell)
         exec bash "$@"

@@ -389,6 +389,7 @@ class JobRunner:
         *,
         trace_id: str,
         filename: str = "",
+        surface: str = "api",
     ) -> JobState:
         """Queue an analysis and return its state. Never blocks.
 
@@ -418,7 +419,7 @@ class JobRunner:
             filename=filename,
             criteria=selected,
             trace_id=trace_id,
-            surface="api",
+            surface=surface,
         )
         with self._lock:
             self._jobs[job.analysis_id] = job

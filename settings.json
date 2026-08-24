@@ -37,5 +37,11 @@
   "retrieval_mode": "hybrid",
   "retrieval_candidates": 20,
   "retrieval_top_k": 6,
-  "rrf_k": 60
+  "rrf_k": 60,
+
+  "mcp_request_timeout_seconds": 30,
+  "mcp_upload_timeout_seconds": 300,
+  "mcp_poll_seconds": 10,
+  "mcp_search_top_k": 6,
+  "mcp_max_download_mb": 25
 }

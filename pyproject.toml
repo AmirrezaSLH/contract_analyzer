@@ -37,30 +37,48 @@ api = [
     # Multipart form parsing, which FastAPI needs for file uploads.
     "python-multipart>=0.0.9",
 ]
-# `httpx` here is not a second HTTP stack: the application calls out through
-# `httpx2` only. This is what `fastapi.testclient.TestClient` is built on, and
-# it never leaves the test process. The front end is `ui/` (Vite/React), not a
-# Python extra.
+# The MCP surface, in MCP-Connector/. Separate from `api` because the two are
+# different processes with different reasons to exist: the API can serve every
+# client without this installed, and this can run against an API on another
+# host without the API's dependencies present.
+#   pip install -e ".[mcp]"
+mcp = [
+    "fastmcp>=3.0",
+    # The connector's only HTTP stack. Not `httpx2`: it talks to our own API on
+    # localhost or a compose network, not to a model provider, so it wants
+    # neither the retry transport nor a dependency on the analyzer's client.
+    "httpx>=0.27",
+]
+# `httpx` here is not a second HTTP stack for the analyzer: it calls out through
+# `httpx2` only. This is what `fastapi.testclient.TestClient` is built on, and it
+# never leaves the test process. (The connector's own use of it is above, and is
+# a different process.) The front end is `ui/` (Vite/React), not a Python extra.
 dev = [
     "pytest>=8.0",
     "ruff>=0.6",
     "contract-analyzer[api]",
+    "contract-analyzer[mcp]",
     "httpx>=0.27",
 ]
 
+# Two roots. `contract_analyzer` is the product; `mcp_connector` is the MCP
+# surface, which lives in MCP-Connector/ and is a client of the API rather than
+# a part of it -- see MCP-Connector/README.md.
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["src", "MCP-Connector"]
 
 [tool.setuptools.package-data]
 contract_analyzer = ["*.sql", "generation/*.json", "compliance/*.json", "agents/*.json"]
 
 [tool.ruff]
 line-length = 100
-src = ["src", "tests"]
+src = ["src", "tests", "MCP-Connector"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
 
+# The connector's tests live beside the connector, not in tests/: everything
+# about that surface is in one directory. `make test` still runs all of it.
 [tool.pytest.ini_options]
-testpaths = ["tests"]
-pythonpath = ["src"]
+testpaths = ["tests", "MCP-Connector/tests"]
+pythonpath = ["src", "MCP-Connector"]

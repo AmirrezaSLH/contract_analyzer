@@ -12,6 +12,14 @@ key. `get_client` raising `AnswerUnavailable` on the pool thread would mean a
 `202` followed by a job that fails immediately, which is a worse answer than an
 error.
 
+**`X-Surface` is telemetry, and it is an allowlist.** Every HTTP caller is
+otherwise recorded as `api` -- the browser, the MCP connector and a third-party
+connector alike -- which makes "which surface is this deployment actually used
+through" a question the `analyses` table cannot answer. One optional header
+fixes that, and it is checked against a fixed list for the same reason
+`POST /chat` checks `model`: an open endpoint plus a free-text string is how a
+KPI column fills up with whatever a caller felt like sending.
+
 **Reads are the live job first, the stored row second.** An analysis running in
 this process has a stage, a progress table and a stream; one from a previous
 boot, from `make analyze` or from another worker has a row and a report. The
@@ -46,6 +54,11 @@ log = get_logger(__name__)
 
 router = APIRouter(prefix="/analyses", tags=["analyses"], dependencies=[Protected])
 
+#: What a client may declare in `X-Surface`. `cli` is deliberately absent: it
+#: means `make analyze`, which never comes through this route, and a run that
+#: claimed to be one would make the KPI slice a lie.
+DECLARABLE_SURFACES = ("api", "ui", "mcp", "connector")
+
 
 @router.post(
     "",
@@ -66,12 +79,21 @@ def submit(
     runner: RunnerDep,
     client: ClientDep,
     idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+    x_surface: Annotated[
+        str | None,
+        Header(
+            alias="X-Surface",
+            description="Which client this run came from, for the KPI slice: "
+                        "`api` (the default), `ui`, `mcp` or `connector`.",
+        ),
+    ] = None,
 ) -> AnalysisSummary:
     document = get_document(conn, body.document_id)
     if document is None:
         raise document_not_found(body.document_id)
     if client is None:
         raise no_api_key()
+    surface = _surface(x_surface)
 
     try:
         criteria = runner.resolve_criteria(body.criteria)
@@ -105,6 +127,7 @@ def submit(
         criteria,
         trace_id=current_trace_id() or "",
         filename=document.filename,
+        surface=surface,
     )
     return job.summary()
 
@@ -203,6 +226,25 @@ def events(analysis_id: str, request: Request, runner: RunnerDep, settings: Sett
         stream(),
         ping=int(settings.api_keepalive_seconds),
         headers={"X-Trace-Id": job.trace_id} if job.trace_id else None,
+    )
+
+
+def _surface(declared: str | None) -> str:
+    """`X-Surface`, or `api`. Rejected rather than coerced when it is neither.
+
+    Silently falling back would put a run in the `api` bucket that the caller
+    believes is in the `mcp` one, and a KPI split nobody can reproduce is worse
+    than no split at all.
+    """
+    if declared is None:
+        return "api"
+    if declared in DECLARABLE_SURFACES:
+        return declared
+    raise ApiError(
+        status.HTTP_422_UNPROCESSABLE_CONTENT,
+        "validation",
+        f"X-Surface: {declared!r} is not a surface this API records.",
+        f"Send one of {', '.join(DECLARABLE_SURFACES)}, or omit the header for 'api'.",
     )
 
 

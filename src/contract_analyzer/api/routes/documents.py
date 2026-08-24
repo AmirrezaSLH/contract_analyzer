@@ -32,6 +32,7 @@ from ...documents import (
     set_filename,
 )
 from ...ingest.pipeline import ingest_file
+from ...retrieval.hybrid import NEEDS_EMBEDDER, retrieve
 from ..deps import ConnDep, EmbedderDep, Protected, RunnerDep, SettingsDep
 from ..errors import ApiError, document_not_found, from_ingest_error
 from ..jobs import summaries_for
@@ -39,6 +40,9 @@ from ..schemas import (
     DocumentDetail,
     DocumentOut,
     LastAnalysisOut,
+    PassageOut,
+    SearchOut,
+    SearchRequest,
     SectionOut,
     UploadOut,
 )
@@ -144,6 +148,78 @@ def sections(document_id: int, conn: ConnDep) -> list[SectionOut]:
         SectionOut(path=s.path, title=s.title, page_display=s.page_display, chunks=s.chunks)
         for s in document_sections(conn, document_id)
     ]
+
+
+@router.post(
+    "/{document_id}/search",
+    summary="Ranked passages from one contract",
+    description=(
+        "Retrieval without generation: the passages a question matches, scoped to this "
+        "contract and nothing else. This is what a host that does its own talking should "
+        "call -- `POST /api/chat` spends this deployment's answer model, and a client that "
+        "already has one of its own does not need a second."
+    ),
+)
+def search(
+    document_id: int,
+    body: SearchRequest,
+    conn: ConnDep,
+    settings: SettingsDep,
+    embedder: EmbedderDep,
+) -> SearchOut:
+    """The retrieval half of chat, as its own endpoint.
+
+    A sync `def`, so Starlette runs it in the threadpool: `retrieve` embeds the
+    question and queries SQLite, both of which block.
+
+    **The mode is decided here, not asked for.** `hybrid` needs an embedder;
+    `keyword` is the mode that works with no key and no bill, and on
+    identifier-heavy contract text it is a genuine fallback rather than a
+    degraded one. A deployment with no embedding key answers in keyword and
+    says so in `mode`, instead of returning a 503 to a caller that had no way
+    to know which modes this deployment can serve.
+    """
+    if get_document(conn, document_id) is None:
+        raise document_not_found(document_id)
+
+    mode = settings.retrieval_mode
+    if embedder is None and mode in NEEDS_EMBEDDER:
+        mode = "keyword"
+
+    # `document_id=` is positional-only-by-keyword and required in `retrieve`
+    # for the reason this endpoint exists: an unscoped search would answer a
+    # question about this contract with another contract's clause, in a
+    # well-formed citation.
+    result = retrieve(
+        body.query,
+        conn,
+        embedder,
+        settings,
+        document_id=document_id,
+        mode=mode,
+        top_k=body.top_k,
+    )
+    return SearchOut(
+        document_id=document_id,
+        query=body.query,
+        mode=result.mode,
+        passages=[
+            PassageOut(
+                chunk_id=chunk.chunk_id,
+                section=chunk.section_path[-1] if chunk.section_path else chunk.section,
+                breadcrumb=chunk.breadcrumb,
+                page_display=chunk.page_display,
+                element_type=chunk.element_type,
+                # The same text the agent's own search tool shows a model: for a
+                # table that is the markdown grid with its breadcrumb in front,
+                # without which a requirements matrix is a grid of orphan cells.
+                text=chunk.text_for_model(),
+                score=round(chunk.score, 6),
+                similarity=None if chunk.similarity is None else round(chunk.similarity, 4),
+            )
+            for chunk in result.chunks
+        ],
+    )
 
 
 @router.delete(

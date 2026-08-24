@@ -47,6 +47,7 @@ clicks later.
 | `GET` | `/documents` | Everything stored, newest first, each with its last analysis. |
 | `GET` | `/documents/{id}` | One document, plus the analyses run against it. |
 | `GET` | `/documents/{id}/sections` | The outline, for a section picker. |
+| `POST` | `/documents/{id}/search` | Ranked passages from one contract. Retrieval with no generation on top -- what a client with its own model calls instead of `/chat`. |
 | `DELETE` | `/documents/{id}` | The document, its chunks, its vectors, its file. Its **analyses are kept**. `409` while an analysis of it is queued or running. |
 | `POST` | `/analyses` | Queue a run. `202`, or `200` with the analysis already doing this. |
 | `GET` | `/analyses` | One document's analyses (`?document_id=` required). |
@@ -142,6 +143,31 @@ The answer reports the model that **ran**, not the one that was asked for —
 `Answer.model` and the `done` event both carry it. Those differ the moment a
 default or a fallback intervenes, and a usage line that reports the request is
 the wrong half of the story.
+
+### Search is retrieval; chat is retrieval plus our model
+
+`POST /chat` and `POST /documents/{id}/search` answer the same question from
+the same index, and the difference is who pays for the answer. Chat runs the
+agent loop, verifies each citation against the passage it was extracted from,
+streams, and spends this deployment's answer model. Search returns the passages
+and stops.
+
+That is the endpoint an MCP host wants, and the reason is not cost alone: a
+host is *already* a model with a transcript and a user in front of it, so
+wrapping chat would mean paying twice, replaying a conversation the host
+already owns, and dropping the streaming on the way. See
+[mcp.md](mcp.md).
+
+**The mode is not a request parameter.** Chat exposes `retrieval_mode` because
+the model behind it can read the mode back and try another one. Search does not:
+hybrid where there is an embedder, keyword where there is not, echoed in `mode`
+so the caller knows which retriever answered. A client that could ask for
+`vector` on a deployment with no embedding key would be asking for a 503 it had
+no way to anticipate, and keyword retrieval over identifier-heavy contract text
+is a genuine fallback rather than a degraded one.
+
+`top_k` is capped at 20 by the schema. An unbounded one is a request to put a
+whole contract into somebody's context window.
 
 ### One citation, one set of field names
 
@@ -326,6 +352,16 @@ lines are made. A live run of one criterion produced 23 lines under one id,
 across `api.analysis`, `analysis.document`, `analysis.criterion`, `agent.run`,
 `agent.call`, `agent.tool` and `retrieve`. The only untraced line in the file
 was `api.startup`, which happens outside any request.
+
+**`X-Surface` says who called.** Optional, on `POST /analyses` only, and one
+of `api` / `ui` / `mcp` / `connector`; it is stored on the `analyses` row.
+Without it every HTTP submission is `api` -- the browser, an MCP host and a
+third-party connector alike -- and "which surface is this deployment actually
+used through" is a question the table cannot answer. An unknown value is a
+`422` rather than a silent fall back to `api`: a run filed in a bucket its
+caller does not believe it is in makes a KPI split nobody can reproduce.
+`cli` is deliberately not accepted, because it means `make analyze` and no
+HTTP request is one.
 
 ## Authentication
 

@@ -41,7 +41,7 @@ from conftest import (
     sse_message,
     write_decoy_contract,
 )
-from contract_analyzer.analyses import queue_analysis
+from contract_analyzer.analyses import get_analysis, queue_analysis
 from contract_analyzer.api.main import create_app
 from contract_analyzer.compliance import get_criteria
 from contract_analyzer.config import Settings
@@ -436,6 +436,71 @@ def test_delete_is_refused_while_an_analysis_is_running(client, api, searches, s
 
 
 # --------------------------------------------------------------------------
+# Retrieval over HTTP
+# --------------------------------------------------------------------------
+
+
+def test_search_returns_passages_a_reviewer_could_check(client, sample_pdf):
+    """The endpoint a host with its own model calls instead of `POST /chat`.
+
+    Every field asserted here is one a reader needs to find the clause: the
+    section it came from, the printed page, and the chunk id that is the same
+    handle a report's quote carries.
+    """
+    document_id = upload(client, sample_pdf).json()["document_id"]
+    body = client.post(
+        f"/api/documents/{document_id}/search",
+        json={"query": "password rotation and complexity"},
+    ).json()
+
+    assert body["document_id"] == document_id
+    assert body["mode"] == "hybrid"
+    assert body["passages"]
+    for passage in body["passages"]:
+        assert passage["text"].strip()
+        assert isinstance(passage["chunk_id"], int)
+        # A breadcrumb, not just a page: "6.6 Password Management Standard" is
+        # what makes a citation checkable in seconds.
+        assert passage["breadcrumb"] or passage["section"]
+
+
+def test_search_caps_what_it_returns(client, sample_pdf):
+    document_id = upload(client, sample_pdf).json()["document_id"]
+    url = f"/api/documents/{document_id}/search"
+    assert len(client.post(url, json={"query": "password", "top_k": 2}).json()["passages"]) == 2
+    # The cap is the API's, not the caller's: an unbounded top_k is a request
+    # to put the whole contract in a model's context window.
+    assert client.post(url, json={"query": "password", "top_k": 50}).status_code == 422
+    assert client.post(url, json={"query": ""}).status_code == 422
+
+
+def test_search_falls_back_to_keyword_with_no_embedder(client, settings, small_pdf):
+    """A deployment with no embedding key answers, and says which mode it used.
+
+    The alternative is a 503 to a caller that had no way to know which modes
+    this deployment can serve -- and keyword retrieval over identifier-heavy
+    contract text is a genuine fallback, not a degraded one.
+    """
+    document_id = upload(client, small_pdf).json()["document_id"]
+    keyless_embedder = settings.model_copy(
+        update={"embedding_provider": "openai", "openai_api_key": None}
+    )
+    app = create_app(keyless_embedder, embedder=None, client=None, static_dir=NO_BUNDLE)
+    with TestClient(app) as no_vectors:
+        body = no_vectors.post(
+            f"/api/documents/{document_id}/search", json={"query": "password rotation"}
+        ).json()
+
+    assert body["mode"] == "keyword"
+    assert body["passages"]
+
+
+def test_search_on_an_unknown_document_is_404(client):
+    error = client.post("/api/documents/999/search", json={"query": "x"}).json()["error"]
+    assert error["code"] == "document_not_found"
+
+
+# --------------------------------------------------------------------------
 # Analyses as jobs
 # --------------------------------------------------------------------------
 
@@ -503,6 +568,34 @@ def test_an_idempotency_key_forces_a_second_run(client, api, searches, small_pdf
     )
     assert second.status_code == 202
     assert second.json()["analysis_id"] != first.json()["analysis_id"]
+
+
+def test_the_declared_surface_is_recorded_on_the_run(client, api, searches, small_pdf):
+    """Without this every HTTP caller is `api` and the KPI slice is one bucket."""
+    document_id = upload(client, small_pdf).json()["document_id"]
+    api.outcomes.extend(full_analysis())
+    accepted = client.post(
+        "/api/analyses", json={"document_id": document_id}, headers={"X-Surface": "mcp"}
+    )
+    analysis_id = accepted.json()["analysis_id"]
+    poll(client, analysis_id)
+
+    conn = get_db(client.app.state.settings)
+    try:
+        assert get_analysis(conn, analysis_id).surface == "mcp"
+    finally:
+        conn.close()
+
+
+def test_an_unrecorded_surface_is_refused_rather_than_coerced(client, small_pdf):
+    """Falling back to `api` would file the run in a bucket the caller does not
+    believe it is in, and a KPI split nobody can reproduce is worse than none."""
+    document_id = upload(client, small_pdf).json()["document_id"]
+    response = client.post(
+        "/api/analyses", json={"document_id": document_id}, headers={"X-Surface": "whatever"}
+    )
+    assert response.status_code == 422
+    assert "mcp" in response.json()["error"]["hint"]
 
 
 def test_a_bad_submission_is_rejected_before_anything_is_queued(client, api, small_pdf):
@@ -955,6 +1048,26 @@ def test_chat_on_one_contract_never_quotes_the_other(client, api, searches, smal
                                       "stream": False}).json()
     assert body["citations"][0]["chunk_id"] == first
     assert "Zephyrine" not in json.dumps(body)
+
+
+def test_search_on_one_contract_never_returns_the_other(client, small_pdf):
+    """The same invariant as chat and analysis, on the endpoint that has no
+    model in front of it to be told about scope: `retrieve` is called with a
+    `document_id` and cannot widen it."""
+    first = upload(client, small_pdf).json()["document_id"]
+    second = upload(client, small_pdf).json()["document_id"]
+
+    def chunks_of(document_id):
+        body = client.post(
+            f"/api/documents/{document_id}/search", json={"query": "password rotation"}
+        ).json()
+        return {p["chunk_id"] for p in body["passages"]}
+
+    ids_first, ids_second = chunks_of(first), chunks_of(second)
+    # Identical bytes, so the text matches equally well in both -- only the
+    # scope separates them.
+    assert ids_first and ids_second
+    assert ids_first.isdisjoint(ids_second)
 
 
 def test_an_analysis_never_reaches_the_other_document(client, api, searches, small_pdf):

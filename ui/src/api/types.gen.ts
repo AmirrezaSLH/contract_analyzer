@@ -180,6 +180,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/documents/{document_id}/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ranked passages from one contract
+         * @description Retrieval without generation: the passages a question matches, scoped to this contract and nothing else. This is what a host that does its own talking should call -- `POST /api/chat` spends this deployment's answer model, and a client that already has one of its own does not need a second.
+         */
+        post: operations["search_api_documents__document_id__search_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/documents/{document_id}/sections": {
         parameters: {
             query?: never;
@@ -975,6 +995,49 @@ export interface components {
              */
             role: "user" | "assistant";
         };
+        /**
+         * PassageOut
+         * @description One retrieved chunk, as something to read and to cite.
+         *
+         *     `text`, not `quote`. A quote in this API is an extraction the model API
+         *     pulled out of a passage we sent, and `verified` says whether it survived
+         *     the check -- see `CitationOut`. This is the passage itself, unextracted and
+         *     unchecked, and calling it a quote would promise a guarantee it does not
+         *     carry.
+         */
+        PassageOut: {
+            /**
+             * Breadcrumb
+             * @default
+             */
+            breadcrumb: string;
+            /** Chunk Id */
+            chunk_id: number;
+            /**
+             * Element Type
+             * @default paragraph
+             */
+            element_type: string;
+            /**
+             * Page Display
+             * @default
+             */
+            page_display: string;
+            /**
+             * Score
+             * @default 0
+             */
+            score: number;
+            /**
+             * Section
+             * @default
+             */
+            section: string;
+            /** Similarity */
+            similarity?: number | null;
+            /** Text */
+            text: string;
+        };
         /** Progress */
         Progress: {
             /**
@@ -1029,6 +1092,47 @@ export interface components {
             text: string;
             /** Verified */
             verified: boolean;
+        };
+        /**
+         * SearchOut
+         * @description `POST /documents/{id}/search`: the passages, and what produced them.
+         *
+         *     `mode` is echoed because it is not always the configured one: a deployment
+         *     with no embedding key answers in `keyword`, and a caller that shows "no
+         *     results" without knowing which retriever ran is guessing.
+         */
+        SearchOut: {
+            /** Document Id */
+            document_id: number;
+            /** Mode */
+            mode: string;
+            /** Passages */
+            passages?: components["schemas"]["PassageOut"][];
+            /** Query */
+            query: string;
+        };
+        /**
+         * SearchRequest
+         * @description `POST /documents/{id}/search`: a question, and how much of the answer.
+         *
+         *     No `mode`. Which retriever runs is a *policy* this deployment owns -- hybrid
+         *     where there is an embedder, keyword where there is not -- and a client that
+         *     could ask for `vector` on a keyless deployment would be asking for a 503 it
+         *     has no way to anticipate. `POST /chat` exposes the knob because the model
+         *     behind it can read the mode back and try another one; a caller reading
+         *     passages cannot.
+         */
+        SearchRequest: {
+            /**
+             * Query
+             * @description What to look for, in the words the question uses. Matched against the contract's own vocabulary as well as its meaning.
+             */
+            query: string;
+            /**
+             * Top K
+             * @description Passages to return. Omit for the configured `retrieval_top_k`.
+             */
+            top_k?: number | null;
         };
         /** SectionOut */
         SectionOut: {
@@ -1254,6 +1358,8 @@ export interface operations {
             query?: never;
             header?: {
                 "Idempotency-Key"?: string | null;
+                /** @description Which client this run came from, for the KPI slice: `api` (the default), `ui`, `mcp` or `connector`. */
+                "X-Surface"?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -2279,6 +2385,122 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Malformed request. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Missing or wrong X-API-Key. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No such document or analysis. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The resource is busy, or already in the requested state. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The upload is over api_max_upload_mb. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Only PDF uploads are supported. */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The request body did not validate. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unhandled server error; the X-Trace-Id is on every log line. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description An upstream call failed after its retries. */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description A key or a dependency the operation needs is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    search_api_documents__document_id__search_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SearchRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchOut"];
+                };
             };
             /** @description Malformed request. */
             400: {

@@ -1310,6 +1310,61 @@
         "title": "Message",
         "type": "object"
       },
+      "PassageOut": {
+        "description": "One retrieved chunk, as something to read and to cite.\n\n`text`, not `quote`. A quote in this API is an extraction the model API\npulled out of a passage we sent, and `verified` says whether it survived\nthe check -- see `CitationOut`. This is the passage itself, unextracted and\nunchecked, and calling it a quote would promise a guarantee it does not\ncarry.",
+        "properties": {
+          "breadcrumb": {
+            "default": "",
+            "title": "Breadcrumb",
+            "type": "string"
+          },
+          "chunk_id": {
+            "title": "Chunk Id",
+            "type": "integer"
+          },
+          "element_type": {
+            "default": "paragraph",
+            "title": "Element Type",
+            "type": "string"
+          },
+          "page_display": {
+            "default": "",
+            "title": "Page Display",
+            "type": "string"
+          },
+          "score": {
+            "default": 0.0,
+            "title": "Score",
+            "type": "number"
+          },
+          "section": {
+            "default": "",
+            "title": "Section",
+            "type": "string"
+          },
+          "similarity": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Similarity"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "chunk_id",
+          "text"
+        ],
+        "title": "PassageOut",
+        "type": "object"
+      },
       "Progress": {
         "properties": {
           "done": {
@@ -1409,6 +1464,70 @@
           "verified"
         ],
         "title": "ResolvedQuote",
+        "type": "object"
+      },
+      "SearchOut": {
+        "description": "`POST /documents/{id}/search`: the passages, and what produced them.\n\n`mode` is echoed because it is not always the configured one: a deployment\nwith no embedding key answers in `keyword`, and a caller that shows \"no\nresults\" without knowing which retriever ran is guessing.",
+        "properties": {
+          "document_id": {
+            "title": "Document Id",
+            "type": "integer"
+          },
+          "mode": {
+            "title": "Mode",
+            "type": "string"
+          },
+          "passages": {
+            "items": {
+              "$ref": "#/components/schemas/PassageOut"
+            },
+            "title": "Passages",
+            "type": "array"
+          },
+          "query": {
+            "title": "Query",
+            "type": "string"
+          }
+        },
+        "required": [
+          "document_id",
+          "query",
+          "mode"
+        ],
+        "title": "SearchOut",
+        "type": "object"
+      },
+      "SearchRequest": {
+        "description": "`POST /documents/{id}/search`: a question, and how much of the answer.\n\nNo `mode`. Which retriever runs is a *policy* this deployment owns -- hybrid\nwhere there is an embedder, keyword where there is not -- and a client that\ncould ask for `vector` on a keyless deployment would be asking for a 503 it\nhas no way to anticipate. `POST /chat` exposes the knob because the model\nbehind it can read the mode back and try another one; a caller reading\npassages cannot.",
+        "properties": {
+          "query": {
+            "description": "What to look for, in the words the question uses. Matched against the contract's own vocabulary as well as its meaning.",
+            "examples": [
+              "password rotation and complexity requirements"
+            ],
+            "minLength": 1,
+            "title": "Query",
+            "type": "string"
+          },
+          "top_k": {
+            "anyOf": [
+              {
+                "maximum": 20.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Passages to return. Omit for the configured `retrieval_top_k`.",
+            "title": "Top K"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "title": "SearchRequest",
         "type": "object"
       },
       "SectionOut": {
@@ -1763,6 +1882,24 @@
                 }
               ],
               "title": "Idempotency-Key"
+            }
+          },
+          {
+            "description": "Which client this run came from, for the KPI slice: `api` (the default), `ui`, `mcp` or `connector`.",
+            "in": "header",
+            "name": "X-Surface",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Which client this run came from, for the KPI slice: `api` (the default), `ui`, `mcp` or `connector`.",
+              "title": "X-Surface"
             }
           }
         ],
@@ -3111,6 +3248,154 @@
           }
         ],
         "summary": "One contract and its analyses",
+        "tags": [
+          "documents"
+        ]
+      }
+    },
+    "/api/documents/{document_id}/search": {
+      "post": {
+        "description": "Retrieval without generation: the passages a question matches, scoped to this contract and nothing else. This is what a host that does its own talking should call -- `POST /api/chat` spends this deployment's answer model, and a client that already has one of its own does not need a second.",
+        "operationId": "search_api_documents__document_id__search_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "title": "Document Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SearchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Malformed request."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or wrong X-API-Key."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "No such document or analysis."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The resource is busy, or already in the requested state."
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The upload is over api_max_upload_mb."
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Only PDF uploads are supported."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The request body did not validate."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unhandled server error; the X-Trace-Id is on every log line."
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "An upstream call failed after its retries."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "A key or a dependency the operation needs is not configured."
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Ranked passages from one contract",
         "tags": [
           "documents"
         ]

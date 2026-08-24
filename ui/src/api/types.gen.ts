@@ -280,10 +280,15 @@ export interface paths {
         };
         /**
          * One run's span tree, for the waterfall
-         * @description Still `503`: the waterfall needs the `spans` table, which is the next
-         *     step. Declared rather than absent because the OpenAPI document is a
-         *     deliverable, and an operation that is documented and honestly unavailable
-         *     is a better contract than one that appears later and changes the spec.
+         * @description Every span of one run, as a tree: `api.analysis` -> `analysis.document`
+         *     -> one `analysis.criterion` per criterion -> `agent.run` -> `agent.call` /
+         *     `agent.tool` -> `retrieve`.
+         *
+         *     A tree rather than a flat list, because resolving `parent_span_id` in the
+         *     browser would mean writing the same algorithm again in TypeScript. An
+         *     empty list is the honest answer for a run with no spans -- one from before
+         *     this table existed, or from another machine -- and not a 404: the run may
+         *     well be in `/metrics/runs` beside it.
          */
         get: operations["spans_api_metrics_runs__run_id__spans_get"];
         put?: never;

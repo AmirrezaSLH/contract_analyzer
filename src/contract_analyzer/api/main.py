@@ -12,9 +12,12 @@ than raced for by the first two concurrent requests -- and closed on the way
 out. The job runner owns the thread pool, and shutting it down is what stops a
 reload from leaving analyses running against a closed database.
 
-The **metrics store** is built there too, and is the one thing on `app.state`
-that is allowed not to exist: `/metrics/*` answers `503` when it could not be
-built, exactly as it did before there was a store at all.
+The **metrics store** is built there too, and installing it is what starts the
+KPI recording: it attaches a handler to the project's root logger that turns
+every `span.end` into a row, so no module that emits a span had to learn that
+the store exists. It is also the one thing on `app.state` that is allowed not
+to be there -- `/metrics/*` answers `503` when it could not be built, exactly
+as it did before there was a store at all.
 
 It also **reconciles the analysis record** before the first request: a process
 that was killed mid-run left rows saying `running`, and nothing else will ever
@@ -143,6 +146,8 @@ def create_app(
         app.state.embedder = embedder if embedder is not None else _embedder(settings)
         app.state.client = client if client is not None else _client(settings)
         app.state.runner = JobRunner(settings, app.state.embedder, app.state.client)
+        # After `configure_logging`, because installing the store's handler
+        # means adding it to the root logger this call has just re-populated.
         app.state.metrics = _metrics(settings)
         # Before anything is served: rows a killed process left at `queued` or
         # `running` are not outcomes, and a client polling one would wait for a
@@ -166,6 +171,11 @@ def create_app(
             yield
         finally:
             app.state.runner.shutdown()
+            # After the runner, so the spans of a job finishing during
+            # shutdown are still recorded; before the log line below, which is
+            # not a span and does not need it.
+            if app.state.metrics is not None:
+                app.state.metrics.close()
             get_http_client(settings).close()
             log.info("api.shutdown")
 
@@ -324,7 +334,7 @@ def _metrics(settings: Settings) -> MetricsStore | None:
     whole of the previous phase.
     """
     try:
-        return MetricsStore(settings)
+        return MetricsStore(settings).install()
     except Exception as exc:  # noqa: BLE001 - reported, never fatal
         log.warning("api.metrics_unavailable", extra={"error": str(exc)})
         return None

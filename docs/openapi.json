@@ -3604,7 +3604,7 @@
     },
     "/api/metrics/runs/{run_id}/spans": {
       "get": {
-        "description": "Still `503`: the waterfall needs the `spans` table, which is the next\nstep. Declared rather than absent because the OpenAPI document is a\ndeliverable, and an operation that is documented and honestly unavailable\nis a better contract than one that appears later and changes the spec.",
+        "description": "Every span of one run, as a tree: `api.analysis` -> `analysis.document`\n-> one `analysis.criterion` per criterion -> `agent.run` -> `agent.call` /\n`agent.tool` -> `retrieve`.\n\nA tree rather than a flat list, because resolving `parent_span_id` in the\nbrowser would mean writing the same algorithm again in TypeScript. An\nempty list is the honest answer for a run with no spans -- one from before\nthis table existed, or from another machine -- and not a 404: the run may\nwell be in `/metrics/runs` beside it.",
         "operationId": "spans_api_metrics_runs__run_id__spans_get",
         "parameters": [
           {

@@ -10,7 +10,9 @@ cost family, and `Metric_Store.md` for the phased plan this module implements.
 ```
 metrics/
   windows.py   window/bucket arithmetic, and the empty buckets a chart needs
-  queries.py   the SQL: summary, timeseries, runs
+  queries.py   the SQL: summary, timeseries, runs, spans
+  handler.py   span.end log records -> rows, on a queue and a writer thread
+  metrics.sql  the spans DDL, applied by the store on the same database
   store.py     MetricsStore -- what the surfaces hold
 ```
 
@@ -19,7 +21,7 @@ it imports `metrics`**. `analyses.py` records what happened without asking the
 metrics module for permission; a store that could take storage down with it
 would be a telemetry system with the priorities backwards.
 
-## Phase 1: there is no new table
+## Phase 1: the tiles need no new table
 
 The dashboard's whole first cut is already in `analyses` (see
 [storage.md](storage.md#analyses)). `analyses.py` fills the derived columns on
@@ -90,7 +92,7 @@ quiet one.
 | `GET /api/metrics/summary?window=` | The tiles and meters, plus `live` from the runner |
 | `GET /api/metrics/timeseries?window=&bucket=` | One entry per bucket, oldest first |
 | `GET /api/metrics/runs?limit=` | The global runs table, each row with its `trace_id` |
-| `GET /api/metrics/runs/{id}/spans` | The waterfall. **`503`** until phase 2 |
+| `GET /api/metrics/runs/{id}/spans` | One run's span tree, for the waterfall |
 
 A window is `\d+[hd]`; anything else is a `422` in the API's error envelope.
 `503 metrics_unavailable` now means one thing only — the process could not
@@ -104,11 +106,101 @@ in `docs/openapi.json` would make every addition to the metric set a spec
 change. The routes are declared, the failure envelope is declared, and the
 body is documented here.
 
+## Phase 2: `spans`
+
+Three questions `analyses` structurally cannot answer — **chat cost**, **cost
+per model**, and **"walk me through this run"** — and all three are already in
+`.run/app.jsonl`. Nothing queried it. Now a handler copies every `span.end`
+record into a table.
+
+### The handler is the whole trick
+
+`SpanHandler` is a `logging.Handler` on the project's root logger, installed by
+`MetricsStore.install()`. What that buys:
+
+* **The eight emitting modules change by zero lines.** `generation/`,
+  `retrieval/`, `ingest/` and `compliance/` already wrap their work in
+  `span()`; none of them gained a `record_span()` call, and no module written
+  after this one has to remember one.
+* **The CLI is instrumented for free.** `scripts/analyze.py` builds the same
+  store, so `make analyze` populates `spans` with no API involved. A KPI page
+  that only saw HTTP traffic would be measuring the surface, not the system.
+* **The log file and the table cannot disagree**, because they are the same
+  records.
+
+### Telemetry never holds up an analysis
+
+Not a preference — the constraint the design is shaped by:
+
+| Rule | Why |
+|---|---|
+| `emit()` pushes onto a **bounded** queue and **drops on overflow** | It must never block a criterion thread in order to record that a criterion thread was busy |
+| A drop **increments a counter** `/metrics/summary` reports as `spans.dropped` | A metrics system that silently loses data is worse than one that says it lost some |
+| One **daemon writer thread**, batched, on its own connection | A writer cannot borrow a request's connection, and a request must not wait for a writer |
+| **`emit()` never raises** | A malformed span attribute must not fail the run it describes |
+| **No sampling** | One analysis is ~70 rows; a sampling knob nobody tunes is a knob set wrong during the demo |
+
+### `run_id`, beside `trace_id`
+
+A `ContextVar` in `logger.py`, set by `analyze_document` (and by the API's job
+worker around the span that covers queueing). Without it, attributing a span to
+a run means guessing from the trace — and one trace legitimately contains an
+upload *and* an analysis, so `make analyze path.pdf` would file its parse
+inside the analysis's waterfall. **Chat spans simply have no `run_id`**, which
+is correct: chat is not a run.
+
+### The table
+
+`metrics.sql` is a second DDL file on the **same database**. It is a separate
+file for a mechanical reason as well as a conceptual one: `db.py` runs
+`schema.sql` through `str.format(dim=…)`, so every literal brace there is a
+format placeholder, and span DDL reading `json_extract(attrs, '$.model')`
+cannot live in it. `CREATE TABLE IF NOT EXISTS`, so an old database just grows
+the tables.
+
+`span_id` (PK), `parent_span_id`, `trace_id`, `run_id`, `name`, `status`,
+`latency_ms`, `ts`; `surface`, `criterion`, `document_id`, `model`,
+`input_tokens`, `output_tokens`, `cost_usd` promoted into columns because
+every query touches them; everything else as `attrs` JSON. Indexes on
+`(run_id)`, `(trace_id)`, `(name, ts)`.
+
+**No foreign keys.** `DELETE /documents/{id}` must not take the KPI history
+with it — history that vanishes when somebody tidies up the corpus is not
+history. The same argument as `analyses`, and the suite asserts the outcome.
+
+### What it unlocks
+
+```sql
+-- chat cost per turn: chat writes no row anywhere, by design
+SELECT cost_usd, latency_ms FROM spans WHERE name = 'chat';
+
+-- cost per model, covering analysis AND chat in one pass
+SELECT model, SUM(cost_usd) FROM spans WHERE name = 'agent.call' GROUP BY model;
+```
+
+Cost per model waited for this instead of mining `report_json` precisely
+because one query covers both surfaces. `summary` gains `chat` and
+`cost_by_model`; `timeseries` gains chat turns and cost per bucket; and
+`GET /metrics/runs/{id}/spans` returns the tree:
+
+```
+api.analysis -> analysis.document -> analysis.criterion (x5)
+             -> agent.run -> agent.call / agent.tool -> retrieve
+```
+
+A tree rather than a flat list, because resolving `parent_span_id` in the
+browser would mean writing the same algorithm again in TypeScript. A run with
+no spans is an empty list, not a 404 — it may be a run from before this table
+existed, and it is still in `/metrics/runs` beside it.
+
+### Retention
+
+`prune(before)` deletes spans older than a timestamp and leaves `analyses`
+alone. There is no retention policy for the demo, and this has never been run
+in anger; it exists so that "what happens when the table grows" has an answer
+that is not "nobody thought about it".
+
 ## Still to come
 
-* **Phase 2, `spans`** — one row per `span.end`, written by a logging handler,
-  which is what makes chat cost, cost per model and the per-run waterfall
-  answerable. The telemetry already exists in `.run/app.jsonl`; nothing
-  queries it.
 * **Phase 3, `criterion_results`** — state mix per criterion over time, the
   drift signal, without mining `report_json`.

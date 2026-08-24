@@ -58,7 +58,7 @@ clicks later.
 | `GET` | `/metrics/summary` | KPI tiles and meters for one window. |
 | `GET` | `/metrics/timeseries` | The same numbers per bucket, for the trend charts. |
 | `GET` | `/metrics/runs` | The global runs table -- what `GET /analyses` deliberately does not serve. |
-| `GET` | `/metrics/runs/{id}/spans` | The per-run waterfall. `503` until the `spans` table lands. |
+| `GET` | `/metrics/runs/{id}/spans` | One run's span tree, for the waterfall. |
 
 ## Decisions worth defending
 
@@ -408,13 +408,10 @@ python scripts/export_openapi.py
 
 ## What is not here yet
 
-* **The per-run waterfall returns 503.** `GET /metrics/runs/{id}/spans` needs
-  the `spans` table, which is phase 2 of the metric store; the other three
-  `/metrics/*` operations answer over `analyses` today. See
-  [metrics.md](metrics.md). The endpoint stays declared because the UI and the
-  connector are written against the spec, and an operation that is documented
-  and honestly unavailable is a better contract than one that appears later and
-  changes the spec's shape.
+* **Per-criterion history.** `criterion_results` — the state mix per criterion
+  over time, which is the drift signal — is phase 3 of the metric store and is
+  not queryable yet. Everything else `/metrics/*` declares now answers; see
+  [metrics.md](metrics.md).
 * **Streaming and cancellation are per-process.** The record is durable; the
   stream and the cancel flag are not. See *Durable is not distributed* above.
 * **`/v1` prefix.** One caller (MCP) would have to change; deferred until there

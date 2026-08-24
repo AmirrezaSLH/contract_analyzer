@@ -9,8 +9,7 @@ wrong grain, and session state under-counts after a refresh.
 * `summary` -- the tiles and the meters for one window.
 * `timeseries` -- the same numbers per bucket, for the trend charts.
 * `runs` -- the global runs table, each row carrying its trace id.
-* `runs/{id}/spans` -- one run's span tree, for the waterfall. Still `503`:
-  it is the one of the four that needs a table nobody has built yet.
+* `runs/{id}/spans` -- one run's span tree, for the waterfall.
 
 **The window drives the bucket.** 24 h -> `1h`, 7 d -> `6h`, 30 d -> `1d`, and
 `timeseries` applies that pairing when a caller sends only a window. Thirty
@@ -26,10 +25,9 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Query, status
+from fastapi import APIRouter, Query
 
 from ..deps import ConnDep, MetricsDep, Protected, RunnerDep
-from ..errors import ApiError
 
 router = APIRouter(prefix="/metrics", tags=["metrics"], dependencies=[Protected])
 
@@ -81,15 +79,15 @@ def runs(
 
 
 @router.get("/runs/{run_id}/spans", summary="One run's span tree, for the waterfall")
-def spans(run_id: str) -> list[dict[str, Any]]:
-    """Still `503`: the waterfall needs the `spans` table, which is the next
-    step. Declared rather than absent because the OpenAPI document is a
-    deliverable, and an operation that is documented and honestly unavailable
-    is a better contract than one that appears later and changes the spec."""
-    raise ApiError(
-        status.HTTP_503_SERVICE_UNAVAILABLE,
-        "metrics_unavailable",
-        "The per-run span waterfall needs the spans table, which has not been built yet.",
-        "GET /api/metrics/runs lists the runs, and every row carries the trace_id its "
-        "spans were logged under -- grep .run/app.jsonl for it in the meantime.",
-    )
+def spans(conn: ConnDep, store: MetricsDep, run_id: str) -> list[dict[str, Any]]:
+    """Every span of one run, as a tree: `api.analysis` -> `analysis.document`
+    -> one `analysis.criterion` per criterion -> `agent.run` -> `agent.call` /
+    `agent.tool` -> `retrieve`.
+
+    A tree rather than a flat list, because resolving `parent_span_id` in the
+    browser would mean writing the same algorithm again in TypeScript. An
+    empty list is the honest answer for a run with no spans -- one from before
+    this table existed, or from another machine -- and not a 404: the run may
+    well be in `/metrics/runs` beside it.
+    """
+    return store.spans(conn, run_id)

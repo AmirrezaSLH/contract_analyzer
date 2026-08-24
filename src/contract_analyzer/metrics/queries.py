@@ -1,11 +1,19 @@
-"""The KPI numbers, as SQL over `analyses` and `documents`.
+"""The KPI numbers, as SQL over `analyses`, `documents` and `spans`.
 
-Phase 1 of `plan_implement_docs/KPI_01/Metric_Store.md`: everything on the
-dashboard's first cut is already in the analysis fact table, so this is a
-query layer and not a second store. `analyses` is written by `analyses.py` on
-completion -- `latency_s`, `cost_usd`, the token and quote counts,
-`needs_review`, `capped`, `mean_confidence`, `surface` -- and nothing here
-writes anything.
+Everything on the dashboard's first cut is already in the analysis fact table,
+so this is a query layer and not a second store. `analyses` is written by
+`analyses.py` on completion -- `latency_s`, `cost_usd`, the token and quote
+counts, `needs_review`, `capped`, `mean_confidence`, `surface` -- and nothing
+here writes anything.
+
+`spans` answers the three questions `analyses` structurally cannot. **Chat
+cost** is one of them: chat is stateless, returns an `AnswerResult` and writes
+no row, so it is `spans WHERE name = 'chat'` rather than a run row -- which is
+what keeps every analysis KPI from needing `WHERE surface != 'chat'` forever.
+**Cost per model** is another: `analyses` has no model column and mining it
+out of `report_json` would cover analysis only, while one pass over
+`agent.call` spans covers analysis and chat together. The third is the
+**per-run waterfall**, which is what `parent_span_id` is for.
 
 Three rules the numbers follow, each of which is a decision from
 `01_findings.md` rather than a detail:
@@ -29,6 +37,7 @@ one.
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from datetime import UTC, datetime
 from typing import Any
@@ -129,6 +138,68 @@ SELECT {bucket} AS bucket,
  GROUP BY bucket, state
 """
 
+#: Chat is stateless by design: the API returns an `AnswerResult` and writes
+#: no row anywhere. `02_costs.md` settles that it becomes queryable as a span
+#: rather than as a row in `analyses` -- giving chat a run row would mean every
+#: analysis KPI needed `WHERE surface != 'chat'` forever.
+_CHAT = """
+SELECT count(*)                   AS turns,
+       sum(coalesce(cost_usd, 0)) AS cost_usd,
+       sum(status = 'error')      AS errors
+  FROM spans
+ WHERE name = 'chat' AND ts >= ?
+"""
+
+#: Cost per model, covering analysis *and* chat in one pass, which is the whole
+#: reason this waited for `spans` instead of mining `report_json`: that would
+#: have been analysis-only, and ugly.
+_BY_MODEL = """
+SELECT model,
+       count(*)                        AS calls,
+       sum(coalesce(cost_usd, 0))      AS cost_usd,
+       sum(coalesce(input_tokens, 0))  AS input_tokens,
+       sum(coalesce(output_tokens, 0)) AS output_tokens
+  FROM spans
+ WHERE name = 'agent.call' AND ts >= ? AND model IS NOT NULL
+ GROUP BY model
+ ORDER BY cost_usd DESC
+"""
+
+#: Percentiles over span latencies. Same nearest-rank arithmetic as
+#: `_PERCENTILES`, against `spans` instead of `analyses`.
+_SPAN_PERCENTILES = """
+WITH ordered AS (
+    SELECT latency_ms AS v,
+           row_number() OVER (ORDER BY latency_ms) AS rn,
+           count(*)    OVER ()                     AS n
+      FROM spans
+     WHERE name = ? AND ts >= ? AND latency_ms IS NOT NULL
+)
+SELECT max(CASE WHEN rn = (n * 50 + 99) / 100 THEN v END) AS p50,
+       max(CASE WHEN rn = (n * 95 + 99) / 100 THEN v END) AS p95
+  FROM ordered
+"""
+
+_CHAT_PER_BUCKET = """
+SELECT {bucket}                   AS bucket,
+       count(*)                   AS turns,
+       sum(coalesce(cost_usd, 0)) AS cost_usd
+  FROM spans
+ WHERE name = 'chat' AND ts >= ?
+ GROUP BY bucket
+"""
+
+#: One run's spans, oldest first. `parent_span_id` is what `_tree` builds the
+#: waterfall from; the ordering is what makes it read like one.
+_SPANS = """
+SELECT span_id, parent_span_id, trace_id, run_id, name, status, latency_ms, ts,
+       surface, criterion, document_id, model, input_tokens, output_tokens,
+       cost_usd, attrs
+  FROM spans
+ WHERE run_id = ?
+ ORDER BY ts, rowid
+"""
+
 _RUNS = """
 SELECT analysis_id, trace_id, document_id, filename, surface, status,
        criteria_requested, criteria_completed, criteria_skipped, error,
@@ -219,6 +290,17 @@ def summary(
             }
             for surface in conn.execute(_BY_SURFACE, (since,))
         ],
+        "chat": _chat(conn, since),
+        "cost_by_model": [
+            {
+                "model": row["model"],
+                "calls": int(row["calls"]),
+                "cost_usd": _round(row["cost_usd"], 6) or 0.0,
+                "input_tokens": int(row["input_tokens"] or 0),
+                "output_tokens": int(row["output_tokens"] or 0),
+            }
+            for row in conn.execute(_BY_MODEL, (since,))
+        ],
         "documents": int(conn.execute("SELECT count(*) FROM documents").fetchone()[0]),
     }
 
@@ -250,6 +332,13 @@ def timeseries(
         if row["state"]:
             states.setdefault(row["bucket"], {})[row["state"]] = int(row["n"])
 
+    chat = {
+        row["bucket"]: row
+        for row in conn.execute(
+            _CHAT_PER_BUCKET.format(bucket=windows.bucket_expression("ts", bucket)), (since,)
+        )
+    }
+
     series = []
     for start in windows.bucket_starts(window, bucket, now=now):
         row = rows.get(start)
@@ -279,6 +368,10 @@ def timeseries(
                     _rate(int(row["needs_review"] or 0), criteria) if row else None
                 ),
                 "states": states.get(start, {}),
+                "chat": {
+                    "turns": int(chat[start]["turns"]) if start in chat else 0,
+                    "cost_usd": _round(chat[start]["cost_usd"], 6) if start in chat else 0.0,
+                },
             }
         )
     return series
@@ -294,6 +387,66 @@ def runs(conn: sqlite3.Connection, *, limit: int = 50) -> list[dict[str, Any]]:
     of report per row.
     """
     return [dict(row) for row in conn.execute(_RUNS, (int(limit),))]
+
+
+def spans(conn: sqlite3.Connection, run_id: str) -> list[dict[str, Any]]:
+    """One run's spans as a tree of roots, each carrying its `children`.
+
+    A tree rather than a flat list because that is what a waterfall is, and
+    resolving `parent_span_id` in the browser would mean shipping the same
+    algorithm again in TypeScript. A span whose parent is not in this run --
+    it cannot normally happen, but a truncated queue could -- is promoted to a
+    root rather than dropped: a waterfall missing a rung is better than a
+    waterfall missing a branch.
+    """
+    rows = [dict(row) for row in conn.execute(_SPANS, (run_id,))]
+    for row in rows:
+        row["attrs"] = _attrs(row.get("attrs"))
+    return _tree(rows)
+
+
+def _tree(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    by_id = {row["span_id"]: row for row in rows}
+    for row in rows:
+        row["children"] = []
+    roots: list[dict[str, Any]] = []
+    for row in rows:
+        parent = by_id.get(row["parent_span_id"])
+        if parent is None or parent is row:
+            roots.append(row)
+        else:
+            parent["children"].append(row)
+    return roots
+
+
+def _attrs(raw: Any) -> dict[str, Any]:
+    """The JSON bag, parsed. Never raises: the waterfall is a debugging view
+    and a span with an unreadable bag should still show its timing."""
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except (TypeError, ValueError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _chat(conn: sqlite3.Connection, since: str) -> dict[str, Any]:
+    """Chat cost and latency, from `spans WHERE name = 'chat'`.
+
+    Zeroes when the `spans` table is empty; `null` percentiles when no turn has
+    been taken, for the same reason every other rate returns null.
+    """
+    row = conn.execute(_CHAT, (since,)).fetchone()
+    latency = conn.execute(_SPAN_PERCENTILES, ("chat", since)).fetchone()
+    turns = int(row["turns"] or 0)
+    return {
+        "turns": turns,
+        "cost_usd": _round(row["cost_usd"], 6) or 0.0,
+        "cost_per_turn": _round((row["cost_usd"] or 0) / turns, 6) if turns else None,
+        "errors": int(row["errors"] or 0),
+        "latency_ms": {"p50": _round(latency["p50"], 1), "p95": _round(latency["p95"], 1)},
+    }
 
 
 def _percentiles(
@@ -338,4 +491,4 @@ def _round(value: Any, places: int) -> float | None:
     return None if value is None else round(float(value), places)
 
 
-__all__ = ["SETTLED", "runs", "summary", "timeseries"]
+__all__ = ["SETTLED", "runs", "spans", "summary", "timeseries"]

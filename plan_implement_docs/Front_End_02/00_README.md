@@ -8,9 +8,10 @@ post-mortem is reproduced here as §1 of `02_architecture.md`, so nothing is
 lost by not reading it.
 
 Scope: the four customer-facing surfaces — **upload, library, analysis,
-chat**. The KPI dashboard is `KPI_plan.md`'s and is deliberately absent; it
-lands as a third sidebar entry and a fifth route later, and `01_ui_spec.md`
-reserves its place.
+chat**. The KPI dashboard is designed separately in `../KPI_01/`; it is
+reached by an **App / KPI toggle at the top of the sidebar** and lives at
+`/metrics`. `01_ui_spec.md` §1 reserves its place here; metric selection
+belongs to `KPI_plan.md`.
 
 ## The design is a running artefact, not a picture
 

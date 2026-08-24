@@ -164,6 +164,7 @@ where they occur.
 | `/library` | Library | No tab bar |
 | `/documents/:id/analysis` | Analysis | Tab bar; `:id` is the scope |
 | `/documents/:id/chat` | Chat | Tab bar; `:id` is the scope |
+| `/metrics` | KPI dashboard | Application-level; no `:id`, no tab bar. `../KPI_01/` |
 | `*` | Not found | Back to library |
 
 `:id` is the single source of truth for scope — the sidebar reads it, not the

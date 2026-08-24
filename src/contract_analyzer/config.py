@@ -117,7 +117,7 @@ class Settings(BaseSettings):
     # the code rather than read from the environment. See `settings.json`.
 
     # Generation
-    answer_model: str = "claude-opus-5"
+    answer_model: str = "claude-sonnet-5"
     #: Models a *client* may ask for on `POST /chat`. An allowlist, not a
     #: suggestion: chat is open when API_KEY is unset, and a free-text model id
     #: on an open endpoint is a request to spend money on an arbitrary model.

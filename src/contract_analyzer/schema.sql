@@ -38,6 +38,10 @@ CREATE TABLE IF NOT EXISTS chunks (
     -- whenever there is roman-numbered front matter -- an offset of 13 and 20
     -- pages in the two corpus files. This is the one a citation must show.
     page_label      TEXT,
+    -- The last page the chunk's text touches, when its element was rejoined
+    -- or stitched across a page break; NULL when it sits on one page.
+    page_end        INTEGER,
+    page_label_end  TEXT,
     section         TEXT,
     -- JSON breadcrumb: ["2 Background...", "2.1 Building Airtightness"].
     section_path    TEXT,

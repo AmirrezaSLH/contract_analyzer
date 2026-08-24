@@ -374,7 +374,9 @@ def join_wrapped_lines(
     enumerator begins a clause, whatever the line before it looked like.
 
     The merged element keeps the *first* line's page index and label, because
-    that is where a reader following the citation should look.
+    that is where a reader following the citation should look, and records
+    the last page it reaches in `page_end` so a citation can say "p.4-5"
+    rather than sending the reviewer to a page the quoted words are not on.
     """
     merged: list[Element] = []
 
@@ -384,13 +386,17 @@ def join_wrapped_lines(
             # join_lines applies the document's own vocabulary to the hyphen at
             # the break, exactly as it does for lines within one block.
             prev.text = join_lines([prev.text, element.text], profile)
-            if element.page_index == prev.page_index:
-                prev.bbox = (
-                    min(prev.bbox[0], element.bbox[0]),
-                    prev.bbox[1],
-                    max(prev.bbox[2], element.bbox[2]),
-                    element.bbox[3],
-                )
+            if element.page_index == prev.page_span[1]:
+                if element.page_index == prev.page_index:
+                    prev.bbox = (
+                        min(prev.bbox[0], element.bbox[0]),
+                        prev.bbox[1],
+                        max(prev.bbox[2], element.bbox[2]),
+                        element.bbox[3],
+                    )
+            else:
+                prev.page_end = element.page_index
+                prev.page_label_end = element.page_label
             continue
         merged.append(element)
 

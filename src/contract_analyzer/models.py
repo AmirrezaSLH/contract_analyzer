@@ -31,6 +31,11 @@ class Chunk:
     page: int | None = None
     #: The *printed* page ("37", "xxi") -- the number the reader's eye finds.
     page_label: str = ""
+    #: The last page the chunk's text touches, when the element it came from
+    #: was rejoined or stitched across a page break; None otherwise. A
+    #: citation renders "p.4-5" when the two differ.
+    page_end: int | None = None
+    page_label_end: str = ""
     section: str = ""
     section_path: list[str] = field(default_factory=list)
     #: What the chunk is made of. Retrieval and rendering both branch on it.
@@ -50,6 +55,13 @@ class Chunk:
     @property
     def breadcrumb(self) -> str:
         return " > ".join(self.section_path)
+
+    @property
+    def page_display(self) -> str:
+        """The printed page or page range a citation should show."""
+        if self.page_label_end and self.page_label_end != self.page_label:
+            return f"{self.page_label}-{self.page_label_end}"
+        return self.page_label
 
 
 __all__ = ["Chunk"]

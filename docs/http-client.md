@@ -18,7 +18,7 @@ client = openai.OpenAI(http_client=get_http_client(), max_retries=0)
 `get_http_client()` returns one process-wide `httpx2.Client` whose transport
 is `RetryingTransport`. With the SDKs' own retries set to zero, **there is
 exactly one retry loop**, and it is ours: tested with a mock transport, logged
-through `logger.py`, and configured from `.env`.
+through `logger.py`, and tuned from `settings.json`.
 
 For anything outside the SDKs, `request(method, url, **kw)` goes through the
 same client and raises on non-2xx.

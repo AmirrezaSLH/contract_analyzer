@@ -59,8 +59,9 @@ class OpenAIEmbedder(BaseEmbedder):
         if not settings.openai_key:
             raise EmbedderUnavailable(
                 "OPENAI_API_KEY is not set. Set it in .env, switch "
-                "EMBEDDING_PROVIDER to `local` for real offline vectors, or to "
-                "`fake` to run the pipeline with no key at all."
+                "embedding_provider in settings.json to `local` for real "
+                "offline vectors, or to `fake` to run the pipeline with no "
+                "key at all."
             )
         self._openai = openai
         self._client = openai.OpenAI(

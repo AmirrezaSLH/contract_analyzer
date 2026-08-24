@@ -1,10 +1,20 @@
-"""Configuration, read from the environment (and .env) exactly once.
+"""Configuration, assembled from three layers exactly once.
 
-Everything the pipeline needs to be told rather than to infer lives here. The
-one setting that deserves attention is `embedding_dim`: a `vec0` virtual table
-fixes its vector width at creation time, so this value is baked into the schema
-and cannot be changed without rebuilding the database. See `db.py`, which
-refuses to open a database whose stored width disagrees with this setting.
+Everything the pipeline needs to be told rather than to infer lives here,
+split by *why* a value is set rather than by what it controls:
+
+- **`.env`** -- secrets and paths that differ between environments (a local
+  checkout vs. the Docker container vs. CI): API keys, `DB_PATH`, `RAW_DIR`,
+  `ASSETS_DIR`, `LOG_FILE`. See `.env.example`.
+- **`settings.json`** -- tuning parameters: the same value everywhere a given
+  checkout runs, versioned with the code. Everything else lives here.
+- Field defaults on `Settings` below, as the last fallback for either file.
+
+`get_settings()` reads both files once and caches the result. The one setting
+that deserves attention is `embedding_dim`: a `vec0` virtual table fixes its
+vector width at creation time, so this value is baked into the schema and
+cannot be changed without rebuilding the database. See `db.py`, which refuses
+to open a database whose stored width disagrees with this setting.
 """
 
 from __future__ import annotations
@@ -14,7 +24,12 @@ from pathlib import Path
 from typing import Literal
 
 from pydantic import Field, SecretStr, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import (
+    BaseSettings,
+    JsonConfigSettingsSource,
+    PydanticBaseSettingsSource,
+    SettingsConfigDict,
+)
 
 # src/contract_analyzer/config.py -> src/contract_analyzer -> src -> project root
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -50,15 +65,54 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=PROJECT_ROOT / ".env",
         env_file_encoding="utf-8",
+        json_file=PROJECT_ROOT / "settings.json",
+        json_file_encoding="utf-8",
         extra="ignore",
         protected_namespaces=(),  # we have legitimate `embedding_model` fields
     )
 
-    # Generation
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        # Env/.env (secrets, paths) outrank settings.json (tuning), which
+        # outranks the field defaults below. settings.json is optional: a
+        # missing file just falls through to those defaults.
+        return (
+            init_settings,
+            env_settings,
+            dotenv_settings,
+            JsonConfigSettingsSource(settings_cls),
+            file_secret_settings,
+        )
+
+    # ===== .env: secrets and environment-dependent paths ===================
     # SecretStr, not str: a pydantic model prints all of its fields, so a
     # pytest failure or a logged `Settings` would otherwise put the key in the
     # terminal and in CI output. Readers call `.get_secret_value()`.
     anthropic_api_key: SecretStr | None = None
+    openai_api_key: SecretStr | None = None
+    #: Relative paths anchor to the project root -- see `_anchor_to_project_root`
+    #: below -- so a local checkout, the Docker container, and CI can each set
+    #: these to their own mount points without the pipeline noticing.
+    db_path: Path = Path("data/contracts.db")
+    raw_dir: Path = Path("data/raw")
+    #: Where the parser writes figure images. Chunks cite them by a path
+    #: relative to the project root, so the database stays portable.
+    assets_dir: Path = Path("data/assets")
+    #: One JSON object per line. Blank disables the file; the console stays.
+    log_file: Path | None = Path(".run/app.jsonl")
+
+    # ===== settings.json: tuning parameters =================================
+    # Same value everywhere a given checkout runs, so these are versioned with
+    # the code rather than read from the environment. See `settings.json`.
+
+    # Generation
     answer_model: str = "claude-opus-5"
     #: Streaming, so this can be generous; an answer over five short passages
     #: never approaches it, and a truncated answer is worse than a slow one.
@@ -91,21 +145,13 @@ class Settings(BaseSettings):
 
     # Logging
     log_level: str = "INFO"
-    #: One JSON object per line. Blank disables the file; the console stays.
-    log_file: Path | None = Path(".run/app.jsonl")
 
     # Embeddings
     embedding_provider: EmbeddingProvider = "openai"
     embedding_model: str | None = None
     embedding_dim: int = Field(default=512, gt=0)
-    openai_api_key: SecretStr | None = None
 
-    # Storage & chunking
-    db_path: Path = Path("data/contracts.db")
-    raw_dir: Path = Path("data/raw")
-    #: Where the parser writes figure images. Chunks cite them by a path
-    #: relative to the project root, so the database stays portable.
-    assets_dir: Path = Path("data/assets")
+    # Chunking
     #: Clauses are short; 400 tokens keeps a chunk to one or two sub-clauses so
     #: a citation points at the obligation, not at the whole section.
     chunk_tokens: int = Field(default=400, gt=0)
@@ -161,5 +207,5 @@ class Settings(BaseSettings):
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
-    """Process-wide settings. Cached so .env is parsed once."""
+    """Process-wide settings. Cached so .env and settings.json are parsed once."""
     return Settings()

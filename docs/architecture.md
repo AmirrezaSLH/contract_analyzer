@@ -59,7 +59,7 @@ Two modules cut across everything and were built first:
 |---|---|---|---|
 | `logger.py` | JSON logging, trace/span context | [logging.md](logging.md) | done, tested |
 | `http_client.py` | retrying transport for all external HTTP | [http-client.md](http-client.md) | done, tested |
-| `config.py` | settings from `.env`, anchored to the project root | [configuration.md](configuration.md) | done |
+| `config.py` | settings from `.env` (secrets, paths) and `settings.json` (tuning), anchored to the project root | [configuration.md](configuration.md) | done |
 | `db.py`, `schema.sql` | SQLite + sqlite-vec + FTS5, one file | [storage.md](storage.md) | done |
 | `tokens.py` | tiktoken counts with an offline fallback | [storage.md](storage.md#token-counting) | done |
 | `models.py` | the `Chunk` record | [storage.md](storage.md#the-chunk-record) | done |
@@ -148,8 +148,9 @@ data/samples/            the sample contract; data/*.db and data/raw are gitigno
 
 Python ≥ 3.11, `pip install -e ".[dev]"`. Keys in `.env` (see
 `.env.example`): `ANTHROPIC_API_KEY` for answers, `OPENAI_API_KEY` for
-embeddings. `EMBEDDING_PROVIDER=fake` runs the whole pipeline offline with
-hashed vectors for demos and tests. PyMuPDF is AGPL-3.0 (see parsing.md).
+embeddings. `embedding_provider: "fake"` in `settings.json` runs the whole
+pipeline offline with hashed vectors for demos and tests. PyMuPDF is
+AGPL-3.0 (see parsing.md).
 
 Containers are an alternative to the virtualenv, not a replacement: `make
 docker-build && make docker-test` builds the image and runs the same suite

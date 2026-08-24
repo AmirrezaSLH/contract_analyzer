@@ -113,8 +113,7 @@ def index(conn: ConnDep) -> list[DocumentOut]:
     """What a client binds a session to, with enough to draw a row for each.
 
     `last_analysis` comes from one query over the whole list rather than one
-    per document: this is the endpoint a library table renders from, and a
-    Streamlit script re-runs it on every click.
+    per document: this is the endpoint a library table renders from.
     """
     documents = list_documents(conn)
     last = last_analysis_by_document(conn, [d.document_id for d in documents])

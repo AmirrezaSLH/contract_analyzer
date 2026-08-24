@@ -31,6 +31,9 @@ plan_implement_docs/
 docs/
 AGENTS.md
 
+# Host Node install; the image runs `npm ci` itself.
+ui/node_modules/
+
 # Docker's own files.
 Dockerfile
 .dockerignore

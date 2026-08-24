@@ -2377,7 +2377,7 @@
     },
     "/api/documents": {
       "get": {
-        "description": "What a client binds a session to, with enough to draw a row for each.\n\n`last_analysis` comes from one query over the whole list rather than one\nper document: this is the endpoint a library table renders from, and a\nStreamlit script re-runs it on every click.",
+        "description": "What a client binds a session to, with enough to draw a row for each.\n\n`last_analysis` comes from one query over the whole list rather than one\nper document: this is the endpoint a library table renders from.",
         "operationId": "index_api_documents_get",
         "responses": {
           "200": {

@@ -1,10 +1,11 @@
 # syntax=docker/dockerfile:1.7
 #
-# One image, three stages:
+# One image, four stages:
 #
-#   builder  resolves and installs the dependency set into /opt/venv
-#   runtime  that venv + the source tree, running as a non-root user   <- default
-#   dev      runtime plus pytest and ruff, for `make docker-test`
+#   ui-builder  Node: Vite build of ui/ into the API static directory
+#   builder     resolves and installs the Python dependency set into /opt/venv
+#   runtime     that venv + the source tree + the bundle, non-root   <- default
+#   dev         runtime plus pytest and ruff, for `make docker-test`
 #
 # The install is deliberately editable (`pip install -e .`). config.py derives
 # PROJECT_ROOT from its own location (src/contract_analyzer/config.py -> /app),
@@ -13,6 +14,18 @@
 # site-packages and scatter the database into the venv.
 
 ARG PYTHON_VERSION=3.13
+ARG NODE_VERSION=22
+
+# --- front end ---------------------------------------------------------------
+# Isolated from the Python image: production needs the static files, not Node.
+FROM node:${NODE_VERSION}-slim AS ui-builder
+
+WORKDIR /app/ui
+COPY ui/package.json ui/package-lock.json ./
+RUN npm ci
+COPY ui/ ./
+# vite.config.ts writes to ../src/contract_analyzer/api/static
+RUN npm run build
 
 # --- base --------------------------------------------------------------------
 FROM python:${PYTHON_VERSION}-slim-bookworm AS base
@@ -39,11 +52,10 @@ RUN python -m venv "$VIRTUAL_ENV"
 COPY pyproject.toml ./
 RUN mkdir -p src/contract_analyzer && touch src/contract_analyzer/__init__.py
 
-# The HTTP surface and the Streamlit UI are both in the runtime image -- one
-# image serves both compose services, and the entrypoint's verb picks which.
+# The HTTP surface (which also serves the built UI) is in the runtime image.
 # The ~800 MB `local` embedder is not. Override to add it:
-#   --build-arg EXTRAS="[api,ui,local]"
-ARG EXTRAS="[api,ui]"
+#   --build-arg EXTRAS="[api,local]"
+ARG EXTRAS="[api]"
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --upgrade pip && pip install -e ".${EXTRAS}"
 
@@ -60,6 +72,8 @@ RUN groupadd --gid "$APP_GID" app \
 
 COPY --from=builder /opt/venv /opt/venv
 COPY --chown=app:app . /app
+COPY --from=ui-builder --chown=app:app /app/src/contract_analyzer/api/static \
+     /app/src/contract_analyzer/api/static
 COPY --chown=app:app docker/entrypoint.sh /usr/local/bin/entrypoint
 
 RUN chmod +x /usr/local/bin/entrypoint \
@@ -68,8 +82,8 @@ RUN chmod +x /usr/local/bin/entrypoint \
 
 USER app
 
-# 8100 FastAPI (and the built UI). 8101 is the Vite / Streamlit host mapping.
-EXPOSE 8100 8101
+# FastAPI, and the built UI at `/`.
+EXPOSE 8100
 
 ENTRYPOINT ["entrypoint"]
 CMD ["api"]

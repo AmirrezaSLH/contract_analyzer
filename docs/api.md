@@ -1,6 +1,6 @@
 # The HTTP API
 
-One backend, four consumers. The Streamlit UI, the MCP server, an external
+One backend, four consumers. The React UI, the MCP server, an external
 connector and the CLIs all reach the same functions, and this is the HTTP
 surface over them.
 
@@ -352,7 +352,7 @@ demo and is stated here rather than left to be assumed.
 | `api_workers` | 2 | Analyses in flight. SQLite serialises writes; a third submission is `queued`. |
 | `analysis_workers` | 5 | Criteria in parallel inside one job. With `api_workers`, the concurrent-request ceiling. |
 | `api_max_upload_mb` | 25 | `413` above, enforced while streaming. |
-| `api_cors_origins` | `[]` | The UI is a different origin only outside Docker. |
+| `api_cors_origins` | `[]` | Empty on purpose: the UI is served from this process. |
 | `api_keepalive_seconds` | 15 | SSE comment cadence. |
 | `api_event_buffer` | 256 | Per-subscriber queue depth and replay length. |
 

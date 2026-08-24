@@ -14,7 +14,6 @@ x-env: &env
   ASSETS_DIR: /app/data/assets
   LOG_FILE: /app/.run/app.jsonl
   BACKEND_PORT: ${BACKEND_PORT:-8100}
-  FRONTEND_PORT: ${FRONTEND_PORT:-8101}
 
 x-app: &app
   build:
@@ -33,13 +32,14 @@ x-app: &app
   volumes:
     - ./data:/app/data
     - ./.run:/app/.run
-  # Both servers set `restart: unless-stopped` on themselves below. It is not
-  # in the anchor because `tools` is a one-off container and restarting a
-  # finished pytest run is not a policy anyone wants.
+  # `api` sets `restart: unless-stopped` on itself rather than in the
+  # anchor, because `tools` is a one-off container and restarting a finished
+  # pytest run is not a policy anyone wants.
 
 services:
-  # The HTTP API: the only process that touches the database and the model.
-  # Everything else -- the UI, the MCP server, a connector -- is a client of it.
+  # The HTTP API, and the built front end it serves at `/`. One origin: the
+  # browser never makes a cross-origin request, so `api_cors_origins` stays
+  # empty. Everything else -- the MCP server, a connector -- is a client of it.
   api:
     <<: *app
     command: ["api"]
@@ -59,30 +59,6 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
-
-  # The Streamlit front end: four surfaces over the API, and a client of it
-  # like any other. It holds no logic, opens no database and calls no model --
-  # `CA_API_URL` is the whole of its configuration.
-  ui:
-    <<: *app
-    command: ["ui"]
-    # Safe to restart: it holds nothing that a reload loses except a browser
-    # session's own view state, which the ids in the API outlive.
-    restart: unless-stopped
-    ports:
-      - "${FRONTEND_PORT:-8101}:${FRONTEND_PORT:-8101}"
-    environment:
-      <<: *env
-      # Over the compose network, so there is no cross-origin request and
-      # `api_cors_origins` stays empty -- the Streamlit *server* makes these
-      # calls, not the browser.
-      CA_API_URL: http://api:${BACKEND_PORT:-8100}
-    depends_on:
-      api:
-        # Not just "started": the UI calls GET /health on its first render, and
-        # a UI that boots into "the API is not reachable" is a worse first
-        # impression than one that waits three seconds.
-        condition: service_healthy
 
   # One-off container for the things that are not servers: pytest, ruff, the
   # ingest/search/chat CLIs, a shell. Built from the dev stage, never started

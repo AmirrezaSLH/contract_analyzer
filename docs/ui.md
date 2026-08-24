@@ -1,29 +1,34 @@
 # The front end
 
-Four surfaces — upload, library, analysis, chat — over the HTTP API, and
-nothing else. The design is `plan_implement_docs/Front_End_01/`; this file is
-what was built and why it is shaped the way it is.
+Four surfaces — upload, library, analysis, chat — as a Vite + React app in
+`ui/` at the repository root. It is not a Python package. The design is
+`plan_implement_docs/Front_End_02/`; this file is what was built and why it is
+shaped the way it is.
 
 **The rule that shapes everything here: the UI holds no logic.** It parses no
-PDF, opens no database and calls no model. It makes HTTP requests to
-`CA_API_URL` and renders what comes back. That is `docs/api.md`'s rule — *the
-API contains no logic the CLI does not have* — extended one hop: if a handler
-is tempted into the UI it belongs in the API, and if it is not in the API it
-belongs in the library first. `ui/` imports nothing from `api/`.
+PDF, opens no database and calls no model. It talks to `/api` and renders what
+comes back. That is `docs/api.md`'s rule — *the API contains no logic the CLI
+does not have* — extended one hop: if a handler is tempted into the UI it
+belongs in the API, and if it is not in the API it belongs in the library
+first. `ui/` imports nothing from the Python package.
+
+**One origin.** In production FastAPI serves the built bundle at `/` and the
+JSON API under `/api`. In development Vite proxies `/api` at the API. There
+is no configurable base URL in the browser bundle, and `api_cors_origins`
+stays empty because the browser never makes a cross-origin request.
 
 ## Running it
 
 ```bash
-pip install -e ".[ui]"
-make api           # in one terminal
-make ui            # in another; http://localhost:8101
-# or
-make docker-up     # both, on BACKEND_PORT (8100) and FRONTEND_PORT (8101)
+./start.bash              # API on BACKEND_PORT (8100); UI at /
+./start.bash --dev        # plus Vite on FRONTEND_PORT (8101), proxying /api
+make docker-up            # same as the first: one port, one origin
 ```
 
-`CA_API_URL` is the whole of its configuration (`http://localhost:8100` by
-default, `http://api:8100` under compose). `API_KEY` is picked up from the
-environment if the API demands one.
+`make api` after `make ui-build` is the same as a plain `./start.bash`. A
+fresh clone with no bundle still starts the API; `/` is absent until the
+bundle exists. Docker builds the bundle in a Node stage and copies it into
+the Python image, so `make docker-up` does not need Node on the host.
 
 ## The shape
 
@@ -31,192 +36,94 @@ environment if the API demands one.
 |---|---|
 | **The sidebar is application navigation** | Upload, the library, the document list, the active document, the trace id. Picking a contract here sets the scope. |
 | **The tabs are views of that document** | **Analysis** and **Chat**, rendered only once something is in scope. Upload and Library have no tab row — they are not views of a document. |
+| **The URL is the scope** | `:id` is the single source of truth. The sidebar reads it; nothing writes a copy of it into React state. |
 | **Everything is scoped to one contract** | Not a UI convention: `retrieve()`, `chat()` and `analyze_document()` all take a `document_id`, and nothing on screen may come from another. |
-| **The server is the state** | The ids are. This holds view state, a per-document transcript and three control values; a reload loses none of the work. |
+| **The server is the state** | The ids are. A reload loses none of the work. Chat's transcript is the exception: the API is stateless, so the list in memory *is* the conversation. |
 
 The KPI dashboard, when it lands, is a **third sidebar entry** — application
 level, spanning every document — not a fifth tab.
+
+Routes: `/upload`, `/library`, `/documents/:id/analysis`,
+`/documents/:id/chat`. `/_gaps` exists in development only, so every analysis
+state in the spec can be looked at against a sample that is otherwise
+all-green.
 
 ## Module layout
 
 ```
 ui/
-  app.py       set_page_config, the sidebar, the view switch
-  client.py    ApiClient over httpx2: one method per endpoint, one ApiError,
-               one place X-Trace-Id is minted and X-API-Key attached
-  state.py     every session_state key with its default, in one dict
-  theme.py     the tokens, and the three HTML builders
-  layout.py    the page header, and escape()
-  errors.py    every API `code` -> a headline, the hint, the trace id
-  views/       upload.py  library.py  analysis.py  chat.py
+  src/api/         client.ts, errors.ts, sse.ts, types.gen.ts
+  src/hooks/       TanStack Query: documents, analysis (poll), chat, health
+  src/components/  chips, quote cards, error surfaces, the shell pieces
+  src/views/       Upload, Library, Analysis, Chat
+  src/styles/      tokens.css, global.css
 ```
+
+`make ui-types` regenerates `types.gen.ts` from `docs/openapi.json`. Views
+call hooks; hooks call `client.ts`; nothing else in `ui/` mentions `fetch`.
 
 ## Decisions worth defending
 
-### `st.segmented_control`, not `st.tabs`
+### The poll is a query; chat is SSE
 
-Not a style preference. `st.tabs` cannot be switched programmatically, and the
-design requires exactly that: the library's **Analyse** and **Chat** buttons
-put the reviewer on a specific view of a specific document, and the upload
-result card does the same. A segmented control is backed by `session_state`, so
-any button can set it.
+Analysis is a job: submit, poll `GET /analyses/{id}` until a terminal status,
+read the report. TanStack Query's `refetchInterval` with a terminal-status
+predicate is that machine. The `criteria: [{id, status, state?, confidence?}]`
+array on that endpoint is exactly the progress table the running view draws.
+**Polling is the contract.**
 
-`st.tabs` also executes **every tab body on every re-run**, which would render
-the chat transcript on every two-second analysis poll.
-
-### The poll is a fragment; nothing here needs SSE
-
-`@st.fragment(run_every="2s")` re-runs the status block and nothing else.
-Without it a two-second poll re-runs the whole script for three minutes:
-re-fetching the document list, re-rendering the other tab, re-drawing the
-report as it arrives.
-
-The `criteria: [{id, status, state?, confidence?}]` array on
-`GET /analyses/{id}` is exactly the progress table the running view draws — so
-the API's decision to leave streaming and cancellation per-process costs this
-UI nothing. **Polling is the contract.**
-
-### One request per render, not one per row
-
-The sidebar and the library both draw from a single `GET /documents`. That is
-what `last_analysis`, `pages` and `chunks` were added to that endpoint for: a
-Streamlit script re-runs on every click, so a lookup per row is a lookup per
-row *per click*. The sidebar reads the active document out of the same list
-rather than calling `GET /documents/{id}` again.
-
-`last_analysis.states` is a count per compliance state, and the sentence — "5
-of 5 compliant", "2 gaps found" — is composed here. The API does not choose
-this client's words.
-
-### Raw HTML in three places, and nowhere else
-
-The state chip, the sub-requirement marker and the quote card. Each is
-something Streamlit has no primitive for:
-
-* the **chip** must carry its words as well as its colour — state in colour
-  alone is state a colourblind reviewer cannot read, and it is the most
-  important thing on the screen;
-* the **marker**'s *shape* is the distinction: `not_determined` is a dashed
-  outline because "we could not tell" must not read as "we checked and it is
-  absent";
-* the **quote card**'s 3px left rule cannot come from
-  `st.container(border=True)`, which draws four uniform sides.
-
-**Everything interpolated is escaped.** A quote is text extracted from a PDF
-somebody uploaded and a filename is whatever the client put in a multipart
-header. `html.escape` is applied at the boundary in `theme.py` and
-`layout.escape`, and colours and statuses are looked up in tables rather than
-interpolated, so a value the API invents cannot become CSS.
-
-### `app.py` imports absolutely, and `header` is not in it
-
-`streamlit run src/contract_analyzer/ui/app.py` executes that file as
-`__main__` with **no package context**, so a relative import there raises
-`ImportError: attempted relative import with no known parent package` the
-moment a browser connects — a failure that does not show up until a session
-exists, which is why it is written down. `app.py` uses absolute imports; the
-view modules keep relative ones, because they *are* imported as package
-modules.
-
-For the same reason the shared page header lives in `layout.py`. A view doing
-`from ..app import header` would import `contract_analyzer.ui.app` as a second
-module object and re-execute the script body, `main()` included, inside the
-first one.
+Chat is a stream. `sse.ts` splits frames so a token that arrives split across
+TCP packets is still one event. Buffering that stream would look like a hung
+request.
 
 ### Depth is an abstraction, and the number never reaches the screen
 
-`Depth` maps to `retrieval_top_k`:
-
-```python
-DEPTH_TOP_K = {"shallow": 3, "medium": 6, "deep": 12}
-```
-
-This is the one place the UI knowingly hides a parameter. A compliance reviewer
-has no basis for choosing 4 passages over 8, but does have a basis for choosing
-"deep" when a clause is buried in an exhibit. `medium` is **set from
-`/health`'s `retrieval_top_k` at boot**, so leaving the control alone and
-having no control at all are the same thing. The other two are a starting point
-and should be re-set from a real recall measurement.
+`topKFor(depth, configured)` maps shallow / medium / deep onto
+`retrieval_top_k`. **`medium` is `/health`'s `retrieval_top_k`**, so leaving
+the control alone and having no control at all are the same thing. Shallow is
+half, deep is double, clamped to the API's 1..20. The ratios are a labelled
+placeholder pending a recall measurement.
 
 ### Nothing about the backend is hardcoded
 
-`GET /health` is called once per session and supplies the model list (which is
-the same allowlist `POST /chat` validates against, so the picker cannot offer a
-choice the API will refuse), the retrieval defaults, the upload cap and the
-pool shape. `GET /criteria` supplies the criterion titles — a progress row
-carries an id and nothing else, and `data_in_transit` is not a name to put in
-front of a reviewer.
+`GET /health` supplies the model list (the same allowlist `POST /chat`
+validates against), the retrieval defaults, the upload cap and whether a key
+is present. `GET /criteria` supplies the titles — a progress row carries an
+id and nothing else.
 
-`key_present` is why the **Run compliance analysis** button is *disabled* with
-a tooltip rather than clickable and refused: that field exists so a UI can grey
-a button out instead of spending a click to discover a 503.
+`key_present` is why **Run compliance analysis** is *disabled* with a tooltip
+rather than clickable and refused.
 
 ### Error surfaces
 
-`errors.py` maps every `code` in the API's table to a headline, then renders
-the API's `message` and its `hint` beneath it — which is what the copy pass on
-`hint` was for: it is read by a person here, not only by a model recovering
-from a tool call. Two codes are minted client-side, because they describe
-something that happened on this side of the wire: `unreachable` and
-`bad_response`.
+`errors.ts` maps every API `code` to a placement (`inline`, `replaces-card`,
+`banner`, `full-pane`) and a title. Views switch on the *surface*, never on
+the code. There is no generic toast. Two codes are minted client-side:
+`unreachable` and `bad_response`. An unknown code falls back to an inline
+error rather than a white screen.
 
-A failure inside a dialog or just before an `st.rerun()` has nowhere to draw
-itself — the run it happened in is over — so it is stashed in `session_state`
-and rendered at the top of the next one. `errors.guard` catches `ApiError` and
-nothing else: anything else is a bug in this UI and should reach Streamlit's
-handler with its traceback intact.
+### One request per list, not one per row
 
-### Chat holds the transcript, keyed by document
-
-The API is stateless, so the list in `session_state` *is* the conversation, and
-it is sent back on every question. It is keyed by `document_id` because
-carrying one contract's transcript onto another is exactly the leak the product
-is built to prevent. Capped at 50 turns — `chat()` only replays the last 8, so
-the cap is about this process's memory, not the model's window.
-
-Citations are stored **with the turn**, so re-rendering the transcript costs
-nothing. Two failures are handled apart: a `503` before the stream opens
-appends no turn at all (a question with no reply is worse than no question),
-and an `error` event mid-stream keeps the partial text and marks the turn
-incomplete — never a bare spinner.
-
-## Version pin
-
-Four APIs are version-sensitive. All four exist at the pin this was built and
-tested against, **streamlit 1.62.0**, so none of the fallbacks the build plan
-allowed for are in the code:
-
-| API | Fallback if a pin loses it |
-|---|---|
-| `st.segmented_control` | `st.radio(horizontal=True)` |
-| `st.fragment(run_every=…)` | a manual `st.rerun()` loop with a `time.sleep` |
-| `[theme.fontFaces]` / `theme.baseRadius` | a CSS `@import`, and radius in `theme.py` |
-
-`pyproject.toml` pins `streamlit>=1.45`, the first release carrying all four.
+The sidebar and the library both draw from a single `GET /documents`. That is
+what `last_analysis`, `pages` and `chunks` were added to that endpoint for.
+`last_analysis.states` is a count per compliance state; the sentence — "5 of
+5 compliant", "2 gaps found" — is composed here.
 
 ## Testing
 
-`tests/test_ui.py` drives the app with `streamlit.testing.v1.AppTest`, which
-runs `app.py` the way a browser session does — the whole script, on every
-interaction. That is the only kind of test that means anything here: the
-interesting failures are *re-run* failures (a key that exists on the first pass
-and not the second, a widget default fighting `session_state`, a view rendered
-with a scope that just changed), and none are reachable by calling a render
-function directly.
+Python: `tests/test_ui_serving.py` pins that the API serves the bundle, that
+`/api` and `/` never collide, and that CORS stays empty. It uses a miniature
+bundle in `tmp_path` so the suite does not depend on `make ui-build`.
 
-The API is a stub that records what it was asked for, which is how the scoping
-assertions work: the proof that chat cannot leak across documents is that the
-request carried the right `document_id`. The wire itself is `test_api.py`'s.
+TypeScript: `make ui-test` (`vitest`) covers the SSE reader, the error map
+and the depth mapping.
 
 ## What is not here yet
 
 * **Citation → source.** A quote card names its section and page but does not
   open the passage. `GET /documents/{id}/sections` exists for it.
-* **Streaming tool trail.** `box.tool_calls` is collected and not displayed;
-  the working line the design shows ("searching … — hybrid retrieval") is not
-  drawn.
+* **Streaming tool trail.** Tool calls are collected and not displayed.
 * **Analysis history.** `GET /analyses?document_id=` returns every run; this
-  shows the newest and has no history control. Re-run keeps the older one.
+  shows the newest.
 * **The KPI dashboard.** `KPI_plan.md`. Third sidebar entry.
-* **Responsive behaviour below ~1100px.** The design is specified at 1440; the
-  sidebar and the two-column sub-requirement grid break first.
+* **Responsive behaviour below ~1100px.** The design is specified at 1440.

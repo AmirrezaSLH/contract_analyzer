@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Container entrypoint: one verb per surface, so `docker compose run app <verb>`
+# Container entrypoint: one verb per surface, so `docker compose run api <verb>`
 # reads the same whether the surface exists yet or not.
 #
-#   api    FastAPI over uvicorn                    (Phase C)
-#   ui     Streamlit                               (Phase C)
-#   mcp    MCP server on stdio                     (Phase C)
+#   api    FastAPI over uvicorn (also serves the built UI)
+#   mcp    MCP server on stdio
+#
 #   test   the offline pytest suite                (dev image)
 #   lint   ruff
 #   shell  interactive bash
@@ -36,13 +36,6 @@ case "$verb" in
         exec uvicorn contract_analyzer.api.main:app \
             --host "${API_HOST:-0.0.0.0}" \
             --port "${BACKEND_PORT:-8100}" "$@"
-        ;;
-    ui)
-        require streamlit "the Streamlit UI"
-        exec streamlit run src/contract_analyzer/ui/app.py \
-            --server.address "${UI_HOST:-0.0.0.0}" \
-            --server.port "${FRONTEND_PORT:-8101}" \
-            --server.headless true "$@"
         ;;
     mcp)
         require contract_analyzer.mcp "the MCP server"

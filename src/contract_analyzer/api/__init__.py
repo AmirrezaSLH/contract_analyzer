@@ -1,6 +1,6 @@
 """The HTTP API: one backend, four consumers.
 
-The Streamlit UI, the MCP server, an external connector and the CLIs all reach
+The React UI, the MCP server, an external connector and the CLIs all reach
 the same functions. This package is the HTTP surface over them and nothing
 more: every handler is `parse the request -> call a library function -> shape
 the response`, and anything a handler would otherwise decide for itself lives a

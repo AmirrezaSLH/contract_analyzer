@@ -1,20 +1,20 @@
 # Docker
 
 `Dockerfile`, `docker-compose.yml`, `docker/entrypoint.sh`, `.dockerignore` --
-a build-and-run foundation for the whole project. One image serves both
-servers -- the entrypoint's verb picks which -- and `make docker-up` brings up
-the API on `BACKEND_PORT` (8100) and the Streamlit UI on `FRONTEND_PORT`
-(8101). The `mcp` verb is wired and not
-yet implemented; it exits with a message naming the missing module rather than
-an `ImportError` from inside its runner.
+a build-and-run foundation for the whole project. One image: a Node stage
+builds the React bundle, the Python runtime serves it at `/` next to the API
+on `BACKEND_PORT` (8100). The `mcp` verb is wired and not yet implemented; it
+exits with a message naming the missing module rather than an `ImportError`
+from inside its runner.
 
 ## Stages
 
 | Stage | Contents | Used by |
 |---|---|---|
+| `ui-builder` | `node:22-slim`, `npm ci` and `vite build` | build only |
 | `base` | `python:3.13-slim-bookworm`, env, `/opt/venv` on PATH | both |
 | `builder` | the venv, dependencies resolved against a stub package | build only |
-| `runtime` | venv + source, non-root `app` user, `ENTRYPOINT entrypoint`, `CMD api` | `api`, `ui` |
+| `runtime` | venv + source + the bundle, non-root `app` user, `CMD api` | `api` |
 | `dev` | runtime + `.[dev]` (pytest, ruff) | `tools` |
 
 Two details are load-bearing:
@@ -28,7 +28,8 @@ Two details are load-bearing:
 * **Dependencies install against a stub package**, so the layer is keyed on
   `pyproject.toml` alone and editing a module does not re-resolve the tree. The
   real source is copied afterwards, over the same paths the editable finder
-  already points at.
+  already points at. The bundle is copied from `ui-builder` after that, so a
+  host without Node still ships a UI.
 
 `sqlite-vec` needs an interpreter built with loadable-extension support; the
 official `python` images have it, which is why the base is that image and not
@@ -41,8 +42,7 @@ arrive empty) and then dispatches:
 
 | Verb | Runs | State |
 |---|---|---|
-| `api` | `uvicorn contract_analyzer.api.main:app` on `BACKEND_PORT` (8100) | works |
-| `ui` | `streamlit run src/contract_analyzer/ui/app.py` on `FRONTEND_PORT` (8101) | works |
+| `api` | `uvicorn contract_analyzer.api.main:app` on `BACKEND_PORT` (8100); UI at `/` | works |
 | `mcp` | `python -m contract_analyzer.mcp.server` (stdio) | Phase C |
 | `test` | `pytest -q` | works |
 | `lint` | `ruff check src tests scripts` | works |
@@ -54,18 +54,15 @@ arrive empty) and then dispatches:
 | Service | Image stage | Ports | Started by `up` |
 |---|---|---|---|
 | `api` | runtime | `BACKEND_PORT` (8100) | yes |
-| `ui` | runtime | `FRONTEND_PORT` (8101) | yes, after `api` is **healthy** |
 | `tools` | dev | – | no (profile `tools`) |
 
-* **`ui` waits for `api` to be healthy**, not merely started: the UI calls
-  `GET /health` on its first render, and booting into "the API is not
-  reachable" is a worse first impression than waiting three seconds. It reaches
-  the API as `CA_API_URL: http://api:8100`, over the compose network -- the
-  Streamlit *server* makes those calls, not the browser, so there is no
-  cross-origin request and `api_cors_origins` stays empty.
-* **Both servers set `restart: unless-stopped`** on themselves rather than in
-  the shared anchor, because `tools` is a one-off container and restarting a
-  finished pytest run is not a policy anyone wants.
+* **One origin.** The API serves the bundle. There is no second UI container
+  and no `FRONTEND_PORT` mapping. `api_cors_origins` stays empty because the
+  browser never leaves that origin. `FRONTEND_PORT` is still in `.env` for
+  `./start.bash --dev` on the host.
+* **`api` sets `restart: unless-stopped`** on itself rather than in the shared
+  anchor, because `tools` is a one-off container and restarting a finished
+  pytest run is not a policy anyone wants.
 * **Secrets** come from `.env` at run time (`env_file`, `required: false`) and
   are never baked into a layer; `.dockerignore` excludes `.env` from the build
   context entirely.
@@ -77,7 +74,9 @@ arrive empty) and then dispatches:
   makes that one readonly, so `UID=$(id -u) docker compose build` aborts.) On a
   host user that is not 1000, rebuild rather than `chown` afterwards.
 * `tools` additionally mounts `./src`, `./tests` and `./scripts` from the host,
-  so with the editable install an edit is live without a rebuild.
+  so with the editable install an edit is live without a rebuild. That overlay
+  does not include the bundle; a tools container that needs `/` rebuilt still
+  needs an image rebuild.
 
 ## Commands
 
@@ -85,7 +84,7 @@ arrive empty) and then dispatches:
 make docker-build          # runtime + dev images
 make docker-test           # the offline suite, inside the image
 make docker-shell          # bash in the dev image, source mounted
-make docker-up             # api + ui in the background
+make docker-up             # api (and the UI it serves) in the background
 make docker-logs
 make docker-down           # V=1 to drop volumes too
 ```
@@ -101,9 +100,10 @@ docker compose run --rm tools lint
 
 Deployment proper: no image registry, no tagged release build, no reverse proxy
 or TLS, no non-bind-mount volume strategy, and no CI job building the image.
-The healthcheck on `api` polls `/health`, an endpoint that does not exist yet.
 
 ## Change log of this document
 
-* 2026-08-24 -- ports are `BACKEND_PORT` (8100) and `FRONTEND_PORT` (8101), matching `.env.example`.
+* 2026-08-24 -- Streamlit UI service removed; one process serves API and the
+  React bundle. Node `ui-builder` stage. Ports: `BACKEND_PORT` (8100) in
+  compose; `FRONTEND_PORT` is host Vite only.
 * 2026-08-23 -- first version: stages, entrypoint verbs, compose layout.

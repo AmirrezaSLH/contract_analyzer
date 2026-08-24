@@ -33,7 +33,7 @@ flowchart LR
         AN --> Evaluator --> JSON[validated JSON]
     end
     subgraph Later["Phase C -- surfaces"]
-        API[FastAPI] --> UI[Streamlit + KPI]
+        API[FastAPI] --> UI[React UI + KPI]
         API --> MCP[MCP server]
     end
     CH -.-> API
@@ -74,9 +74,9 @@ Two modules cut across everything and were built first:
 | `api/` | the HTTP surface: upload, analyses as jobs, streamed cited chat | [api.md](api.md) | done, tested; `/metrics/*` declared and 503 until the store lands |
 | `metrics/` | `runs` / `spans` / `criterion_results`, and the KPI queries | -- | next |
 | `evaluator` | the critic pass over each result | -- | next |
-| `ui/` | the Streamlit front end: upload, library, analysis, chat -- a client of the API like any other | [ui.md](ui.md) | done, tested |
+| `ui/` | the React front end (repo-root Vite app): upload, library, analysis, chat -- a client of `/api` like any other | [ui.md](ui.md) | done, tested |
 | `mcp/` | the fourth surface | -- | Phase C |
-| `Dockerfile`, `docker-compose.yml`, `docker/` | build and run the whole thing in a container | [docker.md](docker.md) | `api` and `ui` live; the `mcp` verb awaits Phase C |
+| `Dockerfile`, `docker-compose.yml`, `docker/` | build and run the whole thing in a container | [docker.md](docker.md) | `api` (and the UI it serves) live; the `mcp` verb awaits Phase C |
 
 ## Data flow, end to end (Phase A)
 
@@ -136,7 +136,7 @@ Two modules cut across everything and were built first:
 | Analyses are jobs, not long requests | measured: 187 s sequential, ~60 s at five workers, $0.96 -- past every browser, proxy and MCP client timeout | a synchronous POST that the client cannot wait for |
 | The API contains no logic the CLI does not have | `POST /analyses` and `scripts/analyze.py` call one `analyze_document()`; a handler that decides something is a decision the command line cannot reach | business logic in route handlers |
 | Every upload mints a new `document_id` | `ingest_file` keys uniqueness on path, so a uuid in the stored path is how two people demoing at once stay isolated | content-hash dedupe, which would share one document between sessions |
-| The UI holds no logic either | it parses nothing, opens no database, calls no model; `CA_API_URL` is its whole configuration, so the four consumers cannot drift apart | rendering logic in the front end, which would need a second implementation for MCP |
+| The UI holds no logic either | it parses nothing, opens no database, calls no model; the browser talks to `/api` on the same origin | rendering logic in the front end, which would need a second implementation for MCP |
 | Ids are the only server state | one dict of jobs, no sessions, no server-side transcript; the UI, an MCP tool and a connector can all watch the same job | a session store between four consumers |
 
 ## Repository layout
@@ -147,9 +147,10 @@ src/contract_analyzer/   the package (src layout; `pip install -e .`)
   documents.py           the catalogue: what is ingested, and dropping it
   report.py              five criteria over one contract -> AnalysisReport
   parse/  ingest/  embeddings/  retrieval/  generation/  compliance/
-  api/                   the HTTP surface (see below)
+  api/                   the HTTP surface (see below); serves the built UI at `/`
 scripts/                 CLIs (analyze, export_openapi, ingest, search, chat)
 tests/                   offline suite: fake embedder, scripted SSE API, mock transport
+ui/                      Vite + React front end; `make ui-build` writes into `api/static/`
 docker/                  entrypoint.sh (one verb per surface); Dockerfile at the root
 docs/                    this folder -- one file per module, plus openapi.json
 plan_implement_docs/     plans before, reports after, per phase
@@ -189,6 +190,8 @@ inside it. See [docker.md](docker.md).
 
 ## Change log of this document
 
+* 2026-08-24 -- Streamlit front end removed. `ui/` at the repo root is the
+  React app; FastAPI serves the bundle. One origin, one port for a demo.
 * Checkpoint 6 (2026-08-24): the document runner and the HTTP API. `report.py`
   runs the five criteria in parallel -- one connection per criterion, the trace
   id carried across the pool, events tagged with their criterion and delivered

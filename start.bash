@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Start the whole app and follow its logs.
 #
-#   ./start.bash          the HTTP API (and the built front end it serves)
+#   ./start.bash          the HTTP API (and the built React front end it serves)
 #   ./start.bash --dev    plus the Vite dev server, proxying /api at the API
 #   ./start.bash --detach start and return, leaving them running
 #

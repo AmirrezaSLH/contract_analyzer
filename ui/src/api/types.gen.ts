@@ -144,8 +144,7 @@ export interface paths {
          * @description What a client binds a session to, with enough to draw a row for each.
          *
          *     `last_analysis` comes from one query over the whole list rather than one
-         *     per document: this is the endpoint a library table renders from, and a
-         *     Streamlit script re-runs it on every click.
+         *     per document: this is the endpoint a library table renders from.
          */
         get: operations["index_api_documents_get"];
         put?: never;

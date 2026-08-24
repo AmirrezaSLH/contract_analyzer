@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Stop everything this app started, including what it orphaned.
 #
-#   ./stop.bash           stop the API and the UI
+#   ./stop.bash           stop the API and, if running, the Vite dev server
 #   ./stop.bash --dry-run list what would be killed, kill nothing
 #
 # Three passes, because a pidfile is not the whole story:
@@ -54,14 +54,14 @@ DRY=0
 [[ "${1:-}" == "--dry-run" || "${1:-}" == "-n" ]] && DRY=1
 
 #: Extended regexes matching a *server invocation*, not merely a mention of one.
-#: `pgrep -f` matches the whole command line, so a bare 'contract_analyzer/ui/
-#: app.py' would also match an editor with that file open, a `tail -f` on its
-#: log, or the very grep looking for it -- all of which run in this directory,
-#: so the cwd check below cannot tell them apart. Requiring the interpreter and
-#: the `-m` invocation is what makes the match mean "this is a running server".
+#: `pgrep -f` matches the whole command line, so a bare 'uvicorn' would also
+#: match an editor with a log open, a `tail -f`, or the grep looking for it --
+#: all of which run in this directory, so the cwd check below cannot tell them
+#: apart. Requiring the interpreter and the `-m` invocation is what makes the
+#: match mean "this is a running server". The UI in production is a static
+#: bundle the API serves; the only separate UI process is Vite under `--dev`.
 PATTERNS=(
     'python[0-9.]* +-m +uvicorn +contract_analyzer\.api\.main:app'
-    'python[0-9.]* +-m +streamlit +run +.*contract_analyzer/ui/app\.py'
     # Vite via `npm run dev` in ui/: the bin path contains this checkout.
     "node .+${ROOT//./\\.}/ui/.+vite"
 )

@@ -205,6 +205,52 @@ def test_stored_vectors_are_searchable(raw, conn, embedder, settings):
     assert all(hit["chunk_id"] in ids for hit in hits)
 
 
+def test_every_vector_row_carries_its_document(raw, conn, embedder, settings):
+    """The vec0 partition key is not optional in practice.
+
+    A row written without it lands in the NULL partition: invisible to every
+    document-scoped KNN query, while `chunks` = `chunks_vec` still tallies. So
+    the counts are checked *per document*, which is the only form of the
+    assertion that can fail on the mistake it is guarding against.
+    """
+    write_contract(raw / "second.pdf", pages=2, marker="beta")
+    ingest_paths([raw], conn, embedder, settings)
+
+    orphans = conn.execute(
+        "SELECT count(*) FROM chunks_vec WHERE document_id IS NULL"
+    ).fetchone()[0]
+    assert orphans == 0
+
+    per_document = dict(
+        conn.execute("SELECT document_id, count(*) FROM chunks GROUP BY document_id")
+    )
+    per_partition = dict(
+        conn.execute("SELECT document_id, count(*) FROM chunks_vec GROUP BY document_id")
+    )
+    assert per_document == per_partition
+    assert len(per_document) == 2
+
+
+def test_a_database_from_before_the_partition_is_refused(tmp_path, settings):
+    """`CREATE VIRTUAL TABLE IF NOT EXISTS` keeps an old definition silently.
+
+    Without this check the failure surfaces much later, and somewhere else: the
+    first document-scoped search raises `no such column: document_id`, which
+    says nothing about the database being stale.
+    """
+    from contract_analyzer.db import SchemaMismatch, apply_schema, connect
+
+    conn = connect(tmp_path / "old.db")
+    conn.execute(
+        f"CREATE VIRTUAL TABLE chunks_vec USING vec0 (chunk_id INTEGER PRIMARY KEY, "
+        f"embedding FLOAT[{DIM}])"
+    )
+    conn.commit()
+
+    with pytest.raises(SchemaMismatch, match="PARTITION KEY"):
+        apply_schema(conn, DIM)
+
+
 def test_full_text_index_finds_the_body_text(raw, conn, embedder, settings):
     ingest_paths([raw], conn, embedder, settings)
     # Quoted, because FTS5 reads a bare hyphen as a column filter: the same

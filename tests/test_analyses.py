@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 import struct
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -52,6 +53,11 @@ from test_report import script
 DIM = 4
 CLAUSE = "Supplier shall rotate credentials and encrypt data in transit at all times."
 CRITERIA = get_criteria()
+
+#: See `test_api.NO_BUNDLE`: an app under test serves the API, never a bundle
+#: that may or may not have been built in this checkout.
+NO_BUNDLE = Path(__file__).resolve().parent / "no-such-bundle"
+
 
 
 @pytest.fixture
@@ -285,7 +291,8 @@ def test_a_cli_run_is_readable_through_the_api(settings, conn, searches):
     report = run(settings, conn)
     assert get_analysis(conn, report.analysis_id).surface == "cli"
 
-    app = create_app(settings, embedder=FakeEmbedder(settings), client=object())
+    app = create_app(settings, embedder=FakeEmbedder(settings), client=object(),
+                     static_dir=NO_BUNDLE)
     with TestClient(app) as client:
         body = client.get(f"/api/analyses/{report.analysis_id}").json()
         assert body["status"] == "done"
@@ -309,7 +316,8 @@ def test_streaming_and_cancelling_a_run_this_process_does_not_own_is_a_409(
 
     queue_analysis(conn, "elsewhere", 1, filename="contract.pdf", criteria=["a"])
 
-    app = create_app(settings, embedder=FakeEmbedder(settings), client=object())
+    app = create_app(settings, embedder=FakeEmbedder(settings), client=object(),
+                     static_dir=NO_BUNDLE)
     with TestClient(app) as client:
         # The lifespan reconciled the row it found queued, so it reads honestly.
         assert client.get("/api/analyses/elsewhere").json()["status"] == "interrupted"

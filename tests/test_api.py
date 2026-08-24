@@ -42,6 +42,13 @@ from contract_analyzer.db import get_db
 from contract_analyzer.embeddings.fake import FakeEmbedder
 from contract_analyzer.generation import tools as T
 
+#: A directory with no `index.html` in it, so the app under test serves the API
+#: and nothing else. The front-end bundle is a build artefact: whether one is
+#: present in this checkout depends on whether anyone has run `make ui-build`,
+#: and a suite whose behaviour turns on that is a suite that passes on one
+#: machine and fails on the next. `test_ui_serving.py` supplies its own bundle.
+NO_BUNDLE = Path(__file__).resolve().parent / "no-such-bundle"
+
 CRITERIA = get_criteria()
 CLAUSE = "Supplier shall rotate credentials every ninety (90) days and encrypt data in transit."
 DECOY_CLAUSE = "Zephyrine Holdings shall vault every privileged password without exception."
@@ -81,7 +88,8 @@ def api() -> ScriptedAPI:
 
 @pytest.fixture
 def client(settings, api):
-    app = create_app(settings, embedder=FakeEmbedder(settings), client=scripted_client(api))
+    app = create_app(settings, embedder=FakeEmbedder(settings),
+                     client=scripted_client(api), static_dir=NO_BUNDLE)
     with TestClient(app) as client:
         yield client
 
@@ -93,6 +101,7 @@ def keyless(settings):
         settings.model_copy(update={"anthropic_api_key": None}),
         embedder=FakeEmbedder(settings),
         client=None,
+        static_dir=NO_BUNDLE,
     )
     with TestClient(app) as client:
         yield client
@@ -314,7 +323,8 @@ def test_a_missing_embedding_key_is_503_not_a_201_with_no_chunks(settings, tmp_p
     openai_settings = settings.model_copy(
         update={"embedding_provider": "openai", "openai_api_key": None}
     )
-    with TestClient(create_app(openai_settings, embedder=None, client=None)) as client:
+    app = create_app(openai_settings, embedder=None, client=None, static_dir=NO_BUNDLE)
+    with TestClient(app) as client:
         response = upload(client, PDF_HEADER + b"x")
     assert response.status_code == 503
     assert response.json()["error"]["code"] == "embedder_unavailable"
@@ -563,7 +573,7 @@ def restarted(settings, api) -> TestClient:
     """A second app over the same database. What a restart looks like from the
     outside, and the only way to falsify "the report survived it"."""
     return TestClient(create_app(settings, embedder=FakeEmbedder(settings),
-                                 client=scripted_client(api)))
+                                 client=scripted_client(api), static_dir=NO_BUNDLE))
 
 
 def analysed(client, api, small_pdf) -> tuple[int, str, dict]:
@@ -965,7 +975,8 @@ def test_a_key_protects_everything_except_health_and_criteria(settings):
     # Constructed, not `model_copy`d: `api_key` is a `SecretStr`, and
     # `model_copy` skips validation, so an update would store a bare `str`.
     protected = Settings(**{**settings.model_dump(), "api_key": "s3cret"})
-    with TestClient(create_app(protected, embedder=FakeEmbedder(settings), client=None)) as client:
+    with TestClient(create_app(protected, embedder=FakeEmbedder(settings), client=None,
+                          static_dir=NO_BUNDLE)) as client:
         assert client.get("/api/health").status_code == 200
         assert client.get("/api/criteria").status_code == 200
         assert client.get("/api/health").json()["auth_required"] is True
@@ -993,7 +1004,11 @@ def test_metrics_are_declared_and_honestly_unavailable(client):
 
 def test_every_route_is_behind_the_api_prefix(client):
     """The prefix is what lets one process serve the API and the browser client
-    from one origin, so nothing may be reachable without it."""
+    from one origin, so nothing may be reachable without it.
+
+    `client` has no bundle mounted, so the unprefixed paths are plain 404s.
+    With one mounted they would return the app -- which is the same statement:
+    nothing there is the API."""
     for path in ("/documents", "/criteria", "/analyses", "/metrics/summary"):
         assert client.get(path).status_code == 404, path
 
@@ -1031,11 +1046,8 @@ def test_an_unknown_api_path_is_a_404_in_this_apis_envelope(client):
 def test_the_app_starts_without_a_built_front_end(client):
     """The bundle is a build artefact. A fresh clone, the suite and `make api`
     before `make ui-build` all run without one, and `StaticFiles` raises on a
-    missing directory -- so the mount is conditional and this app, built in a
-    tree with no bundle, is the proof."""
-    from contract_analyzer.api.main import STATIC_DIR
-
-    assert not (STATIC_DIR / "index.html").exists()
+    missing directory -- so the mount is conditional. `client` is built against
+    a directory that does not exist, which is the proof."""
     assert client.get("/api/health").status_code == 200
     # Nothing is mounted at "/", so a client-side route is a plain 404 rather
     # than a crash.

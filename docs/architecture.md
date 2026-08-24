@@ -75,7 +75,7 @@ Two modules cut across everything and were built first:
 | `metrics/` | `runs` / `spans` / `criterion_results`, and the KPI queries | -- | next |
 | `evaluator` | the critic pass over each result | -- | next |
 | `ui/` | the React front end (repo-root Vite app): upload, library, analysis, chat -- a client of `/api` like any other | [ui.md](ui.md) | done, tested |
-| `MCP-Connector/` | the fourth surface: seven MCP tools over the HTTP API, importing nothing from this package | [MCP-Connector/README.md](../MCP-Connector/README.md) | done, tested |
+| `MCP-Connector/` | the fourth surface: seven MCP tools over the HTTP API, importing nothing from this package | [mcp.md](mcp.md) | done, tested |
 | `Dockerfile`, `docker-compose.yml`, `docker/` | build and run the whole thing in a container | [docker.md](docker.md) | `api` (and the UI it serves) and `mcp` both live |
 
 ## Data flow, end to end (Phase A)

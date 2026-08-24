@@ -11,8 +11,8 @@ suggestion.
     python -m mcp_connector                      # stdio, for a local desktop client
     python -m mcp_connector --transport http     # streamable HTTP on MCP_PORT
 
-See `MCP-Connector/README.md` for the tool set, the transports and the
-rationale behind both.
+See `docs/mcp.md` for the tool set, the transports and the rationale behind
+both.
 """
 
 from __future__ import annotations

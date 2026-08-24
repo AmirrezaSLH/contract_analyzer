@@ -156,7 +156,7 @@ That is the endpoint an MCP host wants, and the reason is not cost alone: a
 host is *already* a model with a transcript and a user in front of it, so
 wrapping chat would mean paying twice, replaying a conversation the host
 already owns, and dropping the streaming on the way. See
-[MCP-Connector/README.md](../MCP-Connector/README.md).
+[mcp.md](mcp.md).
 
 **The mode is not a request parameter.** Chat exposes `retrieval_mode` because
 the model behind it can read the mode back and try another one. Search does not:

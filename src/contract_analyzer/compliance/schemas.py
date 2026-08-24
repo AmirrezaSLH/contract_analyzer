@@ -21,6 +21,7 @@ schema cannot drift from it.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -141,26 +142,42 @@ class EvaluatorFindings(_Strict):
     def disputed_statuses(self) -> list[StatusAgreement]:
         return [s for s in self.status_agreement if s.agreement != "agree"]
 
-    @property
-    def support_score(self) -> float:
-        """How much of what was claimed the critic found actually supported.
+    def support_ratio(self, statuses: Mapping[str, str] | None = None) -> float:
+        """How much of what was claimed the critic found actually carried.
 
         One judgement per (quote, sub-requirement) pair, so a quote cited for
         two sub-requirements is judged twice and counts twice -- the unit here
-        is a claim, not a string. `partial` scores a half: a hedged quote is
-        evidence, just not whole evidence, and scoring it zero would punish an
-        analyst who correctly answered `partial` with correctly partial
-        language.
-        """
-        return sum(
-            1.0 if q.support == "supports" else 0.5 if q.support == "partial" else 0.0
-            for q in self.quote_support
-        )
+        is a claim, not a string. 1.0 when nothing was claimed: a
+        Non-Compliant verdict quotes nothing, and dividing by zero claims
+        would make "found no language" indistinguishable from "quoted badly".
 
-    @property
-    def support_ratio(self) -> float:
-        """`support_score` over the claims judged; 1.0 when nothing was claimed."""
-        return self.support_score / len(self.quote_support) if self.quote_support else 1.0
+        **A quote is scored against the status it was cited for**, which is
+        `statuses` -- sub-requirement id to `met` / `partial` / ... Partial
+        support for a `partial` claim is *agreement*, and scoring it at a half
+        would penalise an analyst who read a hedged clause correctly and said
+        so. Only a claim the evidence falls short of loses anything:
+
+        | claimed | critic says | scores |
+        |---|---|---|
+        | `met` | `supports` | 1.0 |
+        | `met` | `partial` | 0.5 -- the language does not carry the obligation claimed |
+        | `partial` | `supports` or `partial` | 1.0 |
+        | anything | `irrelevant` or `contradicts` | 0.0 |
+
+        Without `statuses` every `partial` scores a half. That is the
+        conservative reading, used only where the claim is not to hand.
+        """
+        if not self.quote_support:
+            return 1.0
+        claimed = dict(statuses or {})
+        total = 0.0
+        for judged in self.quote_support:
+            if judged.support == "supports":
+                total += 1.0
+            elif judged.support == "partial":
+                # Full credit only when `partial` was what was claimed.
+                total += 1.0 if claimed.get(judged.sub_requirement_id) == "partial" else 0.5
+        return total / len(self.quote_support)
 
 
 class CitedPassage(BaseModel):

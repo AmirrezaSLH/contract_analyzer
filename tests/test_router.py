@@ -369,6 +369,51 @@ def test_the_composed_confidence_takes_the_pessimist_of_the_two_estimates(search
     assert result.confidence == pytest.approx(0.55)
 
 
+def test_partial_evidence_for_a_partial_claim_does_not_cost_the_score(searches):
+    """Found by running the pipeline against the real API: the critic agreed
+    with every status and every quote, and the confidence still came out at
+    half, because `partial` support was scored as a shortfall even where
+    `partial` was exactly what had been claimed."""
+    api = ScriptedAPI(
+        *loop_turns(),
+        sse_message([{"type": "text", "text": draft_json(
+            state="Partially Compliant", rotation="partial", vaulting="partial",
+            confidence=0.8)}]),
+        sse_message([{"type": "text", "text": findings_json(
+            quote_support=[
+                {"quote_index": 0, "sub_requirement_id": "rotation",
+                 "support": "partial", "note": "carve-out"},
+                {"quote_index": 1, "sub_requirement_id": "vaulting",
+                 "support": "partial", "note": "hedged"},
+            ],
+            critic_confidence=0.85)}]),
+    )
+    result = route(api)
+
+    assert result.verdict == "accept"
+    assert result.confidence_components["quote_term"] == 1.0
+    assert result.confidence == pytest.approx(0.8)
+
+
+def test_partial_evidence_for_a_met_claim_still_costs_the_score(searches):
+    """The other half of the same rule: `partial` support under a `met` status
+    is the shortfall the quote term exists to measure."""
+    api = ScriptedAPI(
+        *loop_turns(),
+        sse_message([{"type": "text", "text": draft_json(confidence=0.8)}]),
+        sse_message([{"type": "text", "text": findings_json(
+            quote_support=[
+                {"quote_index": 0, "sub_requirement_id": "rotation",
+                 "support": "partial", "note": "only permits"},
+                {"quote_index": 1, "sub_requirement_id": "vaulting",
+                 "support": "supports", "note": "obliges"},
+            ],
+            critic_confidence=0.85)}]),
+    )
+    result = route(api)
+    assert result.confidence_components["quote_term"] == 0.75
+
+
 def test_a_critic_reading_a_different_state_costs_the_score_but_not_the_verdict(searches):
     api = ScriptedAPI(
         *loop_turns(),

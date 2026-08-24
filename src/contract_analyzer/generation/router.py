@@ -314,6 +314,9 @@ def finalize(
 
     needs_review = result.needs_review or verdict != "accept"
     claimed = len(result.relevant_quotes)
+    # Each quote is scored against the status it was cited for: partial support
+    # for a `partial` claim is agreement, not a half-failure.
+    statuses = {sub.id: sub.status for sub in result.sub_requirements}
     confidence, components = compute_confidence(
         result.raw_confidence,
         verified=sum(1 for q in result.relevant_quotes if q.verified),
@@ -323,7 +326,7 @@ def finalize(
         needs_review=needs_review,
         ended_by=result.ended_by,
         critic=findings.critic_confidence if findings else None,
-        support_ratio=findings.support_ratio if findings else None,
+        support_ratio=findings.support_ratio(statuses) if findings else None,
         state_agreed=findings.state_agreement == "agree" if findings else True,
     )
     result.confidence = confidence

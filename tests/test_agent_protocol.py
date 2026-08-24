@@ -120,20 +120,40 @@ def test_every_enum_the_critic_may_answer_is_in_the_schema():
         (["contradicts"], 0.0),
     ],
 )
-def test_support_ratio_scores_partial_at_a_half(supports, expected):
+def test_partial_support_for_an_unnamed_claim_scores_a_half(supports, expected):
+    """Without the statuses to compare against, `partial` is read
+    conservatively. The Router always has them; this is the fallback."""
     judged = findings(
         quote_support=[
             {"quote_index": i, "sub_requirement_id": "rotation", "support": s, "note": ""}
             for i, s in enumerate(supports)
         ]
     )
-    assert judged.support_ratio == pytest.approx(expected)
+    assert judged.support_ratio() == pytest.approx(expected)
+
+
+def test_partial_support_for_a_partial_claim_is_agreement_and_costs_nothing():
+    """The bug this exists to prevent, found by running the pipeline for real:
+    a criterion where the critic agreed with every status and every quote still
+    scored 0.36, because seven `partial` readings of seven `partial` claims were
+    counted as half-failures. Reading a hedged clause correctly and saying so is
+    the right answer, not a discount."""
+    judged = findings(
+        quote_support=[
+            {"quote_index": 0, "sub_requirement_id": "rotation", "support": "partial",
+             "note": "carve-out for technical necessity"},
+        ]
+    )
+    assert judged.support_ratio({"rotation": "partial"}) == 1.0
+    # But the same reading under a `met` claim is exactly the shortfall the
+    # term is for: the language does not carry the obligation claimed.
+    assert judged.support_ratio({"rotation": "met"}) == 0.5
 
 
 def test_support_ratio_of_a_draft_that_claimed_nothing_is_one():
     """A Non-Compliant verdict quotes nothing. Dividing by zero claims would
     make "found no language" indistinguishable from "quoted badly"."""
-    assert findings(quote_support=[]).support_ratio == 1.0
+    assert findings(quote_support=[]).support_ratio() == 1.0
 
 
 def test_disputed_reads_only_the_two_values_that_mean_the_quote_failed():

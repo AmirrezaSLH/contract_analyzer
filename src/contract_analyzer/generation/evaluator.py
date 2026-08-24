@@ -384,6 +384,7 @@ def _critic(
     prompts = get_prompts(settings)
     system = prompts.get("evaluator.system")
     user = prompts.format("evaluator.user", request=_render(request))
+    statuses = {sub.id: sub.status for sub in request.sub_requirements}
     usage = Usage()
     reason = "never attempted"
 
@@ -422,7 +423,7 @@ def _critic(
                     disputed_quotes=len(findings.disputed_quotes),
                     disputed_statuses=len(findings.disputed_statuses),
                     missing_searches=len(findings.missing_searches),
-                    support_ratio=round(findings.support_ratio, 3),
+                    support_ratio=round(findings.support_ratio(statuses), 3),
                     input_tokens=usage.input_tokens,
                     output_tokens=usage.output_tokens,
                     cost_usd=usage.cost(settings.evaluator_model),

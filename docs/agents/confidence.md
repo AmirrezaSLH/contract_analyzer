@@ -59,6 +59,23 @@ checked without a reader. Now that a reader judges support directly, the proxy
 steps aside. It remains a hard gate upstream in `validate.py`, where a
 non-verbatim quote is dropped before it can be judged at all.
 
+Each quote is scored **against the status it was cited for**, one judgement per
+(quote, sub-requirement) pair:
+
+| claimed | critic says | scores |
+|---|---|---|
+| `met` | `supports` | 1.0 |
+| `met` | `partial` | 0.5 -- the language does not carry the obligation claimed |
+| `partial` | `supports` or `partial` | 1.0 |
+| anything | `irrelevant` or `contradicts` | 0.0 |
+
+Partial support for a `partial` claim is **agreement**, and must not cost
+anything. Scoring it at a half penalises an analyst who read a hedged clause
+correctly and said so -- which is the right answer, not a discount. This was a
+real bug, found by running the pipeline against the live API rather than by
+reading the formula: a criterion where the critic agreed with every status and
+every quote still scored 0.36.
+
 ### The agreement factor
 
 0.6, not 0. Two careful readers disagreeing means the answer is uncertain, not

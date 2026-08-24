@@ -95,9 +95,10 @@ failed attempt.
 
 One judgement per **(quote, sub-requirement) pair**: a quote cited for two
 sub-requirements is judged twice, because the unit being scored is a claim,
-not a string. `support_ratio` scores `partial` at a half -- a hedged quote is
-evidence, just not whole evidence, and scoring it zero would punish an analyst
-who correctly answered `partial` with correctly partial language.
+not a string. `support_ratio(statuses)` scores each judgement against the
+status it was cited for -- partial support for a `partial` claim is agreement
+and costs nothing; partial support for a `met` claim is the shortfall the term
+exists to measure. See [confidence.md](confidence.md#quote_term).
 
 ## Failure, and the backoff ladder
 

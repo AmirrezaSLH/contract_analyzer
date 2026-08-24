@@ -102,18 +102,38 @@ class ApiClient:
     one 413 into three. A failed request here is shown to the user.
     """
 
-    def __init__(self, base_url: str | None = None, api_key: str | None = None) -> None:
+    def __init__(
+        self,
+        base_url: str | None = None,
+        api_key: str | None = None,
+        transport: Any = None,
+    ) -> None:
         self.base_url = (base_url or os.getenv("CA_API_URL", "http://localhost:8000")).rstrip("/")
         self.api_key = api_key if api_key is not None else os.getenv("API_KEY")
+        # A seam, not configuration. The views are tested against a stub of
+        # this class, which means the plumbing below -- header merging, the
+        # error envelope, the SSE reader -- is not exercised by them at all.
+        # Handing in an `httpx.MockTransport` is how those get tested without a
+        # server. Left as None it is httpx's own, which is every real process.
+        self._transport = transport
 
     # -- plumbing -----------------------------------------------------------
 
-    def _headers(self, trace_id: str | None = None) -> dict[str, str]:
+    def _headers(
+        self, trace_id: str | None = None, extra: dict[str, str] | None = None
+    ) -> dict[str, str]:
+        """The key, the trace id, and whatever this one call adds.
+
+        `extra` is merged here rather than passed through to httpx separately,
+        because there is only one `headers=` argument to give it: a caller that
+        supplied its own would collide with this one.
+        """
         headers = {}
         if self.api_key:
             headers["X-API-Key"] = self.api_key
         if trace_id:
             headers["X-Trace-Id"] = trace_id
+        headers.update(extra or {})
         return headers
 
     def _request(
@@ -123,13 +143,18 @@ class ApiClient:
         *,
         trace_id: str | None = None,
         timeout: float = DEFAULT_TIMEOUT,
+        headers: dict[str, str] | None = None,
         **kwargs: Any,
     ) -> Any:
+        # `headers` is a named parameter, not part of `**kwargs`: it is the one
+        # argument this method already supplies, so leaving it in the passthrough
+        # is a TypeError waiting for the first caller that needs one of its own
+        # -- which is `create_analysis` with its Idempotency-Key.
         url = f"{self.base_url}{path}"
         try:
-            with httpx.Client(timeout=timeout) as client:
+            with self._client(timeout) as client:
                 response = client.request(
-                    method, url, headers=self._headers(trace_id), **kwargs
+                    method, url, headers=self._headers(trace_id, headers), **kwargs
                 )
         except httpx.HTTPError as exc:
             raise ApiError(
@@ -140,6 +165,11 @@ class ApiClient:
                 trace_id=trace_id,
             ) from exc
         return self._body(response, trace_id)
+
+    def _client(self, timeout: float) -> httpx.Client:
+        if self._transport is not None:
+            return httpx.Client(timeout=timeout, transport=self._transport)
+        return httpx.Client(timeout=timeout)
 
     @staticmethod
     def _body(response: httpx.Response, trace_id: str | None = None) -> Any:
@@ -221,9 +251,7 @@ class ApiClient:
         double-clicked button is a real cost -- and treating it as an error
         would be treating a saved dollar as a failure.
         """
-        headers = {}
-        if idempotency_key:
-            headers["Idempotency-Key"] = idempotency_key
+        headers = {"Idempotency-Key": idempotency_key} if idempotency_key else None
         body: dict[str, Any] = {"document_id": document_id}
         if criteria:
             body["criteria"] = criteria
@@ -290,7 +318,7 @@ class ApiClient:
         )
         try:
             with (
-                httpx.Client(timeout=STREAM_TIMEOUT) as client,
+                self._client(STREAM_TIMEOUT) as client,
                 client.stream(
                     "POST",
                     f"{self.base_url}/chat",

@@ -63,9 +63,23 @@ class Settings(BaseSettings):
     #: Streaming, so this can be generous; an answer over five short passages
     #: never approaches it, and a truncated answer is worse than a slow one.
     answer_max_tokens: int = Field(default=8000, gt=0)
-    #: A question answered from five retrieved passages is not a reasoning
-    #: problem. `low` is the cost lever; thinking itself stays on.
-    answer_effort: AnswerEffort = "low"
+    #: Effort is a per-surface setting. A follow-up question answered from a
+    #: few retrieved passages is not a reasoning problem, so chat runs `low`;
+    #: the compliance analysis is where to spend. Thinking itself stays on --
+    #: `effort` is the only lever this model accepts (see docs/generation.md).
+    chat_effort: AnswerEffort = "low"
+    analysis_effort: AnswerEffort = "medium"
+    #: Hard caps on the agent loop. Not getting stuck is enforced by counters,
+    #: not by prompting: a run that hits one is finished with what it has and
+    #: marked `ended_by="cap"`.
+    chat_max_tool_calls: int = Field(default=4, gt=0)
+    #: Per criterion; five criteria run per contract.
+    analysis_max_tool_calls: int = Field(default=8, gt=0)
+    #: The evidence ledger's total, across every tool result in one run.
+    max_evidence_tokens: int = Field(default=12_000, gt=0)
+    #: Rounds of structural self-correction before a bad quote is dropped and
+    #: the result flagged `needs_review`.
+    structure_fix_rounds: int = Field(default=2, ge=0)
     #: The prompt library. Point it elsewhere to re-aim the assistant at
     #: another domain without touching the package -- see generation/prompts.py.
     prompts_path: Path = Path("src/contract_analyzer/generation/prompts.json")

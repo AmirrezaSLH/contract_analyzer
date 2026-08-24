@@ -234,6 +234,7 @@ def test_health_reports_what_the_service_can_actually_do(client, keyless):
     assert body["status"] == "ok" and body["db"] is True
     assert body["embedder"] == "fake" and body["key_present"] is True
     assert body["auth_required"] is False
+    assert body["analysis_model"] == "claude-sonnet-5"
 
     # The question a UI actually asks: upload works, analysis does not.
     assert keyless.get("/api/health").json()["key_present"] is False

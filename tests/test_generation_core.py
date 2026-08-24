@@ -72,7 +72,11 @@ def fake_retrieval(monkeypatch):
 
 
 def settings(**overrides) -> Settings:
-    base = dict(anthropic_api_key="test-key", log_file=None, embedding_provider="fake")
+    # Pin the model this module prices against. Settings() still reads
+    # settings.json for unspecified fields, and that file is the experiment
+    # knob -- a cheaper analysis_model must not move these assertions.
+    base = dict(anthropic_api_key="test-key", log_file=None, embedding_provider="fake",
+                answer_model="claude-opus-5")
     base.update(overrides)
     return Settings(**base)
 

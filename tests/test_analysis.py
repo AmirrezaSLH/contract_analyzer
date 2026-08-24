@@ -322,6 +322,18 @@ def test_a_clean_draft_needs_no_correction_and_the_finisher_request_is_structure
     assert "sixty" not in json.dumps(finisher)
     # The loop's requests carried the criterion and its sub-requirements.
     assert "rotation: Rotation at least every 90 days" in api.requests[0]["system"]
+    assert result.model == "claude-sonnet-5"
+    assert all(req["model"] == result.model for req in api.requests)
+
+
+def test_analysis_uses_analysis_model_not_the_chat_model(searches):
+    """Chat and analysis are independently tunable: an experiment can cheapen
+    one surface without moving the other."""
+    s = settings(answer_model="claude-opus-5", analysis_model="claude-sonnet-5")
+    api = ScriptedAPI(*loop_prefix(), sse_message([{"type": "text", "text": draft_json()}]))
+    result = analyze(api, s)
+    assert result.model == "claude-sonnet-5"
+    assert {req["model"] for req in api.requests} == {"claude-sonnet-5"}
 
 
 def test_a_non_verbatim_quote_triggers_exactly_one_correction_turn(searches):

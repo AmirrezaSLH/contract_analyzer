@@ -689,10 +689,11 @@ def test_the_connector_never_reaches_past_the_api():
 # --------------------------------------------------------------------------
 
 
-def test_a_blank_env_line_means_the_default_not_an_empty_value(monkeypatch):
-    """`.env.example` ships these keys empty, because a key a reader can see is
-    a key a reader can fill in. `CA_API_URL=` must not become a base URL of
-    "", which fails at the first request with nothing useful to say."""
+def test_a_blank_env_value_means_the_default_not_an_empty_one(monkeypatch):
+    """An unset variable and one set to "" mean the same thing, and both happen:
+    a `CA_API_URL=` left in a copied `.env`, and compose's `${CA_API_URL:-}`
+    when the host has none. Neither may become a base URL of "", which fails at
+    the first request with nothing useful to say."""
     for name in ("CA_API_URL", "MCP_UPLOAD_ROOT", "API_KEY"):
         monkeypatch.setenv(name, "")
     settings = ConnectorSettings()
@@ -711,6 +712,21 @@ def test_the_api_url_is_the_root_and_the_prefix_is_the_clients():
 
 def test_the_port_is_read_from_the_environment_like_every_other_one():
     """The project moved off hardcoded ports on purpose -- BACKEND_PORT,
-    FRONTEND_PORT, MCP_PORT all live in .env together."""
+    FRONTEND_PORT and MCP_PORT live in .env together. The rest of the
+    connector's environment does not: it has defaults, and whoever launches it
+    overrides them."""
     assert ConnectorSettings(mcp_port=9999).mcp_port == 9999
     assert ConnectorSettings(backend_port=9000).api_url == "http://127.0.0.1:9000"
+
+
+def test_the_defaults_are_a_working_local_connector(monkeypatch):
+    """No .env, no flags, nothing exported: `python -m mcp_connector` still
+    points at the API on this machine and speaks the transport a desktop client
+    expects. Only MCP_PORT is a field anyone has to write down."""
+    for name in ("CA_API_URL", "MCP_TRANSPORT", "MCP_HOST", "MCP_UPLOAD_ROOT", "API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    settings = ConnectorSettings(_env_file=None)
+    assert settings.mcp_transport == "stdio"
+    assert settings.api_url == "http://127.0.0.1:8100"
+    assert settings.mcp_upload_root is None
+    assert settings.api_key_value is None

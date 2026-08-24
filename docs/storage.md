@@ -15,7 +15,7 @@ width at creation.
 |---|---|
 | `documents` | one row per ingested file: `path` (unique), `filename`, `content_hash` (SHA-256 -- re-ingesting an unchanged file is a no-op), `page_count`, `producer`, `has_outline`, `spine_source` (`outline` / `headings` / `none` -- where the section breadcrumbs came from, since Word writes no outline and a reviewer should know an inferred section when they see one), `ingested_at` |
 | `chunks` | the source of truth. `content`, `page` (0-based physical), `page_label` (printed), `page_end` / `page_label_end` (set when the chunk crosses a page break), `section`, `section_path` (JSON breadcrumb), `element_type` (`paragraph`/`table`/`figure`…), `bbox`, `asset_path`, `payload` (a table's markdown grid), `token_count`, `embedding_model`; `UNIQUE(document_id, ordinal)` |
-| `chunks_vec` | `vec0` virtual table, `embedding FLOAT[{dim}]`, queried by KNN |
+| `chunks_vec` | `vec0` virtual table, `embedding FLOAT[{dim}]`, queried by KNN. `document_id` is a `PARTITION KEY`: sqlite-vec keeps each contract's vectors apart and applies the constraint *before* `k`, so a document-scoped search returns that contract's true `k` nearest rather than the remains of a global top-k. A row written without it lands in the NULL partition and is invisible to every scoped query, so the ingest suite counts `chunks` against `chunks_vec` **per document** |
 | `chunks_fts` | external-content FTS5 over `chunks.content` (`porter unicode61`), queried by BM25 |
 
 Three triggers (`chunks_ai/ad/au`) keep `chunks_fts` and `chunks_vec` in step
@@ -35,9 +35,13 @@ built with a different model than the one in the process (the guard lives in
   **turns extension loading back off** -- leaving it on would turn any SQL
   injection into arbitrary code execution. WAL journal, foreign keys on,
   `sqlite3.Row` rows.
-* `apply_schema(conn, dim)` checks the stored width *before* running
+* `apply_schema(conn, dim)` checks the stored `chunks_vec` *before* running
   `CREATE VIRTUAL TABLE IF NOT EXISTS`, because that statement silently keeps
-  an old definition; a mismatch raises `SchemaMismatch` with the two widths.
+  an old definition. Two things are checked, both raising `SchemaMismatch`: a
+  width that disagrees with `EMBEDDING_DIM`, and a table predating the
+  document partition. A vec0 table can no more gain a partition key in place
+  than it can change width, and without the second check the failure surfaces
+  much later, from the first scoped search, as `no such column: document_id`.
 * `get_db(settings)` is the one-call form: connect + schema for the configured
   path and dimension.
 * `same_thread=False` exists for the later API, where one connection per

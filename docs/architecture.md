@@ -63,7 +63,7 @@ Two modules cut across everything and were built first:
 | `parse/` | PDF → typed elements (headings, paragraphs, tables, figures), clause-level, with a synthesized section spine for outline-less PDFs | [parsing.md](parsing.md) | done, tested on the sample contract |
 | `ingest/` | elements → chunks → embeddings → rows | [chunking.md](chunking.md), [ingestion.md](ingestion.md) | done, tested on the sample contract |
 | `embeddings/` | OpenAI / local / fake embedders | [ingestion.md](ingestion.md) | done, tested |
-| `retrieval/` | vector KNN + BM25 fused with RRF, per document | retrieval.md | pending |
+| `retrieval/` | vector KNN + BM25 fused with RRF, per document | [retrieval.md](retrieval.md) | done, tested on the sample contract |
 | `generation/` | cited conversational answers (Claude citations) | generation.md | pending |
 | `compliance/` | the five criteria and the result schema | -- | criteria file only |
 | `agents/` | router / extractor / evaluator state machine | -- | Phase B |
@@ -89,8 +89,13 @@ Two modules cut across everything and were built first:
    batches, and writes `documents`, `chunks`, `chunks_vec` and `chunks_fts` in
    one transaction. `documents.spine_source` records whether the breadcrumbs
    came from the PDF's outline or were inferred.
-4. `retrieve(question, document_id=…)` runs a KNN query and a BM25 query, fuses
-   the two rankings with Reciprocal Rank Fusion, and hydrates the top chunks.
+4. `retrieve(question, …, document_id=…)` runs a KNN query and a BM25 query,
+   fuses the two rankings with Reciprocal Rank Fusion, and reads the rows for
+   the top chunks only. The KNN side is scoped by the `chunks_vec` partition
+   key, so it is exact rather than a global search filtered afterwards, and
+   `document_id` is required -- a forgotten scope would cite another contract
+   in a well-formed citation. `retrieve_by_section()` is the structural way in
+   ("give me Exhibit G"), no embedder involved.
 5. `answer()` sends the chunks as Claude *document blocks* with citations
    enabled and streams the reply; citations are resolved back to chunk ids and
    pages. Quotes come from the API feature, so they cannot be invented.
@@ -139,6 +144,13 @@ inside it. See [docker.md](docker.md).
 * Checkpoint 1 (2026-08-23): foundation scaffold, logger, HTTP client, settings,
   storage, parser copied. Section spine, chunker, embeddings, retrieval,
   generation pending.
+* Checkpoint 4 (2026-08-23): retrieval. Two retrievers over the one database
+  fused by RRF (`rrf_k=60`, ties broken on `chunk_id`), scoped to one contract
+  by a `chunks_vec` partition key that filters before `k`; `keyword` mode runs
+  with no embedder and no key. Citations carry the section, the printed page
+  range and `spine_source`, and a table's text keeps its breadcrumb.
+  `retrieve_by_section()` answers "give me 6.6" in SQL. 209 tests. Generation
+  and the CLIs pending.
 * Checkpoint 3 (2026-08-23): chunker, ingest pipeline and embedders. 164
   elements become 102 chunks, every one with a breadcrumb and none over
   budget; ingestion is idempotent (second run: zero embedder calls) and

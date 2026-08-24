@@ -143,6 +143,25 @@ class JobState:
             self.stage = f"criterion {self.done}/{len(self.progress)}"
         self.events.publish("criterion", {"criterion": criterion_id, **_progress_payload(self)})
 
+    def criterion_started(self, criterion_id: str) -> None:
+        """The first event tagged with this criterion means it is under way.
+
+        There is no `started` event to listen for, and there does not need to
+        be: a criterion's first act is always a search, so its first `tool_call`
+        is the signal. Idempotent, because there are several of them.
+
+        **Nothing is published.** The stream's contract is one `criterion` event
+        per *verdict*, and a second one meaning "started" would make every
+        subscriber count them to tell the two apart. A poller sees the change on
+        its next tick, which is how the UI reads this table anyway, and an SSE
+        subscriber already sees the `tool_call` this was inferred from.
+        """
+        with self._lock:
+            entry = self.progress.get(criterion_id)
+            if entry is None or entry.status != "queued":
+                return
+            entry.status = "running"
+
     def criterion_skipped(self, criterion_id: str) -> None:
         with self._lock:
             entry = self.progress.get(criterion_id)
@@ -468,6 +487,8 @@ class JobRunner:
         own beyond what `JobState` already holds."""
         kind = event.get("type")
         criterion = event.get("criterion", "")
+        if criterion and kind not in ("result", "skipped"):
+            job.criterion_started(criterion)
         if kind == "result":
             job.criterion_done(criterion, event)
         elif kind == "skipped":

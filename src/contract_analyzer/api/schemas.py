@@ -175,7 +175,13 @@ class AnalyzeRequest(BaseModel):
 
 
 class CriterionProgress(BaseModel):
-    """One line of the progress table, filled in as the criterion finishes."""
+    """One line of the progress table, filled in as the criterion finishes.
+
+    `running` is set the moment a criterion first reaches for the contract, not
+    when a worker picks it up: at `analysis_workers >= 5` all five start at once
+    and "queued" would be true of none of them for more than a moment. It is
+    what a progress view draws as the row in flight.
+    """
 
     id: str
     status: Literal["queued", "running", "done", "skipped", "failed"] = "queued"

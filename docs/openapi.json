@@ -763,7 +763,7 @@
         "type": "object"
       },
       "CriterionProgress": {
-        "description": "One line of the progress table, filled in as the criterion finishes.",
+        "description": "One line of the progress table, filled in as the criterion finishes.\n\n`running` is set the moment a criterion first reaches for the contract, not\nwhen a worker picks it up: at `analysis_workers >= 5` all five start at once\nand \"queued\" would be true of none of them for more than a moment. It is\nwhat a progress view draws as the row in flight.",
         "properties": {
           "confidence": {
             "anyOf": [

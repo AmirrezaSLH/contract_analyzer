@@ -19,6 +19,7 @@ import { useHealth } from "../../hooks/useHealth";
 import { useAnalysis, useCancelAnalysis, useCreateAnalysis, isTerminal } from "../../hooks/useAnalysis";
 import { CriterionRow } from "./CriterionRow";
 import { needsReviewCount, overallState, quoteCounts } from "./overall";
+import { analysisPhase } from "./phase";
 import styles from "./AnalysisView.module.css";
 
 /**
@@ -52,6 +53,13 @@ export function AnalysisView() {
 
   const doc = document.data;
   const run = analysis.data ?? null;
+  const phase = analysisPhase({
+    documentLoading: document.isPending,
+    analysisId,
+    analysisFetching: analysis.isFetching,
+    status: run?.status,
+    submitting: create.isPending,
+  });
   const results = (run?.report?.results ?? []) as ComplianceResult[];
   const finished = run?.status === "done" || run?.status === "cancelled";
   const keyless = health.data?.key_present === false;
@@ -136,7 +144,7 @@ export function AnalysisView() {
         ) : null}
 
         {/* a. No analysis yet. */}
-        {!run && !analysis.isPending && !create.isPending ? (
+        {phase === "none" ? (
           <EmptyState
             title={`${doc?.filename ?? "This contract"} has not been analysed yet`}
             body="A run answers all five compliance questions against this contract alone. It takes about a minute and costs roughly a dollar, so it is never started for you."
@@ -154,7 +162,7 @@ export function AnalysisView() {
         ) : null}
 
         {/* b and c. Queued and running: the same card. */}
-        {run && (run.status === "queued" || run.status === "running") ? (
+        {phase === "live" && run ? (
           <RunCard
             run={run}
             titles={titlesOf(criteria.data)}
@@ -166,7 +174,7 @@ export function AnalysisView() {
 
         {/* d. Done -- and a cancelled run's partial report, which is the same
             report with fewer results in it. */}
-        {finished && results.length > 0 ? (
+        {phase === "settled" && run && results.length > 0 ? (
           <>
             <div className={styles.tiles}>
               <MetricTile label="Overall" value={<StateChip state={overallState(results)} />} />
@@ -208,7 +216,7 @@ export function AnalysisView() {
           </>
         ) : null}
 
-        {finished && results.length === 0 && run?.status === "cancelled" ? (
+        {phase === "settled" && results.length === 0 && run?.status === "cancelled" ? (
           <EmptyState
             title="Nothing finished before this run was cancelled"
             body="No criterion had produced a verdict yet, so there is no partial report to show."

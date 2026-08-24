@@ -50,12 +50,17 @@ RUN python -m venv "$VIRTUAL_ENV"
 # Dependencies first, against a stub package: this layer is keyed on
 # pyproject.toml alone, so editing source does not re-resolve the tree.
 COPY pyproject.toml ./
-RUN mkdir -p src/contract_analyzer && touch src/contract_analyzer/__init__.py
+# Both package roots, because `packages.find` is told to look in both. A stub
+# for each is enough: the real source arrives in the runtime stage, over the
+# same paths the editable install already points at.
+RUN mkdir -p src/contract_analyzer MCP-Connector/mcp_connector \
+    && touch src/contract_analyzer/__init__.py MCP-Connector/mcp_connector/__init__.py
 
-# The HTTP surface (which also serves the built UI) is in the runtime image.
+# The HTTP surface (which also serves the built UI) and the MCP connector are
+# both in the runtime image: one image, one `entrypoint` verb per surface.
 # The ~800 MB `local` embedder is not. Override to add it:
-#   --build-arg EXTRAS="[api,local]"
-ARG EXTRAS="[api]"
+#   --build-arg EXTRAS="[api,mcp,local]"
+ARG EXTRAS="[api,mcp]"
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --upgrade pip && pip install -e ".${EXTRAS}"
 
@@ -82,8 +87,9 @@ RUN chmod +x /usr/local/bin/entrypoint \
 
 USER app
 
-# FastAPI, and the built UI at `/`.
-EXPOSE 8100
+# FastAPI, and the built UI at `/`. 8102 is the MCP connector, and only when
+# it is run with MCP_TRANSPORT=http -- on stdio it binds nothing.
+EXPOSE 8100 8102
 
 ENTRYPOINT ["entrypoint"]
 CMD ["api"]

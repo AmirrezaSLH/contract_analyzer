@@ -14,7 +14,7 @@ BACKEND_PORT ?= $(or $(call dotenv,BACKEND_PORT),8100)
 FRONTEND_PORT ?= $(or $(call dotenv,FRONTEND_PORT),8101)
 export BACKEND_PORT FRONTEND_PORT
 
-.PHONY: help venv ingest reingest search chat analyze api openapi test lint fmt logs \
+.PHONY: help venv ingest reingest search chat analyze api mcp openapi test lint fmt logs \
 	ui-install ui-types ui-dev ui-build ui-test \
 	docker-build docker-up docker-down docker-logs docker-shell docker-test
 
@@ -43,17 +43,20 @@ analyze:  ## The five criteria over one contract: make analyze F=path.pdf
 api:  ## Run the HTTP API, which also serves the built front end (reload on edit)
 	$(PYTHON) -m uvicorn contract_analyzer.api.main:app --reload --port $(BACKEND_PORT)
 
+mcp:  ## Run the MCP connector against a locally running API (see MCP-Connector/)
+	$(PYTHON) -m mcp_connector $(ARGS)
+
 openapi:  ## Re-export docs/openapi.json, the connector specification
 	$(PYTHON) scripts/export_openapi.py
 
-test:  ## The whole suite. No network, no key, no corpus files.
+test:  ## The whole suite -- tests/ and MCP-Connector/tests/. No network, no key.
 	$(PYTHON) -m pytest -q
 
 lint:  ## ruff
-	$(PYTHON) -m ruff check src tests scripts
+	$(PYTHON) -m ruff check src tests scripts MCP-Connector
 
 fmt:  ## ruff, applying what it can fix
-	$(PYTHON) -m ruff check --fix src tests scripts
+	$(PYTHON) -m ruff check --fix src tests scripts MCP-Connector
 
 logs:  ## Tail the structured JSON log
 	tail -f .run/app.jsonl

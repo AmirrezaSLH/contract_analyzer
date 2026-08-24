@@ -13,7 +13,7 @@ width at creation.
 
 | Table | Role |
 |---|---|
-| `documents` | one row per ingested file: `path` (unique), `filename`, `content_hash` (SHA-256 -- re-ingesting an unchanged file is a no-op), `page_count`, `producer`, `has_outline`, `ingested_at` |
+| `documents` | one row per ingested file: `path` (unique), `filename`, `content_hash` (SHA-256 -- re-ingesting an unchanged file is a no-op), `page_count`, `producer`, `has_outline`, `spine_source` (`outline` / `headings` / `none` -- where the section breadcrumbs came from, since Word writes no outline and a reviewer should know an inferred section when they see one), `ingested_at` |
 | `chunks` | the source of truth. `content`, `page` (0-based physical), `page_label` (printed), `page_end` / `page_label_end` (set when the chunk crosses a page break), `section`, `section_path` (JSON breadcrumb), `element_type` (`paragraph`/`table`/`figure`…), `bbox`, `asset_path`, `payload` (a table's markdown grid), `token_count`, `embedding_model`; `UNIQUE(document_id, ordinal)` |
 | `chunks_vec` | `vec0` virtual table, `embedding FLOAT[{dim}]`, queried by KNN |
 | `chunks_fts` | external-content FTS5 over `chunks.content` (`porter unicode61`), queried by BM25 |

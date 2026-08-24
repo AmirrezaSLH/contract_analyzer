@@ -61,8 +61,8 @@ Two modules cut across everything and were built first:
 | `tokens.py` | tiktoken counts with an offline fallback | [storage.md](storage.md#token-counting) | done |
 | `models.py` | the `Chunk` record | [storage.md](storage.md#the-chunk-record) | done |
 | `parse/` | PDF → typed elements (headings, paragraphs, tables, figures), clause-level, with a synthesized section spine for outline-less PDFs | [parsing.md](parsing.md) | done, tested on the sample contract |
-| `ingest/` | elements → chunks → embeddings → rows | chunking.md, ingestion.md | pending |
-| `embeddings/` | OpenAI / local / fake embedders | ingestion.md | pending |
+| `ingest/` | elements → chunks → embeddings → rows | [chunking.md](chunking.md), [ingestion.md](ingestion.md) | done, tested on the sample contract |
+| `embeddings/` | OpenAI / local / fake embedders | [ingestion.md](ingestion.md) | done, tested |
 | `retrieval/` | vector KNN + BM25 fused with RRF, per document | retrieval.md | pending |
 | `generation/` | cited conversational answers (Claude citations) | generation.md | pending |
 | `compliance/` | the five criteria and the result schema | -- | criteria file only |
@@ -76,13 +76,19 @@ Two modules cut across everything and were built first:
    of `Element`s, each with its page, bounding box, and section breadcrumb.
    Tables become `TableElement`s carrying a markdown grid; figures become
    `FigureElement`s with an image on disk.
-2. `chunk_document()` packs elements into ~400-token chunks that never cross a
-   section boundary, with whole-element overlap; tables are atomic chunks.
-   Every chunk's text opens with its breadcrumb (`6. Identity … > 6.6 Password
-   Management Standard`).
+2. `chunk_document()` packs elements into chunks that never cross a section
+   boundary, to a 400-token budget the breadcrumb is paid out of; tables are
+   atomic chunks and every chunk's text opens with its breadcrumb (`6. Identity
+   … > 6.6 Password Management Standard`), which is what makes an exhibit's
+   requirement rows findable by the section that names them. 164 elements
+   become 102 chunks. Overlap carries whole elements, falling back to a
+   sentence tail — and never fires on this contract, because a section
+   boundary always closes a chunk before the budget does.
 3. `ingest_file()` hashes the file (unchanged files are skipped before
-   parsing), embeds the chunks in batches, and writes `documents`, `chunks`,
-   `chunks_vec` and `chunks_fts` in one transaction.
+   parsing, so a second run costs zero embedder calls), embeds the chunks in
+   batches, and writes `documents`, `chunks`, `chunks_vec` and `chunks_fts` in
+   one transaction. `documents.spine_source` records whether the breadcrumbs
+   came from the PDF's outline or were inferred.
 4. `retrieve(question, document_id=…)` runs a KNN query and a BM25 query, fuses
    the two rankings with Reciprocal Rank Fusion, and hydrates the top chunks.
 5. `answer()` sends the chunks as Claude *document blocks* with citations
@@ -133,6 +139,12 @@ inside it. See [docker.md](docker.md).
 * Checkpoint 1 (2026-08-23): foundation scaffold, logger, HTTP client, settings,
   storage, parser copied. Section spine, chunker, embeddings, retrieval,
   generation pending.
+* Checkpoint 3 (2026-08-23): chunker, ingest pipeline and embedders. 164
+  elements become 102 chunks, every one with a breadcrumb and none over
+  budget; ingestion is idempotent (second run: zero embedder calls) and
+  records `spine_source`; three embedder backends behind one protocol with a
+  single retry policy in the transport. 161 tests. Retrieval, generation and
+  the CLIs pending.
 * Checkpoint 2 (2026-08-23): parser hardened against the sample contract --
   clause-level elements, synthesized section spine, hyphen resolution from
   measured evidence, page-spanning tables stitched, page spans on merged

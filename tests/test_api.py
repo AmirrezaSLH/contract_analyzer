@@ -141,7 +141,7 @@ def sample_pdf() -> bytes:
 
 
 def upload(client, body, name="Sample Contract.pdf"):
-    return client.post("/documents", files={"file": (name, body, "application/pdf")})
+    return client.post("/api/documents", files={"file": (name, body, "application/pdf")})
 
 
 # --------------------------------------------------------------------------
@@ -195,7 +195,7 @@ def chat_turns(answer="Credentials rotate every ninety days.", quote="rotate cre
 
 def poll(client, analysis_id, until=("done", "failed", "cancelled"), tries=200):
     for _ in range(tries):
-        body = client.get(f"/analyses/{analysis_id}").json()
+        body = client.get(f"/api/analyses/{analysis_id}").json()
         if body["status"] in until:
             return body
         threading.Event().wait(0.01)
@@ -221,17 +221,17 @@ def events_of(response) -> list[tuple[str, dict]]:
 
 
 def test_health_reports_what_the_service_can_actually_do(client, keyless):
-    body = client.get("/health").json()
+    body = client.get("/api/health").json()
     assert body["status"] == "ok" and body["db"] is True
     assert body["embedder"] == "fake" and body["key_present"] is True
     assert body["auth_required"] is False
 
     # The question a UI actually asks: upload works, analysis does not.
-    assert keyless.get("/health").json()["key_present"] is False
+    assert keyless.get("/api/health").json()["key_present"] is False
 
 
 def test_criteria_publishes_the_sub_requirements(client):
-    body = client.get("/criteria").json()
+    body = client.get("/api/criteria").json()
     assert len(body) == 5
     assert all(c["sub_requirements"] for c in body)
     assert {c["id"] for c in body} == {c.id for c in CRITERIA}
@@ -256,7 +256,7 @@ def test_the_same_bytes_twice_are_two_documents(client, small_pdf):
     path, and every upload gets a fresh one."""
     first, second = upload(client, small_pdf).json(), upload(client, small_pdf).json()
     assert first["document_id"] != second["document_id"]
-    listed = client.get("/documents").json()
+    listed = client.get("/api/documents").json()
     assert [d["document_id"] for d in listed] == [second["document_id"], first["document_id"]]
 
 
@@ -284,14 +284,14 @@ def test_hostile_filenames_all_land_inside_raw_dir(client, settings, tmp_path, n
 
 
 def test_a_non_pdf_is_refused_before_it_is_stored(client, settings):
-    response = client.post("/documents", files={"file": ("notes.txt", b"hello", "text/plain")})
+    response = client.post("/api/documents", files={"file": ("notes.txt", b"hello", "text/plain")})
     assert response.status_code == 415
     assert response.json()["error"]["code"] == "unsupported_media_type"
     assert list(settings.raw_dir.iterdir()) == []
 
 
 def test_an_empty_upload_is_refused(client, settings):
-    response = client.post("/documents", files={"file": ("x.pdf", b"", "application/pdf")})
+    response = client.post("/api/documents", files={"file": ("x.pdf", b"", "application/pdf")})
     assert response.status_code == 422
     assert list(settings.raw_dir.iterdir()) == []
 
@@ -300,7 +300,7 @@ def test_an_oversize_upload_is_413_and_leaves_no_partial_file(client, settings):
     """Enforced while the body streams: the cap is 1 MB here and the body is 2,
     so a handler that read it whole would have had it in memory already."""
     response = client.post(
-        "/documents", files={"file": ("big.pdf", PDF_HEADER + b"x" * (2 * 1024 * 1024),
+        "/api/documents", files={"file": ("big.pdf", PDF_HEADER + b"x" * (2 * 1024 * 1024),
                                       "application/pdf")}
     )
     assert response.status_code == 413
@@ -328,7 +328,7 @@ def test_a_missing_embedding_key_is_503_not_a_201_with_no_chunks(settings, tmp_p
 
 def test_sections_are_the_outline_a_picker_shows(client, sample_pdf):
     document_id = upload(client, sample_pdf).json()["document_id"]
-    sections = client.get(f"/documents/{document_id}/sections").json()
+    sections = client.get(f"/api/documents/{document_id}/sections").json()
     assert len(sections) > 20
     assert all(s["chunks"] >= 1 for s in sections)
     assert any(s["title"].startswith("6.6") for s in sections)
@@ -338,7 +338,7 @@ def test_unknown_ids_are_404_with_a_hint_that_names_an_action(client):
     """The hint has two readers -- a model recovering from a tool call, and a
     person reading the second line of an error surface -- so it names what to
     do rather than which route to call. `code` is the machine-readable half."""
-    for path in ("/documents/999", "/documents/999/sections", "/analyses/nope"):
+    for path in ("/api/documents/999", "/api/documents/999/sections", "/api/analyses/nope"):
         error = client.get(path).json()["error"]
         assert error["code"] in ("document_not_found", "analysis_not_found"), path
         hint = error["hint"]
@@ -354,60 +354,64 @@ def test_the_library_row_carries_its_last_analysis(client, api, searches, small_
     sentence: the words are the client's to choose."""
     document_id = upload(client, small_pdf).json()["document_id"]
 
-    fresh = client.get("/documents").json()[0]
+    fresh = client.get("/api/documents").json()[0]
     assert fresh["document_id"] == document_id
     assert fresh["pages"] and fresh["chunks"]
     # Never analysed is `null`, which is what draws "Not analysed".
     assert fresh["last_analysis"] is None
 
     api.outcomes.extend(full_analysis())
-    analysis_id = client.post("/analyses", json={"document_id": document_id}).json()["analysis_id"]
+    analysis_id = client.post(
+        "/api/analyses", json={"document_id": document_id}
+    ).json()["analysis_id"]
     poll(client, analysis_id)
 
-    last = client.get("/documents").json()[0]["last_analysis"]
+    last = client.get("/api/documents").json()[0]["last_analysis"]
     assert last["analysis_id"] == analysis_id and last["status"] == "done"
     assert sum(last["states"].values()) == len(CRITERIA)
     # The same projection on the detail endpoint, from the same query.
-    assert client.get(f"/documents/{document_id}").json()["last_analysis"] == last
+    assert client.get(f"/api/documents/{document_id}").json()["last_analysis"] == last
 
 
 def test_the_last_analysis_is_the_newest_one(client, api, searches, small_pdf):
     """Two runs against one document: the row shows the second."""
     document_id = upload(client, small_pdf).json()["document_id"]
     api.outcomes.extend(full_analysis())
-    first = client.post("/analyses", json={"document_id": document_id}).json()["analysis_id"]
+    first = client.post("/api/analyses", json={"document_id": document_id}).json()["analysis_id"]
     poll(client, first)
 
     api.outcomes.extend(full_analysis())
     second = client.post(
-        "/analyses", json={"document_id": document_id}, headers={"Idempotency-Key": "again"}
+        "/api/analyses", json={"document_id": document_id}, headers={"Idempotency-Key": "again"}
     ).json()["analysis_id"]
     poll(client, second)
 
     assert second != first
-    assert client.get("/documents").json()[0]["last_analysis"]["analysis_id"] == second
+    assert client.get("/api/documents").json()[0]["last_analysis"]["analysis_id"] == second
 
 
 def test_delete_removes_the_document_and_its_file(client, settings, small_pdf):
     document_id = upload(client, small_pdf).json()["document_id"]
     assert len(list(settings.raw_dir.iterdir())) == 1
 
-    assert client.delete(f"/documents/{document_id}").status_code == 204
-    assert client.get(f"/documents/{document_id}").status_code == 404
+    assert client.delete(f"/api/documents/{document_id}").status_code == 204
+    assert client.get(f"/api/documents/{document_id}").status_code == 404
     assert list(settings.raw_dir.iterdir()) == []
 
 
 def test_delete_is_refused_while_an_analysis_is_running(client, api, searches, small_pdf):
     document_id = upload(client, small_pdf).json()["document_id"]
     api.outcomes.extend(full_analysis())
-    analysis_id = client.post("/analyses", json={"document_id": document_id}).json()["analysis_id"]
+    analysis_id = client.post(
+        "/api/analyses", json={"document_id": document_id}
+    ).json()["analysis_id"]
 
     # The job may already have finished; only assert the conflict if it has not.
-    response = client.delete(f"/documents/{document_id}")
+    response = client.delete(f"/api/documents/{document_id}")
     if response.status_code == 409:
         assert response.json()["error"]["code"] == "analysis_running"
     poll(client, analysis_id)
-    assert client.delete(f"/documents/{document_id}").status_code == 204
+    assert client.delete(f"/api/documents/{document_id}").status_code == 204
 
 
 # --------------------------------------------------------------------------
@@ -419,7 +423,7 @@ def test_an_analysis_is_queued_and_polled_to_a_report(client, api, searches, sma
     document_id = upload(client, small_pdf).json()["document_id"]
     api.outcomes.extend(full_analysis())
 
-    accepted = client.post("/analyses", json={"document_id": document_id})
+    accepted = client.post("/api/analyses", json={"document_id": document_id})
     assert accepted.status_code == 202
     queued = accepted.json()
     assert queued["status"] in ("queued", "running")
@@ -439,14 +443,16 @@ def test_an_analysis_is_queued_and_polled_to_a_report(client, api, searches, sma
 def test_summary_detail_drops_the_bulky_fields(client, api, searches, small_pdf):
     document_id = upload(client, small_pdf).json()["document_id"]
     api.outcomes.extend(full_analysis())
-    analysis_id = client.post("/analyses", json={"document_id": document_id}).json()["analysis_id"]
+    analysis_id = client.post(
+        "/api/analyses", json={"document_id": document_id}
+    ).json()["analysis_id"]
     poll(client, analysis_id)
 
-    summary = client.get(f"/analyses/{analysis_id}", params={"detail": "summary"}).json()
+    summary = client.get(f"/api/analyses/{analysis_id}", params={"detail": "summary"}).json()
     assert all(r["relevant_quotes"] == [] and r["rationale"] == ""
                for r in summary["report"]["results"])
     # And the stored report is untouched for the next reader.
-    full = client.get(f"/analyses/{analysis_id}").json()
+    full = client.get(f"/api/analyses/{analysis_id}").json()
     assert full["report"]["results"][0]["relevant_quotes"]
 
 
@@ -455,24 +461,24 @@ def test_a_duplicate_submission_joins_the_running_analysis(client, api, searches
     document_id = upload(client, small_pdf).json()["document_id"]
     api.outcomes.extend(full_analysis())
 
-    first = client.post("/analyses", json={"document_id": document_id})
-    second = client.post("/analyses", json={"document_id": document_id})
+    first = client.post("/api/analyses", json={"document_id": document_id})
+    second = client.post("/api/analyses", json={"document_id": document_id})
 
     assert first.status_code == 202
     if first.json()["status"] in ("queued", "running"):
         assert second.status_code == 200
         assert second.json()["analysis_id"] == first.json()["analysis_id"]
     poll(client, first.json()["analysis_id"])
-    assert len(client.get("/analyses", params={"document_id": document_id}).json()) == 1
+    assert len(client.get("/api/analyses", params={"document_id": document_id}).json()) == 1
 
 
 def test_an_idempotency_key_forces_a_second_run(client, api, searches, small_pdf):
     document_id = upload(client, small_pdf).json()["document_id"]
     api.outcomes.extend(full_analysis() * 2)
 
-    first = client.post("/analyses", json={"document_id": document_id})
+    first = client.post("/api/analyses", json={"document_id": document_id})
     second = client.post(
-        "/analyses", json={"document_id": document_id}, headers={"Idempotency-Key": "again"}
+        "/api/analyses", json={"document_id": document_id}, headers={"Idempotency-Key": "again"}
     )
     assert second.status_code == 202
     assert second.json()["analysis_id"] != first.json()["analysis_id"]
@@ -481,17 +487,17 @@ def test_an_idempotency_key_forces_a_second_run(client, api, searches, small_pdf
 def test_a_bad_submission_is_rejected_before_anything_is_queued(client, api, small_pdf):
     document_id = upload(client, small_pdf).json()["document_id"]
 
-    assert client.post("/analyses", json={}).status_code == 422
-    unknown = client.post("/analyses", json={"document_id": 999})
+    assert client.post("/api/analyses", json={}).status_code == 422
+    unknown = client.post("/api/analyses", json={"document_id": 999})
     assert unknown.status_code == 404
     assert unknown.json()["error"]["code"] == "document_not_found"
 
-    bad = client.post("/analyses", json={"document_id": document_id, "criteria": ["nope"]})
+    bad = client.post("/api/analyses", json={"document_id": document_id, "criteria": ["nope"]})
     assert bad.status_code == 422
     assert "criterion ids" in bad.json()["error"]["hint"]
 
     assert api.calls == 0
-    assert client.get("/analyses", params={"document_id": document_id}).json() == []
+    assert client.get("/api/analyses", params={"document_id": document_id}).json() == []
 
 
 def test_without_a_key_no_job_is_queued_at_all(keyless, small_pdf):
@@ -499,11 +505,11 @@ def test_without_a_key_no_job_is_queued_at_all(keyless, small_pdf):
     error, so the key is checked before the submission is accepted."""
     document_id = upload(keyless, small_pdf).json()["document_id"]
 
-    response = keyless.post("/analyses", json={"document_id": document_id})
+    response = keyless.post("/api/analyses", json={"document_id": document_id})
     assert response.status_code == 503
     assert response.json()["error"]["code"] == "no_api_key"
-    assert keyless.get("/analyses", params={"document_id": document_id}).json() == []
-    assert keyless.post("/chat", json={"document_id": document_id, "question": "?"})\
+    assert keyless.get("/api/analyses", params={"document_id": document_id}).json() == []
+    assert keyless.post("/api/chat", json={"document_id": document_id, "question": "?"})\
         .status_code == 503
 
 
@@ -512,7 +518,7 @@ def test_a_subset_of_criteria_can_be_analysed(client, api, searches, small_pdf):
     api.outcomes.extend(analysis_turns(CRITERIA[0]))
 
     queued = client.post(
-        "/analyses", json={"document_id": document_id, "criteria": [CRITERIA[0].id]}
+        "/api/analyses", json={"document_id": document_id, "criteria": [CRITERIA[0].id]}
     ).json()
     assert queued["progress"]["total"] == 1
     done = poll(client, queued["analysis_id"])
@@ -522,14 +528,16 @@ def test_a_subset_of_criteria_can_be_analysed(client, api, searches, small_pdf):
 def test_cancelling_leaves_a_partial_report(client, api, searches, small_pdf):
     document_id = upload(client, small_pdf).json()["document_id"]
     api.outcomes.extend(full_analysis())
-    analysis_id = client.post("/analyses", json={"document_id": document_id}).json()["analysis_id"]
+    analysis_id = client.post(
+        "/api/analyses", json={"document_id": document_id}
+    ).json()["analysis_id"]
 
-    client.post(f"/analyses/{analysis_id}/cancel")
+    client.post(f"/api/analyses/{analysis_id}/cancel")
     done = poll(client, analysis_id)
     assert done["status"] == "cancelled"
     assert len(done["report"]["results"]) + len(done["report"]["skipped"]) == 5
 
-    again = client.post(f"/analyses/{analysis_id}/cancel")
+    again = client.post(f"/api/analyses/{analysis_id}/cancel")
     assert again.status_code == 409 and again.json()["error"]["code"] == "not_running"
 
 
@@ -537,7 +545,9 @@ def test_a_failing_model_fails_the_job_rather_than_hanging_it(client, api, searc
     document_id = upload(client, small_pdf).json()["document_id"]
     api.outcomes.append(500)
 
-    analysis_id = client.post("/analyses", json={"document_id": document_id}).json()["analysis_id"]
+    analysis_id = client.post(
+        "/api/analyses", json={"document_id": document_id}
+    ).json()["analysis_id"]
     done = poll(client, analysis_id)
     assert done["status"] == "failed" and done["error"]
     assert done["report"] is None
@@ -560,7 +570,9 @@ def analysed(client, api, small_pdf) -> tuple[int, str, dict]:
     """Upload, analyse, poll to `done`. Returns what the three tests below need."""
     document_id = upload(client, small_pdf).json()["document_id"]
     api.outcomes.extend(full_analysis())
-    analysis_id = client.post("/analyses", json={"document_id": document_id}).json()["analysis_id"]
+    analysis_id = client.post(
+        "/api/analyses", json={"document_id": document_id}
+    ).json()["analysis_id"]
     return document_id, analysis_id, poll(client, analysis_id)
 
 
@@ -570,16 +582,16 @@ def test_an_analysis_and_its_report_survive_a_restart(client, api, settings, sea
     document_id, analysis_id, done = analysed(client, api, small_pdf)
 
     with restarted(settings, api) as fresh:
-        body = fresh.get(f"/analyses/{analysis_id}").json()
+        body = fresh.get(f"/api/analyses/{analysis_id}").json()
         assert body["status"] == "done"
         assert body["report"] == done["report"]
         assert body["totals"] == done["totals"]
         assert body["trace_id"] == done["trace_id"]
         assert [c["id"] for c in body["criteria"]] == [c.id for c in CRITERIA]
 
-        listed = fresh.get("/analyses", params={"document_id": document_id}).json()
+        listed = fresh.get("/api/analyses", params={"document_id": document_id}).json()
         assert [a["analysis_id"] for a in listed] == [analysis_id]
-        detail = fresh.get(f"/documents/{document_id}").json()
+        detail = fresh.get(f"/api/documents/{document_id}").json()
         assert [a["analysis_id"] for a in detail["analyses"]] == [analysis_id]
 
 
@@ -595,12 +607,12 @@ def test_a_run_the_process_died_holding_reads_interrupted(client, api, settings,
     conn.close()
 
     with restarted(settings, api) as fresh:
-        body = fresh.get("/analyses/orphan").json()
+        body = fresh.get("/api/analyses/orphan").json()
         assert body["status"] == "interrupted"
         assert body["report"] is None and body["progress"]["total"] == len(CRITERIA)
 
         # And an id that really is unknown no longer apologises about restarts.
-        hint = fresh.get("/analyses/nosuchid").json()["error"]["hint"]
+        hint = fresh.get("/api/analyses/nosuchid").json()["error"]["hint"]
         assert "restart" not in hint
 
 
@@ -619,11 +631,11 @@ def test_the_live_job_wins_where_both_have_an_answer(client, api, settings, sear
     conn.commit()
     conn.close()
 
-    live = client.get(f"/analyses/{analysis_id}").json()
+    live = client.get(f"/api/analyses/{analysis_id}").json()
     assert live["status"] == "done" and live["report"] is not None
 
     with restarted(settings, api) as fresh:
-        assert fresh.get(f"/analyses/{analysis_id}").json()["status"] == "interrupted"
+        assert fresh.get(f"/api/analyses/{analysis_id}").json()["status"] == "interrupted"
 
 
 def test_deleting_the_contract_leaves_the_analysis_and_its_report(
@@ -634,11 +646,11 @@ def test_deleting_the_contract_leaves_the_analysis_and_its_report(
     still holding it."""
     document_id, analysis_id, done = analysed(client, api, small_pdf)
 
-    assert client.delete(f"/documents/{document_id}").status_code == 204
-    assert client.get(f"/documents/{document_id}").status_code == 404
+    assert client.delete(f"/api/documents/{document_id}").status_code == 204
+    assert client.get(f"/api/documents/{document_id}").status_code == 404
 
     with restarted(settings, api) as fresh:
-        body = fresh.get(f"/analyses/{analysis_id}").json()
+        body = fresh.get(f"/api/analyses/{analysis_id}").json()
         assert body["status"] == "done"
         assert body["report"] == done["report"]
 
@@ -650,9 +662,11 @@ def test_deleting_the_contract_leaves_the_analysis_and_its_report(
 def test_the_stream_reports_every_criterion_and_then_closes(client, api, searches, small_pdf):
     document_id = upload(client, small_pdf).json()["document_id"]
     api.outcomes.extend(full_analysis())
-    analysis_id = client.post("/analyses", json={"document_id": document_id}).json()["analysis_id"]
+    analysis_id = client.post(
+        "/api/analyses", json={"document_id": document_id}
+    ).json()["analysis_id"]
 
-    with client.stream("GET", f"/analyses/{analysis_id}/events") as response:
+    with client.stream("GET", f"/api/analyses/{analysis_id}/events") as response:
         assert response.status_code == 200
         response.read()
     events = events_of(response)
@@ -672,10 +686,12 @@ def test_subscribing_after_the_job_finished_replays_and_closes(client, api, sear
     replaces: the client gets what it missed, the terminal event, and EOF."""
     document_id = upload(client, small_pdf).json()["document_id"]
     api.outcomes.extend(full_analysis())
-    analysis_id = client.post("/analyses", json={"document_id": document_id}).json()["analysis_id"]
+    analysis_id = client.post(
+        "/api/analyses", json={"document_id": document_id}
+    ).json()["analysis_id"]
     poll(client, analysis_id)
 
-    with client.stream("GET", f"/analyses/{analysis_id}/events") as response:
+    with client.stream("GET", f"/api/analyses/{analysis_id}/events") as response:
         response.read()
     events = events_of(response)
     assert [name for name, _ in events].count("criterion") == 5
@@ -688,13 +704,15 @@ def test_two_subscribers_both_see_the_whole_run(client, api, searches, small_pdf
     stream's events; each subscriber gets its own."""
     document_id = upload(client, small_pdf).json()["document_id"]
     api.outcomes.extend(full_analysis())
-    analysis_id = client.post("/analyses", json={"document_id": document_id}).json()["analysis_id"]
+    analysis_id = client.post(
+        "/api/analyses", json={"document_id": document_id}
+    ).json()["analysis_id"]
 
     collected: list[list[tuple[str, dict]]] = []
     lock = threading.Lock()
 
     def watch():
-        with client.stream("GET", f"/analyses/{analysis_id}/events") as response:
+        with client.stream("GET", f"/api/analyses/{analysis_id}/events") as response:
             response.read()
         with lock:
             collected.append(events_of(response))
@@ -721,7 +739,7 @@ def test_chat_returns_one_json_body_when_not_streaming(client, api, searches, sm
     api.outcomes.extend(chat_turns())
 
     body = client.post(
-        "/chat", json={"document_id": document_id, "question": "How often do passwords rotate?",
+        "/api/chat", json={"document_id": document_id, "question": "How often do passwords rotate?",
                        "stream": False}
     ).json()
 
@@ -758,7 +776,7 @@ def test_chat_settings_reach_the_run_and_the_answer_reports_them(
     monkeypatch.setattr(tools_module.ContractTools, "__init__", spy)
 
     body = client.post(
-        "/chat",
+        "/api/chat",
         json={"document_id": document_id, "question": "How often?", "stream": False,
               "model": "claude-haiku-4-5", "retrieval_mode": "keyword", "top_k": 3},
     ).json()
@@ -774,7 +792,7 @@ def test_chat_refuses_a_model_this_deployment_does_not_offer(client, api, small_
     document_id = upload(client, small_pdf).json()["document_id"]
 
     refused = client.post(
-        "/chat",
+        "/api/chat",
         json={"document_id": document_id, "question": "How often?", "stream": False,
               "model": "some-expensive-model"},
     )
@@ -783,7 +801,7 @@ def test_chat_refuses_a_model_this_deployment_does_not_offer(client, api, small_
     assert refused.json()["error"]["code"] == "validation"
     assert api.calls == 0
     # And the client can find out what it may ask for without guessing.
-    assert "claude-haiku-4-5" in client.get("/health").json()["chat_models"]
+    assert "claude-haiku-4-5" in client.get("/api/health").json()["chat_models"]
 
 
 def test_chat_citations_use_the_same_field_names_as_a_report_quote(
@@ -795,7 +813,7 @@ def test_chat_citations_use_the_same_field_names_as_a_report_quote(
     api.outcomes.extend(chat_turns())
 
     citation = client.post(
-        "/chat", json={"document_id": document_id, "question": "How often?", "stream": False},
+        "/api/chat", json={"document_id": document_id, "question": "How often?", "stream": False},
     ).json()["citations"][0]
 
     from contract_analyzer.compliance.schemas import ResolvedQuote
@@ -812,7 +830,7 @@ def test_chat_streams_deltas_then_citations_then_done(client, api, searches, sma
     api.outcomes.extend(chat_turns())
 
     with client.stream(
-        "POST", "/chat", json={"document_id": document_id, "question": "rotation?"}
+        "POST", "/api/chat", json={"document_id": document_id, "question": "rotation?"}
     ) as response:
         assert response.status_code == 200
         assert response.headers["content-type"].startswith("text/event-stream")
@@ -831,7 +849,7 @@ def test_chat_streams_deltas_then_citations_then_done(client, api, searches, sma
 def test_chat_on_an_unknown_document_is_404_not_an_error_event(client):
     """A 404 has to be a 404: an `error` frame inside a 200 is invisible to
     every client that checks the status code first."""
-    response = client.post("/chat", json={"document_id": 999, "question": "?"})
+    response = client.post("/api/chat", json={"document_id": 999, "question": "?"})
     assert response.status_code == 404
     assert response.json()["error"]["code"] == "document_not_found"
 
@@ -841,7 +859,7 @@ def test_a_failing_model_becomes_an_error_event_and_a_clean_close(client, api, s
     api.outcomes.extend([500, 500, 500, 500])
 
     with client.stream(
-        "POST", "/chat", json={"document_id": document_id, "question": "?"}
+        "POST", "/api/chat", json={"document_id": document_id, "question": "?"}
     ) as response:
         response.read()
     events = events_of(response)
@@ -855,7 +873,7 @@ def test_history_is_replayed_from_the_client(client, api, searches, small_pdf):
     document_id = upload(client, small_pdf).json()["document_id"]
     api.outcomes.extend(chat_turns())
 
-    client.post("/chat", json={
+    client.post("/api/chat", json={
         "document_id": document_id, "question": "and rotation?", "stream": False,
         "history": [{"role": "user", "content": "what about MFA?"},
                     {"role": "assistant", "content": "Section 6.7 requires it."}],
@@ -877,12 +895,12 @@ def test_chat_on_one_contract_never_quotes_the_other(client, api, searches, smal
     assert first == 1 and second == 2  # the `searches` fixture keys on this
 
     api.outcomes.extend(chat_turns(answer="Zephyrine vaults passwords.", quote="vault every"))
-    body = client.post("/chat", json={"document_id": second, "question": "passwords?",
+    body = client.post("/api/chat", json={"document_id": second, "question": "passwords?",
                                       "stream": False}).json()
     assert body["citations"][0]["chunk_id"] == second
 
     api.outcomes.extend(chat_turns())
-    body = client.post("/chat", json={"document_id": first, "question": "passwords?",
+    body = client.post("/api/chat", json={"document_id": first, "question": "passwords?",
                                       "stream": False}).json()
     assert body["citations"][0]["chunk_id"] == first
     assert "Zephyrine" not in json.dumps(body)
@@ -893,7 +911,7 @@ def test_an_analysis_never_reaches_the_other_document(client, api, searches, sma
     second = upload(client, small_pdf).json()["document_id"]
     api.outcomes.extend(full_analysis(quote="vault every"))
 
-    analysis_id = client.post("/analyses", json={"document_id": second}).json()["analysis_id"]
+    analysis_id = client.post("/api/analyses", json={"document_id": second}).json()["analysis_id"]
     report = poll(client, analysis_id)["report"]
 
     assert report["document_id"] == second
@@ -907,14 +925,14 @@ def test_an_analysis_never_reaches_the_other_document(client, api, searches, sma
 
 
 def test_an_incoming_trace_id_is_honoured_and_returned(client):
-    response = client.get("/health", headers={"X-Trace-Id": "abc123"})
+    response = client.get("/api/health", headers={"X-Trace-Id": "abc123"})
     assert response.headers["X-Trace-Id"] == "abc123"
 
 
 def test_a_trace_id_is_minted_when_none_is_sent(client):
-    trace_id = client.get("/health").headers["X-Trace-Id"]
+    trace_id = client.get("/api/health").headers["X-Trace-Id"]
     assert len(trace_id) == 32
-    assert client.get("/health").headers["X-Trace-Id"] != trace_id
+    assert client.get("/api/health").headers["X-Trace-Id"] != trace_id
 
 
 def test_the_request_trace_runs_through_the_whole_analysis(
@@ -931,7 +949,7 @@ def test_the_request_trace_runs_through_the_whole_analysis(
     configure_logging("INFO", log_file, console=False, force=True)
     try:
         analysis_id = client.post(
-            "/analyses", json={"document_id": document_id}, headers={"X-Trace-Id": "d" * 32}
+            "/api/analyses", json={"document_id": document_id}, headers={"X-Trace-Id": "d" * 32}
         ).json()["analysis_id"]
         poll(client, analysis_id)
     finally:
@@ -948,24 +966,80 @@ def test_a_key_protects_everything_except_health_and_criteria(settings):
     # `model_copy` skips validation, so an update would store a bare `str`.
     protected = Settings(**{**settings.model_dump(), "api_key": "s3cret"})
     with TestClient(create_app(protected, embedder=FakeEmbedder(settings), client=None)) as client:
-        assert client.get("/health").status_code == 200
-        assert client.get("/criteria").status_code == 200
-        assert client.get("/health").json()["auth_required"] is True
+        assert client.get("/api/health").status_code == 200
+        assert client.get("/api/criteria").status_code == 200
+        assert client.get("/api/health").json()["auth_required"] is True
 
-        assert client.get("/documents").status_code == 401
-        assert client.get("/documents").json()["error"]["code"] == "unauthorized"
-        assert client.get("/documents", headers={"X-API-Key": "wrong"}).status_code == 401
-        assert client.get("/documents", headers={"X-API-Key": "s3cret"}).status_code == 200
+        assert client.get("/api/documents").status_code == 401
+        assert client.get("/api/documents").json()["error"]["code"] == "unauthorized"
+        assert client.get("/api/documents", headers={"X-API-Key": "wrong"}).status_code == 401
+        assert client.get("/api/documents", headers={"X-API-Key": "s3cret"}).status_code == 200
 
 
 def test_metrics_are_declared_and_honestly_unavailable(client):
     """Documented and 503 beats absent: the OpenAPI document is a deliverable
     and the UI is written against it before the store exists."""
-    for path in ("/metrics/summary", "/metrics/timeseries", "/metrics/runs",
-                 "/metrics/runs/x/spans"):
+    for path in ("/api/metrics/summary", "/api/metrics/timeseries", "/api/metrics/runs",
+                 "/api/metrics/runs/x/spans"):
         response = client.get(path)
         assert response.status_code == 503, path
         assert response.json()["error"]["code"] == "metrics_unavailable"
+
+
+# --------------------------------------------------------------------------
+# The serving model: one origin, one prefix, the front end underneath
+# --------------------------------------------------------------------------
+
+
+def test_every_route_is_behind_the_api_prefix(client):
+    """The prefix is what lets one process serve the API and the browser client
+    from one origin, so nothing may be reachable without it."""
+    for path in ("/documents", "/criteria", "/analyses", "/metrics/summary"):
+        assert client.get(path).status_code == 404, path
+
+
+def test_health_keeps_its_root_alias_for_the_container(client):
+    """`/health` is what the Docker healthcheck and every `curl` in the docs
+    target. It answers at both spellings and says the same thing."""
+    assert client.get("/health").json() == client.get("/api/health").json()
+
+
+def test_the_root_health_alias_is_not_a_second_operation(client):
+    """Two spellings, one documented operation: the OpenAPI document is the
+    connector deliverable, and a generator binding both would produce two
+    methods for one endpoint."""
+    paths = client.get("/openapi.json").json()["paths"]
+    assert "/api/health" in paths
+    assert "/health" not in paths
+
+
+def test_an_unknown_api_path_is_a_404_in_this_apis_envelope(client):
+    """Not `index.html` with a 200. Without the catch-all a typo'd route falls
+    through to the static mount, which is the most confusing answer a generated
+    client can be handed."""
+    response = client.get("/api/documnets")
+    assert response.status_code == 404
+    body = response.json()["error"]
+    assert body["code"] == "unknown_route"
+    assert body["hint"]
+
+    # Every method, not only GET: a POST to a mistyped route is the same
+    # mistake and deserves the same answer.
+    assert client.post("/api/analyses/x/cancle").status_code == 404
+
+
+def test_the_app_starts_without_a_built_front_end(client):
+    """The bundle is a build artefact. A fresh clone, the suite and `make api`
+    before `make ui-build` all run without one, and `StaticFiles` raises on a
+    missing directory -- so the mount is conditional and this app, built in a
+    tree with no bundle, is the proof."""
+    from contract_analyzer.api.main import STATIC_DIR
+
+    assert not (STATIC_DIR / "index.html").exists()
+    assert client.get("/api/health").status_code == 200
+    # Nothing is mounted at "/", so a client-side route is a plain 404 rather
+    # than a crash.
+    assert client.get("/documents/1/analysis").status_code == 404
 
 
 def test_the_openapi_document_is_fit_to_be_the_connector_spec(client):

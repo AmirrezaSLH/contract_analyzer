@@ -287,15 +287,15 @@ def test_a_cli_run_is_readable_through_the_api(settings, conn, searches):
 
     app = create_app(settings, embedder=FakeEmbedder(settings), client=object())
     with TestClient(app) as client:
-        body = client.get(f"/analyses/{report.analysis_id}").json()
+        body = client.get(f"/api/analyses/{report.analysis_id}").json()
         assert body["status"] == "done"
         assert AnalysisReport.model_validate(body["report"]) == report
         assert [c["id"] for c in body["criteria"]] == [r.criterion_id for r in report.results]
         assert body["progress"] == {"done": len(CRITERIA), "total": len(CRITERIA)}
 
-        listed = client.get("/analyses", params={"document_id": 1}).json()
+        listed = client.get("/api/analyses", params={"document_id": 1}).json()
         assert [a["analysis_id"] for a in listed] == [report.analysis_id]
-        assert client.get("/documents/1").json()["analyses"][0]["analysis_id"] \
+        assert client.get("/api/documents/1").json()["analyses"][0]["analysis_id"] \
             == report.analysis_id
 
 
@@ -312,15 +312,15 @@ def test_streaming_and_cancelling_a_run_this_process_does_not_own_is_a_409(
     app = create_app(settings, embedder=FakeEmbedder(settings), client=object())
     with TestClient(app) as client:
         # The lifespan reconciled the row it found queued, so it reads honestly.
-        assert client.get("/analyses/elsewhere").json()["status"] == "interrupted"
+        assert client.get("/api/analyses/elsewhere").json()["status"] == "interrupted"
 
         for response in (
-            client.post("/analyses/elsewhere/cancel"),
-            client.get("/analyses/elsewhere/events"),
+            client.post("/api/analyses/elsewhere/cancel"),
+            client.get("/api/analyses/elsewhere/events"),
         ):
             assert response.status_code == 409
             assert response.json()["error"]["code"] == "not_live_here"
 
-        missing = client.post("/analyses/nosuchid/cancel")
+        missing = client.post("/api/analyses/nosuchid/cancel")
         assert missing.status_code == 404
         assert missing.json()["error"]["code"] == "analysis_not_found"

@@ -379,13 +379,19 @@ def join_wrapped_lines(
     rather than sending the reviewer to a page the quoted words are not on.
     """
     merged: list[Element] = []
+    #: Right edge of the last line absorbed into merged[-1]. The element's own
+    #: bbox is the citation anchor and stays on the first page, so it cannot
+    #: be the thing that says whether the paragraph's *last* line ran to the
+    #: margin or stopped short.
+    tail_right = 0.0
 
     for element in elements:
         prev = merged[-1] if merged else None
-        if prev is not None and _continues(prev, element, profile, lattice):
+        if prev is not None and _continues(prev, element, profile, lattice, tail_right):
             # join_lines applies the document's own vocabulary to the hyphen at
             # the break, exactly as it does for lines within one block.
             prev.text = join_lines([prev.text, element.text], profile)
+            tail_right = element.bbox[2]
             if element.page_index == prev.page_span[1]:
                 if element.page_index == prev.page_index:
                     prev.bbox = (
@@ -399,6 +405,7 @@ def join_wrapped_lines(
                 prev.page_label_end = element.page_label
             continue
         merged.append(element)
+        tail_right = element.bbox[2]
 
     return merged
 
@@ -408,13 +415,19 @@ def _continues(
     element: Element,
     profile: DocumentProfile,
     lattice: EnumeratorLattice | None = None,
+    prev_right: float | None = None,
 ) -> bool:
-    """Whether `element` is the next line of the paragraph `prev` started."""
+    """Whether `element` is the next line of the paragraph `prev` started.
+
+    `prev_right` is the right edge of `prev`'s last line when that differs
+    from its bbox (after a merge across a page break); it defaults to the
+    bbox's own edge.
+    """
     if prev.type != "paragraph" or element.type != "paragraph":
         return False
     if lattice is not None and lattice.opens(element) is not None:
         return False  # it opens a clause of its own, whatever the geometry says
-    if not profile.reaches_text_width(prev.bbox[2]):
+    if not profile.reaches_text_width(prev.bbox[2] if prev_right is None else prev_right):
         return False  # the previous line stopped short: it ended its paragraph
     indent = profile.paragraph_indent + _INDENT_SLACK if profile.paragraph_indent else 2.0
     if not profile.starts_at_text_left(prev.bbox[0], tolerance=indent):

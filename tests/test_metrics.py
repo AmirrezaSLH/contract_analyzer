@@ -915,3 +915,114 @@ def test_an_api_run_puts_the_job_span_at_the_root_of_the_waterfall(settings, mon
     assert [child["name"] for child in tree[0]["children"]] == ["analysis.document"]
     names = {child["name"] for child in tree[0]["children"][0]["children"]}
     assert names == {"analysis.criterion"}
+
+
+# --------------------------------------------------------------------------
+# criterion_results: the grain between a run and a span
+# --------------------------------------------------------------------------
+
+
+def test_a_finished_run_writes_one_row_per_criterion(analysed):
+    """Written by `finish_analysis` from the report it is already holding, so
+    there is no second pass and no second source of truth."""
+    client, report = analysed
+
+    conn = get_db(client.app.state.settings)
+    try:
+        rows = {
+            row["criterion_id"]: dict(row)
+            for row in conn.execute("SELECT * FROM criterion_results WHERE run_id = ?",
+                                    (report.analysis_id,))
+        }
+    finally:
+        conn.close()
+
+    assert set(rows) == {result.criterion_id for result in report.results}
+    first = report.results[0]
+    stored = rows[first.criterion_id]
+    assert stored["state"] == first.compliance_state
+    assert stored["confidence"] == first.confidence
+    assert stored["raw_confidence"] == first.raw_confidence
+    assert stored["ended_by"] == first.ended_by
+    assert stored["tool_calls"] == first.tool_calls
+    assert stored["quotes_total"] == len(first.relevant_quotes)
+    assert stored["quotes_verified"] == sum(1 for q in first.relevant_quotes if q.verified)
+    # Declared, and honestly empty until the evaluator lands.
+    assert stored["evaluator_verdict"] is None
+
+
+def test_a_run_records_itself_even_with_no_metrics_tables(settings, tmp_path):
+    """`analyses.py` must not import `metrics`: storage does not depend on
+    telemetry. So a process that never built a store still writes the run --
+    it just has no per-criterion history to write it into."""
+    from contract_analyzer.analyses import finish_analysis, get_analysis, queue_analysis
+    from contract_analyzer.report import AnalysisReport
+
+    conn = get_db(settings)  # no MetricsStore anywhere: `criterion_results` is absent
+    try:
+        assert "criterion_results" not in {
+            row[0] for row in conn.execute("SELECT name FROM sqlite_master")
+        }
+        queue_analysis(conn, "a1", 1, criteria=["c1"])
+        report = AnalysisReport(analysis_id="a1", document_id=1,
+                                created_at="2026-08-24T00:00:00+00:00")
+
+        assert finish_analysis(conn, "a1", report) is True
+        assert get_analysis(conn, "a1").status == "done"
+    finally:
+        conn.close()
+
+
+def test_criterion_mix_is_the_drift_and_calibration_query(conn, store):
+    """The same criterion coming back with a different state, and the gap
+    between the model's own estimate and the derived confidence."""
+    record(conn, "a1")
+    record(conn, "a2")
+    for run, state, confidence, raw in (
+        ("a1", "Fully Compliant", 0.9, 0.95),
+        ("a2", "Partially Compliant", 0.5, 0.9),
+    ):
+        conn.execute(
+            "INSERT INTO criterion_results (run_id, criterion_id, state, confidence, "
+            "raw_confidence, needs_review, ended_by) VALUES (?, 'password_management', "
+            "?, ?, ?, 0, 'stop')",
+            (run, state, confidence, raw),
+        )
+    conn.commit()
+
+    mix = {row["state"]: row for row in store.criterion_mix(conn, window="24h")}
+    assert set(mix) == {"Fully Compliant", "Partially Compliant"}
+    assert mix["Partially Compliant"]["runs"] == 1
+    # The calibration gap: the model said 0.9 and the derivation said 0.5.
+    assert mix["Partially Compliant"]["raw_confidence"] == 0.9
+    assert mix["Partially Compliant"]["confidence"] == 0.5
+
+
+def test_the_table_backfills_from_reports_that_predate_it(analysed):
+    """Why phase 3 could land last: `json_each` over `report_json` recovers
+    every run, and rows already written are left exactly as they are."""
+    client, report = analysed
+    settings = client.app.state.settings
+
+    conn = get_db(settings)
+    try:
+        conn.execute("DELETE FROM criterion_results")
+        conn.commit()
+        store = MetricsStore(settings)
+
+        assert store.backfill_criteria(conn) == len(report.results)
+        assert store.backfill_criteria(conn) == 0  # INSERT OR IGNORE: idempotent
+
+        rows = {
+            row["criterion_id"]: dict(row)
+            for row in conn.execute("SELECT * FROM criterion_results")
+        }
+        first = report.results[0]
+        assert rows[first.criterion_id]["state"] == first.compliance_state
+        assert rows[first.criterion_id]["confidence"] == first.confidence
+        assert rows[first.criterion_id]["quotes_verified"] == sum(
+            1 for quote in first.relevant_quotes if quote.verified
+        )
+        store.close()
+    finally:
+        conn.close()

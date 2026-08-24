@@ -25,7 +25,7 @@ from contract_analyzer.config import Settings
 from contract_analyzer.generation import agent as A
 from contract_analyzer.generation import tools as T
 from contract_analyzer.generation.client import AnswerUnavailable, Usage, get_client
-from contract_analyzer.generation.pricing import PRICES, cost_usd
+from contract_analyzer.generation.pricing import PRICES, cost_usd, embedding_cost_usd
 from contract_analyzer.generation.prompts import PromptError, PromptLibrary, get_prompts
 from contract_analyzer.http_client import HttpFailure
 
@@ -390,6 +390,22 @@ def test_cost_usd_prices_cache_tokens_and_unknown_models():
     assert cost_usd("claude-opus-5", 0, 0, cache_read_tokens=1_000_000) == pytest.approx(0.5)
     assert cost_usd("claude-opus-5", 0, 0, cache_write_tokens=1_000_000) == pytest.approx(6.25)
     assert cost_usd("claude-future-9", 1_000_000, 1_000_000) == 0.0
+
+
+def test_embedding_cost_is_one_rate_and_zero_tokens_is_silently_free():
+    """One number per model, not a pair: an embedding call has no output.
+
+    Zero tokens must price at zero *without* warning about an unpriced model --
+    the local and fake embedders report no usage because they bill none, and a
+    warning every time somebody ingests offline would be noise about a number
+    that is genuinely $0.00.
+    """
+    assert embedding_cost_usd("text-embedding-3-small", 1_000_000) == 0.02
+    # The measured anchor from 02_costs.md: the 21-page sample is ~10k tokens
+    # of chunk text, four orders of magnitude under the ~$0.96 analysis.
+    assert embedding_cost_usd("text-embedding-3-small", 10_000) == pytest.approx(0.0002)
+    assert embedding_cost_usd("BAAI/bge-small-en-v1.5", 0) == 0.0
+    assert embedding_cost_usd("some-future-embedder", 1_000_000) == 0.0
 
 
 def test_the_shipped_prompt_library_loads_and_formats():

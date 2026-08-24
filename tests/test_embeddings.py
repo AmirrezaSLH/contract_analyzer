@@ -330,3 +330,38 @@ def test_an_empty_chunk_is_sent_as_a_space_rather_than_failing_the_contract(monk
     embedder.embed_documents(["", "real text"])
 
     assert upstream.payloads[0]["input"] == [" ", "real text"]
+
+
+def test_the_reported_usage_is_kept_and_summed_across_batches(monkeypatch):
+    """The one provider here that bills is the one that reports usage, and
+    `ingest.embed` prices its span from this. Summed across round trips, so a
+    contract embedded in three batches still costs one number."""
+    upstream = _Upstream(200, 200)
+    embedder = _embedder(monkeypatch, upstream)
+    monkeypatch.setattr(openai_module, "BATCH_SIZE", 1)
+
+    embedder.embed_documents(["clause one", "clause two"])
+
+    assert upstream.calls == 2
+    assert embedder.last_tokens == 2
+
+
+def test_last_tokens_is_reset_per_call_not_accumulated_forever(monkeypatch):
+    """It is what the *most recent* call billed. A running total would make the
+    second document in a directory ingest look twice as expensive."""
+    embedder = _embedder(monkeypatch, _Upstream())
+
+    embedder.embed_documents(["clause one"])
+    embedder.embed_documents(["clause two"])
+
+    assert embedder.last_tokens == 1
+
+
+def test_an_offline_embedder_reports_no_tokens_and_that_is_the_truth():
+    """The local and fake embedders run in this process and bill nothing, so
+    zero is the honest number rather than a missing one."""
+    embedder = FakeEmbedder(settings())
+
+    embedder.embed_documents(["clause one", "clause two"])
+
+    assert embedder.last_tokens == 0

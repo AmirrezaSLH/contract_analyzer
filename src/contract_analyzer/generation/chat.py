@@ -14,6 +14,11 @@ invite it to answer from general knowledge.
 History is replayed as plain text only. Previous turns' passages and tool
 traffic are not re-sent; the current turn re-retrieves through the tools,
 so a follow-up stays grounded in what it actually found. Last 8 messages.
+
+The model, the retrieval mode and the passage count are all per-question
+overrides rather than settings: a reviewer switching to `keyword` for one
+identifier lookup is not reconfiguring the process, and the next question
+starts from the configured defaults again.
 """
 
 from __future__ import annotations
@@ -70,15 +75,27 @@ def chat(
     document_id: int,
     history: Sequence[Message] = (),
     client: Any = None,
+    model: str | None = None,
+    retrieval_mode: str | None = None,
+    top_k: int | None = None,
     on_text: Callable[[str], None] | None = None,
     on_event: OnEvent | None = None,
 ) -> AnswerResult:
     """Answer one question about one contract, cited. Raises `AnswerUnavailable`
-    before any request if there is no key."""
+    before any request if there is no key.
+
+    `model`, `retrieval_mode` and `top_k` are per-question, not per-process:
+    they move this run's defaults and leave `settings` alone. Which model
+    actually answered comes back on `AnswerResult.model`, so a caller that
+    asked for one can report the one it got.
+    """
     settings = settings or get_settings()
     client = client or get_client(settings)
     prompts = get_prompts(settings)
-    tools = ContractTools(conn, document_id=document_id, embedder=embedder, settings=settings)
+    tools = ContractTools(
+        conn, document_id=document_id, embedder=embedder, settings=settings,
+        default_mode=retrieval_mode, default_top_k=top_k,
+    )
     system = prompts.get("agent.system") + "\n\n" + prompts.get("chat.system")
     replay = replay_history(history)
     task = AgentTask(
@@ -132,7 +149,7 @@ def chat(
     with span("chat", log, document_id=document_id, history=len(replay)) as bag:
         run = run_agent(
             task, tools=tools, finisher=finisher, settings=settings, client=client,
-            on_event=on_event,
+            model=model, on_event=on_event,
         )
         result: AnswerResult = run.result
         result.turns = run.turns

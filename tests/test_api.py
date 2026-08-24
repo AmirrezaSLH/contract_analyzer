@@ -334,11 +334,58 @@ def test_sections_are_the_outline_a_picker_shows(client, sample_pdf):
     assert any(s["title"].startswith("6.6") for s in sections)
 
 
-def test_unknown_ids_are_404_with_a_hint_a_model_can_act_on(client):
+def test_unknown_ids_are_404_with_a_hint_that_names_an_action(client):
+    """The hint has two readers -- a model recovering from a tool call, and a
+    person reading the second line of an error surface -- so it names what to
+    do rather than which route to call. `code` is the machine-readable half."""
     for path in ("/documents/999", "/documents/999/sections", "/analyses/nope"):
-        body = client.get(path).json()
-        assert "hint" in body["error"], path
-        assert "GET /" in body["error"]["hint"], path
+        error = client.get(path).json()["error"]
+        assert error["code"] in ("document_not_found", "analysis_not_found"), path
+        hint = error["hint"]
+        assert hint and hint[0].isupper() and hint.endswith("."), path
+        # A route spelling instead of an action is the thing this asserts against.
+        assert "GET /" not in hint and "POST /" not in hint, path
+
+
+def test_the_library_row_carries_its_last_analysis(client, api, searches, small_pdf):
+    """`GET /documents` is what a library table renders from, so the outcome of
+    the newest analysis travels with the row rather than costing a request per
+    document. `states` is a count per compliance state, not a summary
+    sentence: the words are the client's to choose."""
+    document_id = upload(client, small_pdf).json()["document_id"]
+
+    fresh = client.get("/documents").json()[0]
+    assert fresh["document_id"] == document_id
+    assert fresh["pages"] and fresh["chunks"]
+    # Never analysed is `null`, which is what draws "Not analysed".
+    assert fresh["last_analysis"] is None
+
+    api.outcomes.extend(full_analysis())
+    analysis_id = client.post("/analyses", json={"document_id": document_id}).json()["analysis_id"]
+    poll(client, analysis_id)
+
+    last = client.get("/documents").json()[0]["last_analysis"]
+    assert last["analysis_id"] == analysis_id and last["status"] == "done"
+    assert sum(last["states"].values()) == len(CRITERIA)
+    # The same projection on the detail endpoint, from the same query.
+    assert client.get(f"/documents/{document_id}").json()["last_analysis"] == last
+
+
+def test_the_last_analysis_is_the_newest_one(client, api, searches, small_pdf):
+    """Two runs against one document: the row shows the second."""
+    document_id = upload(client, small_pdf).json()["document_id"]
+    api.outcomes.extend(full_analysis())
+    first = client.post("/analyses", json={"document_id": document_id}).json()["analysis_id"]
+    poll(client, first)
+
+    api.outcomes.extend(full_analysis())
+    second = client.post(
+        "/analyses", json={"document_id": document_id}, headers={"Idempotency-Key": "again"}
+    ).json()["analysis_id"]
+    poll(client, second)
+
+    assert second != first
+    assert client.get("/documents").json()[0]["last_analysis"]["analysis_id"] == second
 
 
 def test_delete_removes_the_document_and_its_file(client, settings, small_pdf):
@@ -441,7 +488,7 @@ def test_a_bad_submission_is_rejected_before_anything_is_queued(client, api, sma
 
     bad = client.post("/analyses", json={"document_id": document_id, "criteria": ["nope"]})
     assert bad.status_code == 422
-    assert "GET /criteria" in bad.json()["error"]["hint"]
+    assert "criterion ids" in bad.json()["error"]["hint"]
 
     assert api.calls == 0
     assert client.get("/analyses", params={"document_id": document_id}).json() == []
@@ -681,10 +728,83 @@ def test_chat_returns_one_json_body_when_not_streaming(client, api, searches, sm
     assert body["text"] == "Credentials rotate every ninety days."
     assert len(body["citations"]) == 1
     citation = body["citations"][0]
-    assert citation["quote"] == "rotate credentials"
+    # `text`, `section_ref` and `verified`, matching `ResolvedQuote`: one card
+    # in a client renders a chat citation and a report quote alike.
+    assert citation["text"] == "rotate credentials"
+    assert set(citation) >= {"text", "section_ref", "verified"}
     assert citation["evidence_id"] == "E1" and citation["chunk_id"] == document_id
     assert body["grounded"] is True and body["tool_calls"] == 1
     assert body["usage"]["input_tokens"] > 0 and body["cost_usd"] > 0
+
+
+def test_chat_settings_reach_the_run_and_the_answer_reports_them(
+    client, api, searches, small_pdf, monkeypatch
+):
+    """Model, retrieval mode and passage count are per-question overrides. The
+    answer reports the model that actually ran, not the one that was asked
+    for -- those differ the moment an allowlist or a fallback intervenes."""
+    document_id = upload(client, small_pdf).json()["document_id"]
+    api.outcomes.extend(chat_turns())
+
+    seen = {}
+    import contract_analyzer.generation.tools as tools_module
+
+    original = tools_module.ContractTools.__init__
+
+    def spy(self, *args, **kwargs):
+        original(self, *args, **kwargs)
+        seen["mode"], seen["top_k"] = self.default_mode, self.default_top_k
+
+    monkeypatch.setattr(tools_module.ContractTools, "__init__", spy)
+
+    body = client.post(
+        "/chat",
+        json={"document_id": document_id, "question": "How often?", "stream": False,
+              "model": "claude-haiku-4-5", "retrieval_mode": "keyword", "top_k": 3},
+    ).json()
+
+    assert seen == {"mode": "keyword", "top_k": 3}
+    assert body["model"] == "claude-haiku-4-5"
+
+
+def test_chat_refuses_a_model_this_deployment_does_not_offer(client, api, small_pdf):
+    """`POST /chat` is open when API_KEY is unset, so a free-text model id is a
+    request to spend this deployment's key on whatever the caller names. The
+    refusal happens before any request to the provider."""
+    document_id = upload(client, small_pdf).json()["document_id"]
+
+    refused = client.post(
+        "/chat",
+        json={"document_id": document_id, "question": "How often?", "stream": False,
+              "model": "some-expensive-model"},
+    )
+
+    assert refused.status_code == 422
+    assert refused.json()["error"]["code"] == "validation"
+    assert api.calls == 0
+    # And the client can find out what it may ask for without guessing.
+    assert "claude-haiku-4-5" in client.get("/health").json()["chat_models"]
+
+
+def test_chat_citations_use_the_same_field_names_as_a_report_quote(
+    client, api, searches, small_pdf
+):
+    """One card in a client renders both, so `text`, `section_ref` and
+    `verified` mean the same thing on an answer and on a report."""
+    document_id = upload(client, small_pdf).json()["document_id"]
+    api.outcomes.extend(chat_turns())
+
+    citation = client.post(
+        "/chat", json={"document_id": document_id, "question": "How often?", "stream": False},
+    ).json()["citations"][0]
+
+    from contract_analyzer.compliance.schemas import ResolvedQuote
+
+    shared = {"text", "evidence_id", "section_ref", "page_display", "chunk_id", "verified"}
+    assert shared <= set(citation)
+    assert shared <= set(ResolvedQuote.model_fields)
+    # Extracted by the model API from the block we sent, so it must verify.
+    assert citation["verified"] is True
 
 
 def test_chat_streams_deltas_then_citations_then_done(client, api, searches, small_pdf):

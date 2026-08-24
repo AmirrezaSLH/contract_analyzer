@@ -3,9 +3,17 @@
 Every failure leaves this API as `{"error": {"code", "message", "hint"}}`.
 `code` is a stable string a client can branch on -- an MCP server's tool result
 is read by a model, and "document_not_found" is something it can act on where a
-404 alone is not. `hint` is the sentence that says what to do next ("call GET
-/documents to list document_id and filename"), which is the difference between
-a model retrying blindly and a model retrying correctly.
+404 alone is not. `hint` is the sentence that says what to do next, which is the
+difference between a model retrying blindly and a model retrying correctly.
+
+**`hint` is written for a person, and the `code` carries the machine-readable
+half.** It has two audiences -- a model recovering from a failed tool call, and
+a reviewer reading the second line of an error surface in the UI -- and one
+sentence serves both as long as it names the *action* rather than the endpoint.
+"Upload a contract first, or pick one from the library" tells a model exactly
+what a spelled-out route would, and tells a reviewer something a route spelling
+does not. Where the endpoint genuinely is the action, as with the OpenAPI
+document, naming it is still the plain-language answer.
 
 The handlers here cover the paths that *raise*. One path does not: `ingest_file`
 returns its failure rather than raising (`ingest/pipeline.py` is explicit about
@@ -65,7 +73,7 @@ def document_not_found(document_id: Any) -> ApiError:
         status.HTTP_404_NOT_FOUND,
         "document_not_found",
         f"No document with id {document_id}.",
-        "Call GET /documents to list document_id and filename, or POST /documents to upload one.",
+        "Pick a contract from the library, or upload one -- every upload gets its own id.",
     )
 
 
@@ -74,7 +82,7 @@ def analysis_not_found(analysis_id: str) -> ApiError:
         status.HTTP_404_NOT_FOUND,
         "analysis_not_found",
         f"No analysis with id {analysis_id}.",
-        "Call GET /analyses?document_id=... to list the analyses of one document.",
+        "Open the document this belongs to and read its analyses, or run a new one.",
     )
 
 
@@ -92,7 +100,8 @@ def unauthorized() -> ApiError:
         status.HTTP_401_UNAUTHORIZED,
         "unauthorized",
         "This API requires an X-API-Key header.",
-        "Send the key configured as API_KEY. /health and /criteria are open.",
+        "Send the API key this deployment was configured with. Health and the criteria "
+        "list stay open without one.",
     )
 
 
@@ -131,12 +140,14 @@ _MAPPED: tuple[tuple[type[Exception], int, str, str | None], ...] = (
     ),
     (
         ModelMismatch, status.HTTP_409_CONFLICT, "model_mismatch",
-        "The database was built with a different embedding model. Re-ingest, or point "
-        "DB_PATH at the database that matches.",
+        "This corpus was indexed with a different embedding model, so its vectors "
+        "cannot be searched. Re-ingest the contracts, or point DB_PATH at the database "
+        "that matches.",
     ),
     (
         HttpFailure, status.HTTP_502_BAD_GATEWAY, "upstream_failure",
-        "The upstream API did not answer after the transport's retries. Try again.",
+        "The model provider did not answer after several retries. Wait a moment and "
+        "try again.",
     ),
 )
 
@@ -152,7 +163,8 @@ def install(app: FastAPI) -> None:
     async def _request_invalid(request: Request, exc: RequestValidationError) -> JSONResponse:
         return _response(
             status.HTTP_422_UNPROCESSABLE_CONTENT, "validation", _first(exc.errors()),
-            "See the OpenAPI schema at /openapi.json for the expected body.",
+            "Correct that field and send the request again. The OpenAPI document at "
+            "/openapi.json describes the expected body.",
         )
 
     @app.exception_handler(ValidationError)

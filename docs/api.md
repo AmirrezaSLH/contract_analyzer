@@ -34,7 +34,7 @@ clicks later.
 | **Upload mints an id** | Every `POST /documents` returns a new `document_id`, even for identical bytes. Analysis and chat both require one; there is no implicit "current document". |
 | **Analyses are jobs** | `POST /analyses` answers in milliseconds with an `analysis_id`; the run takes 60–180 s. Poll `GET /analyses/{id}`, or subscribe to its `/events`. |
 | **Chat streams** | It is the one interaction where latency is felt token by token. `stream=false` returns the same answer as one JSON body. |
-| **The server is stateless** | The ids are the state. No sessions, no server-side transcript: the client owns its history and passes it back. |
+| **The server is stateless** | The ids are the state. No sessions, no server-side transcript: the client owns its history and passes it back. Chat's three controls are per *question* for the same reason. |
 | **One trace id, end to end** | `X-Trace-Id` in is honoured and returned; the job keeps it, and so does every criterion, tool call and HTTP retry underneath. |
 
 ### Endpoints
@@ -44,7 +44,7 @@ clicks later.
 | `GET` | `/health` | Liveness, configuration, counts. Open even when a key is required. |
 | `GET` | `/criteria` | The five criteria with their sub-requirements. Also open. |
 | `POST` | `/documents` | Multipart upload. Parses, chunks, embeds, returns `document_id`. |
-| `GET` | `/documents` | Everything stored, newest first. |
+| `GET` | `/documents` | Everything stored, newest first, each with its last analysis. |
 | `GET` | `/documents/{id}` | One document, plus the analyses run against it. |
 | `GET` | `/documents/{id}/sections` | The outline, for a section picker. |
 | `DELETE` | `/documents/{id}` | The document, its chunks, its vectors, its file. Its **analyses are kept**. `409` while an analysis of it is queued or running. |
@@ -53,7 +53,7 @@ clicks later.
 | `GET` | `/analyses/{id}` | Status, progress, and the report once there is one. Answered from the stored record after a restart. `?detail=summary` drops quotes and rationale. |
 | `GET` | `/analyses/{id}/events` | SSE: `status`, `criterion`, `tool_call`, `correction`, then `done` or `error`. `409` for an analysis this process is not running. |
 | `POST` | `/analyses/{id}/cancel` | Skip what has not started. `409` for an analysis this process is not running. |
-| `POST` | `/chat` | A cited answer over one contract, streamed or not. |
+| `POST` | `/chat` | A cited answer over one contract, streamed or not. Model, retrieval mode and passage count are per-question. |
 | `GET` | `/metrics/*` | Declared; `503` until the metrics store lands. |
 
 ## Decisions worth defending
@@ -102,6 +102,55 @@ that only mapped exceptions would answer `201` with a document of zero chunks
 branches on `result.status`, and `errors.from_ingest_error` builds the same
 envelope, with the same `code`, that the exception path would have produced.
 The test asserts both routes agree on `embedder_unavailable`.
+
+### A list row is drawn from one query, not one per row
+
+`GET /documents` carries `pages`, `chunks`, `ingested_at` and `last_analysis`
+because that is one table row on a screen, and the alternative is a client
+calling `GET /documents/{id}` once per document — an N+1 on every re-render of
+a UI that re-renders on every click.
+
+`last_analysis` is `null` when nothing has been run, and otherwise carries
+`{analysis_id, status, completed_at, states, needs_review}`. `states` is a
+**count per compliance state**, not a summary sentence: one client writes "5 of
+5 compliant", the next writes "2 gaps found", and neither wording belongs in
+the API. It is counted in SQL — `json_each` over the stored report — so
+producing five integers does not cost ~30 KB of JSON parsing per document.
+
+The pick of *which* analysis is the newest tie-breaks on `rowid`, not on
+`analysis_id`. `created_at` has one-second resolution and the id is random hex,
+so an id tie-break is stable but not chronological; a row labelled "the last
+analysis" has to be the last one.
+
+### The three chat controls are the caller's, and `model` is an allowlist
+
+`POST /chat` takes `model`, `retrieval_mode` and `top_k`. All three are
+optional and all three move *this question's* defaults, leaving the process
+alone — there is no session for them to belong to. `retrieval_mode` and `top_k`
+set what the search tool does when the model does not choose; the model can
+still ask for `keyword` on an identifier, which is the reason those arguments
+are exposed to it at all.
+
+`model` is validated against `chat_models` and **not** against free text. This
+endpoint is open when `API_KEY` is unset, so an unchecked model id is an
+invitation to spend this deployment's key on whatever the caller names. The
+list is published by `GET /health`, along with the retrieval defaults and the
+upload cap, so a client renders exactly the choices that will be honoured
+rather than a copy of them that drifts when `settings.json` changes.
+
+The answer reports the model that **ran**, not the one that was asked for —
+`Answer.model` and the `done` event both carry it. Those differ the moment a
+default or a fallback intervenes, and a usage line that reports the request is
+the wrong half of the story.
+
+### One citation, one set of field names
+
+A chat citation is `{evidence_id, text, section_ref, page_display, chunk_id,
+verified, start, end}` — `ResolvedQuote`'s names, deliberately. The same fact
+was `title`/`quote` on an answer and `section_ref`/`text` on a report, which
+bought every client a translation layer whose only job was to paper over a
+naming accident. `verified` is computed the same way on both, so the marker
+means one thing wherever a quote is shown.
 
 ### Isolation is a library invariant, not an API feature
 
@@ -227,13 +276,20 @@ Every failure is the same shape:
 ```json
 {"error": {"code": "document_not_found",
            "message": "No document with id 42.",
-           "hint": "Call GET /documents to list document_id and filename, or POST /documents to upload one."}}
+           "hint": "Pick a contract from the library, or upload one -- every upload gets its own id."}}
 ```
 
 `code` is stable and is the thing to branch on: a model reading an MCP tool
 result can act on `document_not_found`, and cannot act on `404`. `hint` is the
 sentence that says what to do next, which is the difference between a model
 retrying blindly and a model retrying correctly.
+
+**`hint` is written for a person.** It has two readers — a model recovering
+from a failed tool call, and a reviewer reading the second line of an error
+surface in the UI — and one sentence serves both as long as it names the
+*action* rather than the endpoint. *"Pick a contract from the library, or
+upload one"* tells the model everything a spelled-out route would, and tells
+the reviewer something a route spelling does not.
 
 | `code` | Status | |
 |---|---|---|
@@ -292,6 +348,7 @@ demo and is stated here rather than left to be assumed.
 | Setting | Default | |
 |---|---|---|
 | `API_KEY` (`.env`) | unset | `X-API-Key`; unset = open. A secret, so it is not in `settings.json`. |
+| `chat_models` | the three current ids | The allowlist `POST /chat` validates `model` against, published by `/health`. |
 | `api_workers` | 2 | Analyses in flight. SQLite serialises writes; a third submission is `queued`. |
 | `analysis_workers` | 5 | Criteria in parallel inside one job. With `api_workers`, the concurrent-request ceiling. |
 | `api_max_upload_mb` | 25 | `413` above, enforced while streaming. |

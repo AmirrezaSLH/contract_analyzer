@@ -159,12 +159,23 @@ class ContractTools:
         embedder: Embedder | None = None,
         settings: Settings | None = None,
         max_evidence_tokens: int | None = None,
+        default_mode: str | None = None,
+        default_top_k: int | None = None,
     ) -> None:
         self._conn = conn
         self._document_id = int(document_id)
         self._embedder = embedder
         self._settings = settings or get_settings()
         self.max_evidence_tokens = max_evidence_tokens or self._settings.max_evidence_tokens
+        # What a search falls back to when the model does not choose, and what
+        # the tool description advertises as the default. A caller overriding
+        # them is moving the *default*, not forcing a mode: the model can still
+        # ask for `keyword` on an identifier, which is the whole reason the
+        # argument is exposed to it.
+        self.default_mode = default_mode or self._settings.retrieval_mode
+        self.default_top_k = min(
+            MAX_TOP_K, max(MIN_TOP_K, default_top_k or self._settings.retrieval_top_k)
+        )
         self.evidence = Evidence()
         self.calls: list[ToolCall] = []
         self._seen: dict[tuple[str, str], list[str]] = {}
@@ -173,7 +184,7 @@ class ContractTools:
 
     def definitions(self) -> list[dict[str, Any]]:
         """The tool list for the API. `document_id` is deliberately absent."""
-        default_k = min(MAX_TOP_K, max(MIN_TOP_K, self._settings.retrieval_top_k))
+        default_k = self.default_top_k
         offline = "" if self._embedder is not None else (
             " No embedder is configured in this run, so only `keyword` works;"
             " `vector` and `hybrid` will be refused."
@@ -197,7 +208,8 @@ class ContractTools:
                         "mode": {
                             "type": "string",
                             "enum": list(MODES),
-                            "description": "hybrid (default), vector or keyword.",
+                            "description": f"{self.default_mode} (default), or one of "
+                            f"{', '.join(m for m in MODES if m != self.default_mode)}.",
                         },
                         "top_k": {
                             "type": "integer",
@@ -270,7 +282,7 @@ class ContractTools:
 
     def _search(self, call: ToolCall) -> str:
         query = str(call.args.get("query", "")).strip()
-        mode = call.args.get("mode") or self._settings.retrieval_mode
+        mode = call.args.get("mode") or self.default_mode
         top_k = call.args.get("top_k")
         call.mode, call.top_k = mode, top_k
         if not query:
@@ -280,7 +292,7 @@ class ContractTools:
             call.error = f"unknown mode {mode!r}"
             return f"Error: mode must be one of {', '.join(MODES)}."
         if top_k is None:
-            top_k = self._settings.retrieval_top_k
+            top_k = self.default_top_k
         try:
             top_k = int(top_k)
         except (TypeError, ValueError):

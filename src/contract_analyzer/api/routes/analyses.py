@@ -79,7 +79,8 @@ def submit(
             status.HTTP_422_UNPROCESSABLE_CONTENT,
             "validation",
             f"Unknown criterion id(s): {exc.args[0]}.",
-            "Call GET /criteria for the ids this service knows.",
+            "Use one of the five criterion ids this service publishes, or omit the "
+            "field to run all of them.",
         ) from None
 
     if idempotency_key is None:
@@ -223,6 +224,7 @@ def _not_here(stored: bool, analysis_id: str, verb: str) -> ApiError:
         status.HTTP_409_CONFLICT,
         "not_live_here",
         f"Analysis {analysis_id} is not running in this process, so it cannot be {verb}.",
-        f"Poll GET /analyses/{analysis_id} for its state and its report. Streaming and "
-        "cancellation are per-process; see docs/api.md.",
+        f"Ask for its status instead -- GET /analyses/{analysis_id} answers from the "
+        "stored record, wherever the run is. Live events and cancellation reach only "
+        "the worker that started it.",
     )

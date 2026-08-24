@@ -19,6 +19,8 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, Field
 
 from ..compliance.schemas import ComplianceState
+from ..compliance.validate import quote_in_chunk
+from ..config import RetrievalMode
 from ..generation.chat import AnswerResult
 from ..report import AnalysisReport, AnalysisTotals
 
@@ -56,6 +58,17 @@ class Health(BaseModel):
     embedder: str
     embedding_model: str
     answer_model: str
+    #: The models `POST /chat` will accept. A client renders its picker from
+    #: this rather than from a list of its own, so the choices it offers are
+    #: exactly the choices that will be honoured.
+    chat_models: list[str] = Field(default_factory=list)
+    #: The retrieval defaults a client should show as selected before anyone
+    #: touches a control.
+    retrieval_mode: str = "hybrid"
+    retrieval_top_k: int = 6
+    #: `api_max_upload_mb`, so an uploader can refuse a file the same way the
+    #: API would rather than discovering the 413 after the bytes are sent.
+    max_upload_mb: float = 25.0
     #: Whether ANTHROPIC_API_KEY is set. Analysis and chat need it; upload,
     #: retrieval and this endpoint do not.
     key_present: bool = False
@@ -84,6 +97,28 @@ class CriterionOut(BaseModel):
 # Documents
 # --------------------------------------------------------------------------
 
+#: `interrupted` is not a flavour of `failed`: it is what a row left `running`
+#: by a process that went away reads as after the next startup reconciles it.
+#: The model refusing and the machine going away want different KPI treatment
+#: and different copy -- "this analysis failed" against "this analysis was
+#: interrupted; run it again".
+JobStatus = Literal["queued", "running", "done", "failed", "cancelled", "interrupted"]
+
+
+class LastAnalysisOut(BaseModel):
+    """The newest analysis of a document, as a list row needs it.
+
+    `states` is a count per compliance state rather than a summary sentence:
+    a library composes "5 of 5 compliant" or "2 gaps found" in its own words,
+    and the next consumer will want different ones.
+    """
+
+    analysis_id: str
+    status: JobStatus
+    completed_at: str | None = None
+    states: dict[str, int] = Field(default_factory=dict)
+    needs_review: int = 0
+
 
 class DocumentOut(BaseModel):
     document_id: int
@@ -94,6 +129,11 @@ class DocumentOut(BaseModel):
     #: read from the PDF or inferred. A reviewer checking a citation wants it.
     spine_source: str = "none"
     ingested_at: str = ""
+    #: `null` when nothing has been run against this document. That is what
+    #: drives a library's "Not analysed" row and an analysis view's empty
+    #: state, and it costs one query for the whole list rather than one per
+    #: row -- see `analyses.last_analysis_by_document`.
+    last_analysis: LastAnalysisOut | None = None
 
 
 class DocumentDetail(DocumentOut):
@@ -119,12 +159,6 @@ class SectionOut(BaseModel):
 # Analyses
 # --------------------------------------------------------------------------
 
-#: `interrupted` is not a flavour of `failed`: it is what a row left `running`
-#: by a process that went away reads as after the next startup reconciles it.
-#: The model refusing and the machine going away want different KPI treatment
-#: and different copy -- "this analysis failed" against "this analysis was
-#: interrupted; run it again".
-JobStatus = Literal["queued", "running", "done", "failed", "cancelled", "interrupted"]
 
 
 class AnalyzeRequest(BaseModel):
@@ -200,15 +234,46 @@ class ChatRequest(BaseModel):
     )
     stream: bool = Field(default=True, description="Server-sent events, or one JSON body.")
 
+    # The three per-question overrides. All optional; omitting one means the
+    # configured default. They are per *question* rather than per session
+    # because this API holds no session -- see `history`.
+    model: str | None = Field(
+        default=None,
+        description="Answer model for this question. Must be one of `chat_models` from "
+                    "GET /health; omit for the configured `answer_model`.",
+        examples=["claude-sonnet-5"],
+    )
+    retrieval_mode: RetrievalMode | None = Field(
+        default=None,
+        description="What the search tool does when the model does not choose a mode. "
+                    "The model can still override it per call.",
+    )
+    top_k: int | None = Field(
+        default=None, ge=1, le=20,
+        description="Passages per search. Omit for the configured `retrieval_top_k`.",
+    )
+
 
 class CitationOut(BaseModel):
-    """A citation resolved to everything needed to check it by hand."""
+    """A citation resolved to everything needed to check it by hand.
+
+    The field names are `ResolvedQuote`'s -- `text`, `section_ref`, `verified`
+    -- and deliberately so: a client renders a quote from an analysis report
+    and a quote from a chat answer with the same card, and two names for
+    "which clause this came from" would buy that client nothing but a
+    translation layer.
+    """
 
     evidence_id: str
-    quote: str
-    title: str
+    text: str
+    section_ref: str
     page_display: str = ""
     chunk_id: int | None = None
+    #: Whether `text` was found verbatim in the passage it names. Quotes here
+    #: are extracted by the model API from the passages we sent, so this is a
+    #: check of that guarantee rather than of the model's honesty -- and it
+    #: means the same thing as it does on a report's quote.
+    verified: bool = True
     #: Character offsets into the passage the quote was extracted from.
     start: int = 0
     end: int = 0
@@ -239,10 +304,19 @@ def answer_of(result: AnswerResult) -> Answer:
         citations=[
             CitationOut(
                 evidence_id=c.evidence_id,
-                quote=c.quote,
-                title=c.title,
+                text=c.quote,
+                section_ref=c.title,
                 page_display=c.page_display,
                 chunk_id=c.entry.chunk.chunk_id,
+                # Checked rather than asserted. The citations API extracts the
+                # text from the document blocks we sent, so this should always
+                # hold -- which is exactly why it is worth measuring: a quote
+                # that fails here is a bug in the block we built, and a client
+                # that shows `verified` on a report must be told the truth on
+                # an answer too.
+                verified=quote_in_chunk(
+                    c.quote, c.entry.chunk.text_for_model(), c.entry.chunk.content
+                ),
                 start=c.start,
                 end=c.end,
             )
@@ -303,6 +377,8 @@ __all__ = [
     "Error",
     "ErrorBody",
     "Health",
+    "JobStatus",
+    "LastAnalysisOut",
     "Message",
     "Progress",
     "SectionOut",

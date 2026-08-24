@@ -118,6 +118,14 @@ class Settings(BaseSettings):
 
     # Generation
     answer_model: str = "claude-opus-5"
+    #: Models a *client* may ask for on `POST /chat`. An allowlist, not a
+    #: suggestion: chat is open when API_KEY is unset, and a free-text model id
+    #: on an open endpoint is a request to spend money on an arbitrary model.
+    #: Published by `GET /health` so a UI renders its picker from the server
+    #: rather than from a list of its own that can drift.
+    chat_models: list[str] = Field(
+        default_factory=lambda: ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"]
+    )
     #: Streaming, so this can be generous; an answer over five short passages
     #: never approaches it, and a truncated answer is worse than a slow one.
     answer_max_tokens: int = Field(default=8000, gt=0)
@@ -197,6 +205,17 @@ class Settings(BaseSettings):
     retrieval_candidates: int = Field(default=20, gt=0)
     retrieval_top_k: int = Field(default=6, gt=0)
     rrf_k: int = Field(default=60, gt=0)
+
+    @field_validator("chat_models")
+    @classmethod
+    def _answer_model_is_offerable(cls, v: list[str], info) -> list[str]:
+        # The configured default must be in its own allowlist, or the one model
+        # the API answers with by default is the one model a client cannot ask
+        # for -- and the UI's picker would show a value it cannot round-trip.
+        answer_model = info.data.get("answer_model")
+        if answer_model and answer_model not in v:
+            return [answer_model, *v]
+        return v
 
     @field_validator("api_cors_origins", mode="before")
     @classmethod

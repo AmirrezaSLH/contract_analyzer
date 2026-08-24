@@ -482,16 +482,62 @@
             "title": "History",
             "type": "array"
           },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Answer model for this question. Must be one of `chat_models` from GET /health; omit for the configured `answer_model`.",
+            "examples": [
+              "claude-sonnet-5"
+            ],
+            "title": "Model"
+          },
           "question": {
             "minLength": 1,
             "title": "Question",
             "type": "string"
+          },
+          "retrieval_mode": {
+            "anyOf": [
+              {
+                "enum": [
+                  "hybrid",
+                  "vector",
+                  "keyword"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What the search tool does when the model does not choose a mode. The model can still override it per call.",
+            "title": "Retrieval Mode"
           },
           "stream": {
             "default": true,
             "description": "Server-sent events, or one JSON body.",
             "title": "Stream",
             "type": "boolean"
+          },
+          "top_k": {
+            "anyOf": [
+              {
+                "maximum": 20.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Passages per search. Omit for the configured `retrieval_top_k`.",
+            "title": "Top K"
           }
         },
         "required": [
@@ -502,7 +548,7 @@
         "type": "object"
       },
       "CitationOut": {
-        "description": "A citation resolved to everything needed to check it by hand.",
+        "description": "A citation resolved to everything needed to check it by hand.\n\nThe field names are `ResolvedQuote`'s -- `text`, `section_ref`, `verified`\n-- and deliberately so: a client renders a quote from an analysis report\nand a quote from a chat answer with the same card, and two names for\n\"which clause this came from\" would buy that client nothing but a\ntranslation layer.",
         "properties": {
           "chunk_id": {
             "anyOf": [
@@ -529,8 +575,8 @@
             "title": "Page Display",
             "type": "string"
           },
-          "quote": {
-            "title": "Quote",
+          "section_ref": {
+            "title": "Section Ref",
             "type": "string"
           },
           "start": {
@@ -538,15 +584,20 @@
             "title": "Start",
             "type": "integer"
           },
-          "title": {
-            "title": "Title",
+          "text": {
+            "title": "Text",
             "type": "string"
+          },
+          "verified": {
+            "default": true,
+            "title": "Verified",
+            "type": "boolean"
           }
         },
         "required": [
           "evidence_id",
-          "quote",
-          "title"
+          "text",
+          "section_ref"
         ],
         "title": "CitationOut",
         "type": "object"
@@ -798,6 +849,16 @@
             "title": "Ingested At",
             "type": "string"
           },
+          "last_analysis": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LastAnalysisOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "pages": {
             "anyOf": [
               {
@@ -841,6 +902,16 @@
             "default": "",
             "title": "Ingested At",
             "type": "string"
+          },
+          "last_analysis": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LastAnalysisOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "pages": {
             "anyOf": [
@@ -930,6 +1001,13 @@
             "title": "Auth Required",
             "type": "boolean"
           },
+          "chat_models": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Chat Models",
+            "type": "array"
+          },
           "db": {
             "default": true,
             "title": "Db",
@@ -953,6 +1031,21 @@
             "title": "Key Present",
             "type": "boolean"
           },
+          "max_upload_mb": {
+            "default": 25.0,
+            "title": "Max Upload Mb",
+            "type": "number"
+          },
+          "retrieval_mode": {
+            "default": "hybrid",
+            "title": "Retrieval Mode",
+            "type": "string"
+          },
+          "retrieval_top_k": {
+            "default": 6,
+            "title": "Retrieval Top K",
+            "type": "integer"
+          },
           "status": {
             "default": "ok",
             "enum": [
@@ -974,6 +1067,56 @@
           "answer_model"
         ],
         "title": "Health",
+        "type": "object"
+      },
+      "LastAnalysisOut": {
+        "description": "The newest analysis of a document, as a list row needs it.\n\n`states` is a count per compliance state rather than a summary sentence:\na library composes \"5 of 5 compliant\" or \"2 gaps found\" in its own words,\nand the next consumer will want different ones.",
+        "properties": {
+          "analysis_id": {
+            "title": "Analysis Id",
+            "type": "string"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "needs_review": {
+            "default": 0,
+            "title": "Needs Review",
+            "type": "integer"
+          },
+          "states": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "States",
+            "type": "object"
+          },
+          "status": {
+            "enum": [
+              "queued",
+              "running",
+              "done",
+              "failed",
+              "cancelled",
+              "interrupted"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "analysis_id",
+          "status"
+        ],
+        "title": "LastAnalysisOut",
         "type": "object"
       },
       "Message": {
@@ -1170,6 +1313,16 @@
             "default": "",
             "title": "Ingested At",
             "type": "string"
+          },
+          "last_analysis": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LastAnalysisOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "pages": {
             "anyOf": [
@@ -2193,7 +2346,7 @@
     },
     "/documents": {
       "get": {
-        "description": "What a client binds a session to. `document_id` and `filename` are the\ntwo fields anything else needs.",
+        "description": "What a client binds a session to, with enough to draw a row for each.\n\n`last_analysis` comes from one query over the whole list rather than one\nper document: this is the endpoint a library table renders from, and a\nStreamlit script re-runs it on every click.",
         "operationId": "index_documents_get",
         "responses": {
           "200": {
@@ -2867,7 +3020,7 @@
     },
     "/health": {
       "get": {
-        "description": "Whether the service can work, and with what.\n\n`key_present` is the question a UI actually asks -- upload and retrieval\nwork without an answer key, analysis and chat do not -- so it is reported\nrather than left to be discovered by a 503 three clicks later.",
+        "description": "Whether the service can work, and with what.\n\n`key_present` is the question a UI actually asks -- upload and retrieval\nwork without an answer key, analysis and chat do not -- so it is reported\nrather than left to be discovered by a 503 three clicks later.\n\nThe configuration echoed beside it is there for the same reason. A client\nthat hardcodes the model list, the retrieval defaults or the upload cap\nhas three values that drift the moment `settings.json` changes; a client\nthat reads them here has none.",
         "operationId": "health_health_get",
         "responses": {
           "200": {

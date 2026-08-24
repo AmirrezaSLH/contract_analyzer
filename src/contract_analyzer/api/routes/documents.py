@@ -23,7 +23,7 @@ from typing import Annotated
 from fastapi import APIRouter, File, Response, UploadFile, status
 from starlette.concurrency import run_in_threadpool
 
-from ...analyses import live_analyses
+from ...analyses import LastAnalysis, last_analysis_by_document, live_analyses
 from ...documents import (
     delete_document,
     document_sections,
@@ -35,7 +35,13 @@ from ...ingest.pipeline import ingest_file
 from ..deps import ConnDep, EmbedderDep, Protected, RunnerDep, SettingsDep
 from ..errors import ApiError, document_not_found, from_ingest_error
 from ..jobs import summaries_for
-from ..schemas import DocumentDetail, DocumentOut, SectionOut, UploadOut
+from ..schemas import (
+    DocumentDetail,
+    DocumentOut,
+    LastAnalysisOut,
+    SectionOut,
+    UploadOut,
+)
 from ..uploads import require_pdf, save_upload, stored_path
 
 router = APIRouter(prefix="/documents", tags=["documents"], dependencies=[Protected])
@@ -104,9 +110,15 @@ async def upload(
 
 @router.get("", summary="Every stored contract, newest first")
 def index(conn: ConnDep) -> list[DocumentOut]:
-    """What a client binds a session to. `document_id` and `filename` are the
-    two fields anything else needs."""
-    return [_out(d) for d in list_documents(conn)]
+    """What a client binds a session to, with enough to draw a row for each.
+
+    `last_analysis` comes from one query over the whole list rather than one
+    per document: this is the endpoint a library table renders from, and a
+    Streamlit script re-runs it on every click.
+    """
+    documents = list_documents(conn)
+    last = last_analysis_by_document(conn, [d.document_id for d in documents])
+    return [_out(d, last.get(d.document_id)) for d in documents]
 
 
 @router.get("/{document_id}", summary="One contract and its analyses")
@@ -114,10 +126,11 @@ def detail(document_id: int, conn: ConnDep, runner: RunnerDep) -> DocumentDetail
     document = get_document(conn, document_id)
     if document is None:
         raise document_not_found(document_id)
+    last = last_analysis_by_document(conn, [document_id]).get(document_id)
     return DocumentDetail(
         # The same merge `GET /analyses` uses, from the same function, so the
         # two lists cannot disagree about a document's history.
-        **_out(document).model_dump(),
+        **_out(document, last).model_dump(),
         analyses=summaries_for(runner, conn, document_id),
     )
 
@@ -154,7 +167,7 @@ def remove(document_id: int, conn: ConnDep, settings: SettingsDep) -> Response:
             status.HTTP_409_CONFLICT,
             "analysis_running",
             f"Analysis {running[0].analysis_id} is still running on this document.",
-            "Cancel it with POST /analyses/{analysis_id}/cancel, or wait for it to finish.",
+            "Cancel that analysis, or wait for it to finish, then delete the contract.",
         )
     # The analyses are deliberately left behind: `analyses.document_id` carries
     # no foreign key, because the report is the deliverable and it is
@@ -163,7 +176,7 @@ def remove(document_id: int, conn: ConnDep, settings: SettingsDep) -> Response:
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-def _out(document) -> DocumentOut:
+def _out(document, last: LastAnalysis | None = None) -> DocumentOut:
     return DocumentOut(
         document_id=document.document_id,
         filename=document.filename,
@@ -171,4 +184,11 @@ def _out(document) -> DocumentOut:
         chunks=document.chunks,
         spine_source=document.spine_source,
         ingested_at=document.ingested_at,
+        last_analysis=None if last is None else LastAnalysisOut(
+            analysis_id=last.analysis_id,
+            status=last.status,
+            completed_at=last.completed_at,
+            states=last.states,
+            needs_review=last.needs_review,
+        ),
     )

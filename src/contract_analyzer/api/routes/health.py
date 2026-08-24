@@ -24,6 +24,11 @@ def health(settings: SettingsDep, conn: ConnDep, runner: RunnerDep) -> Health:
     `key_present` is the question a UI actually asks -- upload and retrieval
     work without an answer key, analysis and chat do not -- so it is reported
     rather than left to be discovered by a 503 three clicks later.
+
+    The configuration echoed beside it is there for the same reason. A client
+    that hardcodes the model list, the retrieval defaults or the upload cap
+    has three values that drift the moment `settings.json` changes; a client
+    that reads them here has none.
     """
     try:
         documents = len(list_documents(conn))
@@ -37,6 +42,10 @@ def health(settings: SettingsDep, conn: ConnDep, runner: RunnerDep) -> Health:
         embedder=settings.embedding_provider,
         embedding_model=settings.resolved_embedding_model,
         answer_model=settings.answer_model,
+        chat_models=list(settings.chat_models),
+        retrieval_mode=settings.retrieval_mode,
+        retrieval_top_k=settings.retrieval_top_k,
+        max_upload_mb=settings.api_max_upload_mb,
         key_present=bool(settings.anthropic_key),
         auth_required=bool(settings.api_key_value),
         documents=documents,

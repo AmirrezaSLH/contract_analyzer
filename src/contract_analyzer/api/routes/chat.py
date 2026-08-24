@@ -37,7 +37,7 @@ from ...generation.chat import chat
 from ...http_client import HttpFailure
 from ...logger import current_trace_id, get_logger, trace_context
 from ..deps import ClientDep, ConnDep, EmbedderDep, Protected, SettingsDep
-from ..errors import document_not_found, no_api_key
+from ..errors import ApiError, document_not_found, no_api_key
 from ..schemas import Answer, ChatRequest, answer_of, as_dict
 from ..sse import Event
 
@@ -75,12 +75,14 @@ def ask(
         raise document_not_found(body.document_id)
     if client is None:
         raise no_api_key()
+    require_allowed_model(body.model, settings)
 
     history = [m.model_dump() for m in body.history]
     if not body.stream:
         result = chat(
             body.question, conn, embedder, settings,
             document_id=body.document_id, history=history, client=client,
+            model=body.model, retrieval_mode=body.retrieval_mode, top_k=body.top_k,
         )
         return answer_of(result)
 
@@ -88,6 +90,27 @@ def ask(
         _stream(body, settings, embedder, client, history, current_trace_id()),
         ping=int(settings.api_keepalive_seconds),
         headers={"X-Trace-Id": current_trace_id() or ""},
+    )
+
+
+def require_allowed_model(model: str | None, settings) -> None:
+    """Refuse a model this deployment does not offer.
+
+    An allowlist rather than free text, and checked here rather than in the
+    pydantic model, which has no way to reach settings. This endpoint is open
+    when `API_KEY` is unset, so an unvalidated `model` is an invitation to
+    spend this deployment's key on whatever the caller names. `chat_models` is
+    published by `GET /health` so a client can render exactly the choices that
+    will be accepted.
+    """
+    if model is None or model in settings.chat_models:
+        return
+    raise ApiError(
+        status.HTTP_422_UNPROCESSABLE_CONTENT,
+        "validation",
+        f"model: {model!r} is not offered by this deployment.",
+        "Pick one of the models GET /health lists as chat_models, or omit the field "
+        "to use the configured default.",
     )
 
 
@@ -108,6 +131,7 @@ def _stream(body, settings, embedder, client, history, trace_id):
                 outcome["result"] = chat(
                     body.question, conn, embedder, settings,
                     document_id=body.document_id, history=history, client=client,
+                    model=body.model, retrieval_mode=body.retrieval_mode, top_k=body.top_k,
                     on_text=lambda text: sink.put(Event("text", {"text": text})),
                     on_event=lambda event: sink.put(_agent_event(event)),
                 )
@@ -143,6 +167,10 @@ def _stream(body, settings, embedder, client, history, trace_id):
             {
                 "usage": answer.usage,
                 "cost_usd": answer.cost_usd,
+                # The model that answered, not the one that was asked for: a
+                # usage line that reports the request rather than the run is
+                # the wrong half of the story.
+                "model": answer.model,
                 "stop_reason": answer.stop_reason,
                 "ended_by": answer.ended_by,
                 "tool_calls": answer.tool_calls,

@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -112,6 +112,29 @@ class AnalysisRecord:
         from .report import AnalysisReport
 
         return AnalysisReport.model_validate_json(self.report_json)
+
+
+@dataclass(frozen=True, kw_only=True)
+class LastAnalysis:
+    """The most recent analysis of one document, as a library row needs it.
+
+    Not an `AnalysisRecord`: this is the projection a *list* wants -- enough to
+    draw a chip beside a document and nothing more -- and it is built by one
+    query over every document rather than by reading a report per row. The
+    counts are the whole point. A list endpoint that returned "5 of 5
+    compliant" would be choosing this UI's words for every other consumer;
+    `states` lets each one choose its own.
+    """
+
+    analysis_id: str
+    document_id: int
+    status: str
+    completed_at: str | None = None
+    #: `{"Fully Compliant": 5, ...}`, from the stored report. Empty for a run
+    #: that never produced one -- which is every status except `done` and a
+    #: `cancelled` run that got some of the way.
+    states: dict[str, int] = field(default_factory=dict)
+    needs_review: int = 0
 
 
 # -- writes ----------------------------------------------------------------
@@ -275,15 +298,19 @@ def list_analyses(
 ) -> list[AnalysisRecord]:
     """Analyses, newest first, optionally for one document.
 
-    `created_at` has one-second resolution, so `analysis_id` breaks the tie and
-    two submissions in the same second still come back in a stable order.
+    `created_at` has one-second resolution, and `analysis_id` is random hex, so
+    the tie-break is `rowid`: it is assigned in insert order, which makes two
+    submissions in the same second come back in the order they were made
+    rather than merely in a stable one. A library row showing "the last
+    analysis" has to be the last one, not the one whose id happens to sort
+    highest.
     """
     sql = f"SELECT {_COLUMNS} FROM analyses"
     params: list[Any] = []
     if document_id is not None:
         sql += " WHERE document_id = ?"
         params.append(int(document_id))
-    sql += " ORDER BY created_at DESC, analysis_id DESC LIMIT ?"
+    sql += " ORDER BY created_at DESC, rowid DESC LIMIT ?"
     params.append(int(limit))
     return [_record(row) for row in conn.execute(sql, params)]
 
@@ -302,6 +329,74 @@ def live_analyses(conn: sqlite3.Connection, document_id: int) -> list[AnalysisRe
     return [_record(row) for row in rows]
 
 
+#: The newest analysis of every document, one row per (document, state) pair.
+#: The pick of *which* analysis is the newest happens in SQL rather than in
+#: Python because `GET /documents` is read by a UI that re-renders on every
+#: click, and a lookup per row there is an N+1 that grows with the corpus.
+#: `json_each` counts the compliance states off the stored report, which keeps
+#: ~30 KB of JSON per document out of a path that wants five integers. The
+#: LEFT JOIN is load-bearing: a run with no report has no `results` array, and
+#: it must still come back carrying its status.
+_LAST_ANALYSIS = """
+WITH latest AS (
+    SELECT a.analysis_id, a.document_id, a.status, a.completed_at,
+           a.needs_review, a.report_json
+      FROM analyses a
+     WHERE a.analysis_id = (
+           SELECT b.analysis_id FROM analyses b
+            WHERE b.document_id = a.document_id
+            ORDER BY b.created_at DESC, b.rowid DESC LIMIT 1)
+       {filter}
+)
+SELECT l.document_id, l.analysis_id, l.status, l.completed_at, l.needs_review,
+       json_extract(r.value, '$.compliance_state') AS state,
+       count(r.value) AS n
+  FROM latest l
+  LEFT JOIN json_each(l.report_json, '$.results') r
+ GROUP BY l.document_id, state
+"""
+
+
+def last_analysis_by_document(
+    conn: sqlite3.Connection, document_ids: Sequence[int] | None = None
+) -> dict[int, LastAnalysis]:
+    """The newest analysis of each document, keyed by `document_id`.
+
+    One query for the whole library. Documents that have never been analysed
+    are simply absent from the mapping, which is what `last_analysis: null`
+    means on the wire and what draws the "Not analysed" chip.
+    """
+    params: list[Any] = []
+    filter_sql = ""
+    if document_ids is not None:
+        ids = [int(d) for d in document_ids]
+        if not ids:
+            return {}
+        filter_sql = f"AND a.document_id IN ({','.join('?' * len(ids))})"
+        params = list(ids)
+
+    rows = conn.execute(_LAST_ANALYSIS.format(filter=filter_sql), params).fetchall()
+
+    states: dict[int, dict[str, int]] = {}
+    heads: dict[int, sqlite3.Row] = {}
+    for row in rows:
+        document_id = int(row["document_id"])
+        heads[document_id] = row
+        if row["state"]:
+            states.setdefault(document_id, {})[row["state"]] = int(row["n"])
+    return {
+        document_id: LastAnalysis(
+            analysis_id=row["analysis_id"],
+            document_id=document_id,
+            status=row["status"],
+            completed_at=row["completed_at"],
+            states=states.get(document_id, {}),
+            needs_review=int(row["needs_review"] or 0),
+        )
+        for document_id, row in heads.items()
+    }
+
+
 def _record(row: sqlite3.Row) -> AnalysisRecord:
     # `dict(row)` rather than a comprehension: sqlite3.Row exposes keys() and
     # __getitem__, which is the mapping protocol dict() reads, and iterating a
@@ -316,9 +411,11 @@ def _now() -> str:
 __all__ = [
     "LIVE",
     "AnalysisRecord",
+    "LastAnalysis",
     "fail_analysis",
     "finish_analysis",
     "get_analysis",
+    "last_analysis_by_document",
     "list_analyses",
     "live_analyses",
     "mark_running",

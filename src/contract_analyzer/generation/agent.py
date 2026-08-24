@@ -164,16 +164,23 @@ def run_agent(
     finisher: Callable[[AgentRun], T] | None = None,
     settings: Settings | None = None,
     client: Any = None,
+    model: str | None = None,
     on_event: OnEvent | None = None,
 ) -> AgentRun:
     """Drive the loop, then hand the run to `finisher`. Raises before any request
-    if there is no key (`AnswerUnavailable`)."""
+    if there is no key (`AnswerUnavailable`).
+
+    `model` overrides `settings.answer_model` for this run and nothing else --
+    the caller that passes it is answering one question, not reconfiguring the
+    process. It is recorded on the run, so `AgentRun.model` is always the model
+    that actually answered rather than the one that was configured.
+    """
     settings = settings or get_settings()
     client = client or get_client(settings)
     emit = on_event or (lambda event: None)
     run = AgentRun(
         surface=task.surface,
-        model=settings.answer_model,
+        model=model or settings.answer_model,
         effort=task.effort,
         messages=list(task.messages),
         evidence=tools.evidence,

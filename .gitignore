@@ -216,3 +216,12 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+
+assignment_details
+.run/
+data/*.db
+data/*.db-*
+data/raw/
+data/assets/
+temp/

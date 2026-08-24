@@ -1,0 +1,37 @@
+# The build context. Everything the image does not need, so a rebuild does not
+# ship secrets, the host virtualenv, or a 40 MB corpus of sample PDFs.
+
+.git/
+.gitignore
+.github/
+
+# Host virtualenv and caches -- wrong interpreter, wrong platform.
+.venv/
+venv/
+**/__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Secrets. Keys reach the container through env_file/-e at run time, never
+# through a layer. .env.example is kept: it documents the knobs.
+.env
+.env.*
+!.env.example
+
+# Runtime state, mounted as volumes instead of baked in.
+data/
+.run/
+
+# Working material that has no business in a runtime image.
+assignment_details/
+plan_implement_docs/
+docs/
+AGENTS.md
+
+# Docker's own files.
+Dockerfile
+.dockerignore
+docker-compose*.yml

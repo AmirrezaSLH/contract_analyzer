@@ -68,6 +68,7 @@ Two modules cut across everything and were built first:
 | `compliance/` | the five criteria and the result schema | -- | criteria file only |
 | `agents/` | router / extractor / evaluator state machine | -- | Phase B |
 | `api/`, `ui/`, `mcp/` | surfaces | -- | Phase C |
+| `Dockerfile`, `docker-compose.yml`, `docker/` | build and run the whole thing in a container | [docker.md](docker.md) | foundation laid; `api`/`ui` verbs await Phase C |
 
 ## Data flow, end to end (Phase A)
 
@@ -109,6 +110,7 @@ src/contract_analyzer/   the package (src layout; `pip install -e .`)
   parse/  ingest/  embeddings/  retrieval/  generation/  compliance/
 scripts/                 CLIs (ingest, search, chat, parse_report)
 tests/                   offline suite: fake embedder, stub LLM client, mock transport
+docker/                  entrypoint.sh (one verb per surface); Dockerfile at the root
 docs/                    this folder -- one file per module plus this one
 plan_implement_docs/     plans before, reports after, per phase
 data/samples/            the sample contract; data/*.db and data/raw are gitignored
@@ -121,6 +123,10 @@ Python ≥ 3.11, `pip install -e ".[dev]"`. Keys in `.env` (see
 `.env.example`): `ANTHROPIC_API_KEY` for answers, `OPENAI_API_KEY` for
 embeddings. `EMBEDDING_PROVIDER=fake` runs the whole pipeline offline with
 hashed vectors for demos and tests. PyMuPDF is AGPL-3.0 (see parsing.md).
+
+Containers are an alternative to the virtualenv, not a replacement: `make
+docker-build && make docker-test` builds the image and runs the same suite
+inside it. See [docker.md](docker.md).
 
 ## Change log of this document
 

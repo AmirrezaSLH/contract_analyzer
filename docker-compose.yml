@@ -1,0 +1,94 @@
+# Local build-and-run. Keys come from .env (gitignored, optional here); state
+# lives in bind mounts so the database and the JSON log survive `down` and stay
+# readable from the host.
+name: contract-analyzer
+
+# A YAML merge key replaces a whole mapping, so the shared environment lives in
+# its own anchor: a service that adds one variable merges this in rather than
+# silently dropping the rest.
+x-env: &env
+  # Absolute, so they do not depend on the working directory, and pointed at
+  # the mounts rather than at the image's own filesystem.
+  DB_PATH: /app/data/contracts.db
+  RAW_DIR: /app/data/raw
+  ASSETS_DIR: /app/data/assets
+  LOG_FILE: /app/.run/app.jsonl
+
+x-app: &app
+  build:
+    context: .
+    target: runtime
+    args:
+      # `make docker-build` passes the host's; otherwise the bind mounts end
+      # up owned by uid 1000. Not named UID: that one is readonly in bash.
+      APP_UID: ${APP_UID:-1000}
+      APP_GID: ${APP_GID:-1000}
+  image: contract-analyzer:${TAG:-dev}
+  env_file:
+    - path: .env
+      required: false
+  environment: *env
+  volumes:
+    - ./data:/app/data
+    - ./.run:/app/.run
+  # Deliberately no `restart:` while api/ui are unimplemented -- a restart
+  # policy would turn their "not implemented yet" exit into a loop. Add
+  # `restart: unless-stopped` to the servers once Phase C lands.
+
+services:
+  # The HTTP API. Phase C -- until api/ lands the container exits with a
+  # message naming the missing module.
+  api:
+    <<: *app
+    command: ["api"]
+    ports:
+      - "${API_PORT:-8000}:8000"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # The Streamlit front end. Also Phase C.
+  ui:
+    <<: *app
+    command: ["ui"]
+    ports:
+      - "${UI_PORT:-8501}:8501"
+    environment:
+      <<: *env
+      CA_API_URL: http://api:8000
+    depends_on:
+      - api
+
+  # One-off container for the things that are not servers: pytest, ruff, the
+  # ingest/search/chat CLIs, a shell. Built from the dev stage, never started
+  # by `up`.
+  #   docker compose run --rm tools test
+  #   docker compose run --rm tools python scripts/ingest.py data/raw/contract.pdf
+  tools:
+    <<: *app
+    build:
+      context: .
+      target: dev
+      args:
+        APP_UID: ${APP_UID:-1000}
+        APP_GID: ${APP_GID:-1000}
+    image: contract-analyzer:${TAG:-dev}-dev
+    profiles: ["tools"]
+    command: ["shell"]
+    stdin_open: true
+    tty: true
+    volumes:
+      - ./data:/app/data
+      - ./.run:/app/.run
+      # Source from the host: the install is editable, so an edit is live in
+      # the container without a rebuild.
+      - ./src:/app/src
+      - ./tests:/app/tests
+      - ./scripts:/app/scripts

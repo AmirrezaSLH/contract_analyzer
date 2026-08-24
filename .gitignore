@@ -226,3 +226,6 @@ data/raw/
 data/assets/
 temp/
 AGENTS.md
+
+# Docker: local-only compose overrides (extra mounts, ports, a debugger).
+docker-compose.override.yml

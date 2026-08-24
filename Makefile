@@ -2,7 +2,8 @@
 
 PYTHON ?= .venv/bin/python
 
-.PHONY: help venv ingest reingest search chat test lint fmt logs
+.PHONY: help venv ingest reingest search chat test lint fmt logs \
+	docker-build docker-up docker-down docker-logs docker-shell docker-test
 
 help:  ## List the targets
 	@grep -hE '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -34,3 +35,27 @@ fmt:  ## ruff, applying what it can fix
 
 logs:  ## Tail the structured JSON log
 	tail -f .run/app.jsonl
+
+# --- Docker -----------------------------------------------------------------
+# The host uid/gid are passed through so bind-mounted data/ and .run/ stay
+# host-writable. APP_ prefix: UID is readonly in bash and cannot be assigned.
+COMPOSE ?= APP_UID=$(shell id -u) APP_GID=$(shell id -g) docker compose
+
+docker-build:  ## Build the runtime and dev images
+	$(COMPOSE) build
+	$(COMPOSE) --profile tools build
+
+docker-up:  ## Start the API and UI in the background
+	$(COMPOSE) up -d
+
+docker-down:  ## Stop them. Add V=1 to drop volumes: make docker-down V=1
+	$(COMPOSE) down $(if $(V),--volumes,)
+
+docker-logs:  ## Follow the container logs
+	$(COMPOSE) logs -f
+
+docker-shell:  ## A shell in the dev image, source bind-mounted
+	$(COMPOSE) run --rm tools shell
+
+docker-test:  ## The suite, inside the image
+	$(COMPOSE) run --rm tools test

@@ -24,6 +24,7 @@ What is pinned here:
 from __future__ import annotations
 
 import json
+import time
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -49,7 +50,19 @@ def settings(tmp_path) -> Settings:
 
 
 @pytest.fixture
-def conn(settings):
+def store(settings) -> MetricsStore:
+    """Building the store applies `metrics.sql`, which is what creates `spans`.
+
+    Not installed: `install()` is what attaches the handler and starts the
+    writer thread, and most of this file is about the queries.
+    """
+    store = MetricsStore(settings)
+    yield store
+    store.close()
+
+
+@pytest.fixture
+def conn(settings, store):
     conn = get_db(settings)
     conn.execute(
         "INSERT INTO documents (id, path, filename, content_hash) "
@@ -417,6 +430,11 @@ def analysed(tmp_path, monkeypatch):
 
     monkeypatch.setattr(T, "retrieve", retrieve)
 
+    from contract_analyzer.logger import configure_logging
+    from contract_analyzer.metrics import MetricsStore
+
+    configure_logging("INFO", None, console=False, force=True)
+
     conn = get_db(settings)
     conn.execute(
         "INSERT INTO documents (id, path, filename, content_hash, page_count) "
@@ -433,7 +451,13 @@ def analysed(tmp_path, monkeypatch):
     )
     conn.commit()
 
+    # The wiring `scripts/analyze.py` does, in the order it does it: a store
+    # built from settings, installed, and then the same `analyze_document` the
+    # API's worker calls. No API is involved in producing these spans.
+    cli_store = MetricsStore(settings).install()
     report = analyze_document(1, conn, object(), settings, scripted_client(script()))
+    assert cli_store.flush()
+    cli_store.close()
     conn.close()
 
     from fastapi.testclient import TestClient
@@ -493,3 +517,401 @@ def test_a_malformed_window_is_a_422_in_this_apis_envelope(analysed):
     response = client.get("/api/metrics/summary?window=last-tuesday")
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "validation"
+
+
+# --------------------------------------------------------------------------
+# The span handler: the discipline, proved rather than asserted in a docstring
+# --------------------------------------------------------------------------
+
+
+def log_span(logger, name: str, /, **attrs) -> None:
+    """A `span.end` record as `logger.span()` writes one, without timing a
+    block. Hand-built, so a test can send exactly the attributes it means to."""
+    logger.info("span.end", extra={"span": name, "status": "ok", **attrs})
+
+
+@pytest.fixture
+def installed(settings, store):
+    """The store with its handler on the root logger and its writer running."""
+    from contract_analyzer.logger import configure_logging, get_logger
+
+    configure_logging("INFO", None, console=False, force=True)
+    store.install()
+    yield store, get_logger("test.spans")
+    store.close()
+
+
+def rows(conn, **where):
+    sql = "SELECT * FROM spans"
+    if where:
+        sql += " WHERE " + " AND ".join(f"{k} = ?" for k in where)
+    return [dict(row) for row in conn.execute(sql + " ORDER BY ts, rowid", tuple(where.values()))]
+
+
+def test_one_row_per_span_end_and_none_per_span_start(installed, conn):
+    """`span.start` carries nothing `span.end` does not, including the latency.
+    A row for each would double the table to record nothing."""
+    store, logger = installed
+
+    logger.info("span.start", extra={"span": "retrieve"})
+    log_span(logger, "retrieve", latency_ms=12.5, mode="hybrid", document_id=1)
+    logger.info("something.else", extra={"span": "retrieve"})
+    assert store.flush()
+
+    stored = rows(conn)
+    assert len(stored) == 1
+    assert stored[0]["name"] == "retrieve"
+    assert stored[0]["latency_ms"] == 12.5
+    assert stored[0]["document_id"] == 1
+    assert json.loads(stored[0]["attrs"]) == {"mode": "hybrid"}
+    assert store.dropped == 0
+
+
+def test_the_promoted_columns_come_out_of_the_bag_and_the_rest_stay_json(installed, conn):
+    """Every KPI query touches surface, criterion, document_id, model, tokens
+    and cost; json_extract over a million rows to group by model is a table
+    scan with extra steps. Everything else is one json_extract away instead of
+    one migration away."""
+    store, logger = installed
+
+    log_span(logger, "agent.call", surface="analysis", model="claude-sonnet-5",
+             input_tokens=1000, output_tokens=200, cost_usd=0.004,
+             latency_ms=900.0, turn=2, effort="medium", stop_reason="end_turn")
+    assert store.flush()
+
+    row = rows(conn)[0]
+    assert row["model"] == "claude-sonnet-5"
+    assert (row["input_tokens"], row["output_tokens"]) == (1000, 200)
+    assert row["cost_usd"] == 0.004
+    assert row["surface"] == "analysis"
+    assert json.loads(row["attrs"]) == {"turn": 2, "effort": "medium",
+                                        "stop_reason": "end_turn"}
+
+
+def test_a_malformed_attribute_never_raises_and_never_loses_the_span(installed, conn):
+    """This runs on a criterion thread inside a run that is already a minute
+    long and a dollar deep. An exception out of the handler is the one outcome
+    that is not acceptable."""
+    store, logger = installed
+
+    class Awkward:
+        def __repr__(self):
+            raise RuntimeError("not even repr")
+
+    log_span(logger, "agent.call", document_id="not an int", cost_usd="free",
+             input_tokens=None, weird=Awkward(), latency_ms="soon")
+    assert store.flush()
+
+    row = rows(conn)[0]
+    assert row["name"] == "agent.call"
+    # Unparseable values become NULL rather than taking the row with them.
+    assert row["document_id"] is None
+    assert row["cost_usd"] is None
+    assert row["latency_ms"] is None
+    # And a value even `str()` cannot handle costs that value, not the bag and
+    # not the row: "every span is stored" is a claim, so it has to hold here.
+    assert json.loads(row["attrs"])["weird"] == "<unserialisable>"
+    assert store.dropped == 0
+
+
+def test_a_full_queue_drops_and_counts_instead_of_blocking(settings, conn):
+    """The handler must never block a criterion thread in order to record that
+    a criterion thread was busy -- and it must say how much it lost, because a
+    metrics system that silently loses data is worse than one that admits it."""
+    from contract_analyzer.logger import LogRecord
+    from contract_analyzer.metrics.handler import SpanHandler
+
+    handler = SpanHandler(lambda: None, capacity=2)  # never started: nothing drains
+
+    def record(name):
+        made = LogRecord("test", 20, __file__, 1, "span.end", None, None)
+        made.span = name
+        made.status = "ok"
+        return made
+
+    for index in range(10):
+        handler.emit(record(f"s{index}"))
+
+    assert handler.dropped == 8
+    assert handler.written == 0
+
+
+def test_the_dropped_counter_is_on_the_summary(installed, conn):
+    store, logger = installed
+    log_span(logger, "chat", cost_usd=0.01, latency_ms=800.0)
+    assert store.flush()
+
+    got = store.summary(conn)["spans"]
+    assert got == {"written": 1, "dropped": 0}
+
+
+# --------------------------------------------------------------------------
+# run_id: what belongs to a run, and what correctly does not
+# --------------------------------------------------------------------------
+
+
+def test_a_runs_spans_are_its_own_even_inside_one_trace(installed, conn):
+    """One trace legitimately contains an upload *and* an analysis -- and two
+    analyses can share a trace when one request starts both. `run_id` is what
+    keeps the waterfall a run's rather than a trace's."""
+    from contract_analyzer.logger import run_context, trace_context
+
+    store, logger = installed
+
+    with trace_context("t" * 32):
+        log_span(logger, "ingest.file")  # no run: not part of one
+        with run_context("run-a"):
+            log_span(logger, "analysis.criterion", criterion="password_management")
+        with run_context("run-b"):
+            log_span(logger, "analysis.criterion", criterion="network_auth")
+        log_span(logger, "chat", cost_usd=0.01)  # chat is not a run
+    assert store.flush()
+
+    assert [row["name"] for row in rows(conn, run_id="run-a")] == ["analysis.criterion"]
+    assert [row["criterion"] for row in rows(conn, run_id="run-b")] == ["network_auth"]
+    unattached = [row["name"] for row in rows(conn) if row["run_id"] is None]
+    assert sorted(unattached) == ["chat", "ingest.file"]
+    # All four share the trace, which is what makes the point.
+    assert len(rows(conn, trace_id="t" * 32)) == 4
+
+
+# --------------------------------------------------------------------------
+# What spans make answerable that `analyses` cannot
+# --------------------------------------------------------------------------
+
+
+def test_chat_cost_is_a_span_query_and_never_a_run_row(installed, conn):
+    """Chat is stateless by design: it writes no row anywhere. Giving it one in
+    `analyses` would mean every analysis KPI needed `WHERE surface != 'chat'`
+    forever, so it is `spans WHERE name = 'chat'` instead."""
+    store, logger = installed
+
+    log_span(logger, "chat", cost_usd=0.02, latency_ms=1000.0, document_id=1)
+    log_span(logger, "chat", cost_usd=0.04, latency_ms=3000.0, document_id=1)
+    assert store.flush()
+
+    got = store.summary(conn)
+    assert got["chat"]["turns"] == 2
+    assert got["chat"]["cost_usd"] == 0.06
+    assert got["chat"]["cost_per_turn"] == 0.03
+    assert got["chat"]["latency_ms"] == {"p50": 1000.0, "p95": 3000.0}
+    # And it is not in the analysis numbers.
+    assert got["runs"]["total"] == 0
+
+
+def test_cost_per_model_covers_analysis_and_chat_in_one_pass(installed, conn):
+    """The reason this waited for spans instead of mining `report_json`: that
+    would have been analysis-only, and `analyses` has no model column."""
+    store, logger = installed
+
+    log_span(logger, "agent.call", surface="analysis", model="claude-sonnet-5",
+             cost_usd=0.004, input_tokens=1000, output_tokens=200)
+    log_span(logger, "agent.call", surface="chat", model="claude-sonnet-5",
+             cost_usd=0.001, input_tokens=300, output_tokens=50)
+    log_span(logger, "agent.call", surface="chat", model="claude-haiku-4-5",
+             cost_usd=0.0002, input_tokens=300, output_tokens=50)
+    assert store.flush()
+
+    by_model = {row["model"]: row for row in store.summary(conn)["cost_by_model"]}
+    assert by_model["claude-sonnet-5"]["calls"] == 2
+    assert by_model["claude-sonnet-5"]["cost_usd"] == 0.005
+    assert by_model["claude-sonnet-5"]["input_tokens"] == 1300
+    assert by_model["claude-haiku-4-5"]["calls"] == 1
+
+
+def test_spans_of_a_deleted_documents_run_survive_the_delete(settings, conn, store):
+    """The reason there is no foreign key on `spans`, and the same argument as
+    `analyses`: history that vanishes when somebody tidies up the corpus is not
+    history."""
+    from contract_analyzer.documents import delete_document
+
+    record(conn, "a1")
+    conn.execute(
+        "INSERT INTO spans (span_id, run_id, name, ts, document_id) "
+        "VALUES ('s1', 'a1', 'analysis.document', ?, 1)",
+        ((NOW - timedelta(minutes=10)).isoformat(timespec="milliseconds"),),
+    )
+    conn.commit()
+
+    assert delete_document(conn, 1)
+
+    assert conn.execute("SELECT count(*) FROM documents").fetchone()[0] == 0
+    assert len(rows(conn, run_id="a1")) == 1
+    assert len(queries.runs(conn)) == 1
+
+
+# --------------------------------------------------------------------------
+# The waterfall
+# --------------------------------------------------------------------------
+
+
+def test_the_waterfall_is_a_tree_that_resolves(installed, conn):
+    """The shape `Metric_Store.md` predicts, built from the real `span()`
+    context manager so the parent links are the ones production writes."""
+    from contract_analyzer.logger import run_context, span, trace_context
+
+    store, logger = installed
+
+    with (
+        trace_context(),
+        run_context("run-1"),
+        span("analysis.document", logger, document_id=1),
+        span("analysis.criterion", logger, criterion="password_management"),
+        span("agent.run", logger, surface="analysis"),
+    ):
+        with span("agent.call", logger, model="claude-sonnet-5", cost_usd=0.004):
+            pass
+        with (
+            span("agent.tool", logger, tool="search_contract"),
+            span("retrieve", logger, mode="hybrid", document_id=1),
+        ):
+            pass
+    assert store.flush()
+
+    tree = store.spans(conn, "run-1")
+    assert [node["name"] for node in tree] == ["analysis.document"]
+    criterion = tree[0]["children"][0]
+    assert criterion["name"] == "analysis.criterion"
+    assert criterion["criterion"] == "password_management"
+    run = criterion["children"][0]
+    assert [child["name"] for child in run["children"]] == ["agent.call", "agent.tool"]
+    assert run["children"][0]["model"] == "claude-sonnet-5"
+    assert [leaf["name"] for leaf in run["children"][1]["children"]] == ["retrieve"]
+    assert run["children"][1]["children"][0]["attrs"]["mode"] == "hybrid"
+
+
+def test_a_run_with_no_spans_is_an_empty_tree_not_an_error(conn, store):
+    """A run from before this table existed is still in `/metrics/runs` beside
+    it, so a 404 here would be wrong about a run that plainly exists."""
+    record(conn, "a1")
+
+    assert store.spans(conn, "a1") == []
+
+
+def test_prune_drops_old_spans_and_leaves_the_analyses_alone(conn, store):
+    """The reports are the deliverable; a retention policy that took them with
+    the telemetry would be deleting the wrong half."""
+    record(conn, "a1")
+    for index, minutes in enumerate((5, 60 * 24 * 40)):
+        conn.execute(
+            "INSERT INTO spans (span_id, run_id, name, ts) VALUES (?, 'a1', 'retrieve', ?)",
+            (f"s{index}", (NOW - timedelta(minutes=minutes)).isoformat(timespec="milliseconds")),
+        )
+    conn.commit()
+
+    cut = (NOW - timedelta(days=30)).isoformat(timespec="milliseconds")
+    assert store.prune(conn, cut) == 1
+    assert len(rows(conn)) == 1
+    assert len(queries.runs(conn)) == 1
+
+
+def test_the_command_line_populates_spans_with_no_api_involved(analysed, settings):
+    """`Metric_Store.md` §9: `make analyze` fills the same table the API does.
+    A dashboard that only saw HTTP traffic would measure the surface, not the
+    system -- and this run was produced before the app was built at all.
+
+    The fixture does exactly what `scripts/analyze.py` does: build the store
+    from settings, install it, call `analyze_document`.
+    """
+    client, report = analysed
+
+    tree = client.get(f"/api/metrics/runs/{report.analysis_id}/spans").json()
+    assert [node["name"] for node in tree] == ["analysis.document"]
+    criteria = [child for child in tree[0]["children"]
+                if child["name"] == "analysis.criterion"]
+    assert len(criteria) == len(report.results)
+    assert {child["criterion"] for child in criteria} == {
+        result.criterion_id for result in report.results
+    }
+
+
+def test_the_summary_costs_the_run_by_model_from_its_agent_calls(analysed):
+    """`analyses` has no model column; this number exists only because the
+    calls were spans."""
+    client, report = analysed
+
+    got = client.get("/api/metrics/summary").json()
+    assert len(got["cost_by_model"]) == 1
+    model = got["cost_by_model"][0]
+    assert model["model"] == "claude-sonnet-5"
+    assert model["cost_usd"] == pytest.approx(report.totals.cost_usd, abs=1e-6)
+    assert model["input_tokens"] == report.totals.input_tokens
+    assert got["spans"]["dropped"] == 0
+
+
+def test_an_api_run_puts_the_job_span_at_the_root_of_the_waterfall(settings, monkeypatch):
+    """`api.analysis` covers queueing as well as running, so it is the root the
+    UI wants: without it the wait for a worker would be missing from the one
+    view that should show it."""
+    import struct
+
+    from fastapi.testclient import TestClient
+
+    from conftest import ScriptedAPI, make_chunk, scripted_client
+    from contract_analyzer.api.main import create_app
+    from contract_analyzer.embeddings.fake import FakeEmbedder
+    from contract_analyzer.generation import tools as T
+    from contract_analyzer.retrieval.base import RetrievalResult
+    from test_report import CLAUSE, CRITERIA, turns_for
+
+    # A fresh Settings rather than `model_copy`: that skips validation, and
+    # `anthropic_api_key` would stay a plain str where a SecretStr is expected.
+    settings = Settings(
+        anthropic_api_key="k",
+        embedding_provider="fake",
+        embedding_model=None,
+        embedding_dim=4,
+        db_path=settings.db_path,
+        raw_dir=settings.raw_dir,
+        assets_dir=settings.assets_dir,
+        log_file=None,
+        analysis_workers=1,
+        analysis_max_tool_calls=4,
+        structure_fix_rounds=0,
+    )
+
+    def retrieve(question, conn, embedder=None, settings=None, *, document_id, mode=None,
+                 top_k=None, candidates=None):
+        return RetrievalResult(question=question, mode=mode or "hybrid", document_id=document_id,
+                               chunks=[make_chunk(1, CLAUSE)], candidates=20, top_k=top_k or 6)
+
+    monkeypatch.setattr(T, "retrieve", retrieve)
+
+    conn = get_db(settings)
+    conn.execute(
+        "INSERT INTO documents (id, path, filename, content_hash, page_count) "
+        "VALUES (1, 'data/raw/c.pdf', 'c.pdf', 'h', 21)"
+    )
+    cursor = conn.execute(
+        "INSERT INTO chunks (document_id, ordinal, content, page, page_label, section, "
+        "section_path, embedding_model) VALUES (1, 0, ?, 8, '9', '6.6', '[]', 'fake-hash')",
+        (CLAUSE,),
+    )
+    conn.execute(
+        "INSERT INTO chunks_vec (chunk_id, document_id, embedding) VALUES (?, 1, ?)",
+        (cursor.lastrowid, struct.pack("4f", *([0.5] * 4))),
+    )
+    conn.commit()
+    conn.close()
+
+    one = CRITERIA[0]
+    api = ScriptedAPI(*turns_for(one))
+    app = create_app(settings, embedder=FakeEmbedder(settings), client=scripted_client(api),
+                     static_dir=settings.raw_dir / "no-such-bundle")
+    with TestClient(app) as client:
+        submitted = client.post(
+            "/api/analyses", json={"document_id": 1, "criteria": [one.id]}
+        ).json()
+        analysis_id = submitted["analysis_id"]
+        for _ in range(200):
+            if client.get(f"/api/analyses/{analysis_id}").json()["status"] == "done":
+                break
+            time.sleep(0.02)
+        assert app.state.metrics.flush()
+
+        tree = client.get(f"/api/metrics/runs/{analysis_id}/spans").json()
+
+    assert [node["name"] for node in tree] == ["api.analysis"]
+    assert [child["name"] for child in tree[0]["children"]] == ["analysis.document"]
+    names = {child["name"] for child in tree[0]["children"][0]["children"]}
+    assert names == {"analysis.criterion"}

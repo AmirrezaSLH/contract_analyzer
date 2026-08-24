@@ -4,7 +4,7 @@
 
 `contract_analyzer/` is a near-empty repo (README stub, `.gitignore`, `compliance_criteria.json` with the 5 Table-1 questions, a `prompts.json` stub, `AGENTS.md`). The assignment (`assignment_details/assignment_description.md`) needs, in 8–12h: PDF upload UI → parse (text/tables) → **Agentic RAG with Router + Evaluator agents** → validated JSON per compliance question → **KPI dashboard** (real-time + historical) → structured JSON logs with trace/span IDs → **MCP/connector** design + OpenAPI → docs + slide outline. Bonus: chat over the contract.
 
-`/media/amirrezaslh/Dev/Interview/RAG_Mock/` is a hand-written (no-LangChain) RAG system, ~9.6k lines incl. ~154 offline tests: PyMuPDF parser → chunker → embeddings (openai/local/fake) → SQLite (sqlite-vec + FTS5) → hybrid RRF retrieval → Anthropic generation with native citations → FastAPI SSE → Streamlit. It covers ~70% of the new project; the rest (agents, structured output, evaluator, observability, KPI, MCP, jobs) is net-new.
+`/home/amirrezaslh/Interview/RAG_Mock/` is a hand-written (no-LangChain) RAG system, ~9.6k lines incl. ~154 offline tests: PyMuPDF parser → chunker → embeddings (openai/local/fake) → SQLite (sqlite-vec + FTS5) → hybrid RRF retrieval → Anthropic generation with native citations → FastAPI SSE → Streamlit. It covers ~70% of the new project; the rest (agents, structured output, evaluator, observability, KPI, MCP, jobs) is net-new.
 
 **Decisions confirmed with the user:** Anthropic API for agents; OpenAI `text-embedding-3-small` embeddings; hand-rolled typed state machine (no LangGraph); Streamlit UI; **copy modules** from RAG_Mock's *working tree* (it has uncommitted test files) into `src/contract_analyzer/`.
 

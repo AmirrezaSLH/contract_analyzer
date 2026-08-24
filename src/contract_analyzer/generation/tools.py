@@ -245,7 +245,7 @@ class ContractTools:
     def execute(self, name: str, args: dict[str, Any]) -> ToolOutcome:
         """Run one tool call. Never raises for a bad input: the model gets a result."""
         call = ToolCall(name=name, args=dict(args))
-        with span("agent.tool", log, name=name) as bag:
+        with span("agent.tool", log, tool=name) as bag:
             if name == SEARCH_TOOL:
                 text = self._search(call)
             elif name == SECTION_TOOL:

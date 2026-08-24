@@ -134,6 +134,9 @@ class ToolCall:
     ids: list[str] = field(default_factory=list)
     #: False when the call was answered from the ledger or refused by a cap.
     retrieved: bool = False
+    #: Why nothing was retrieved when nothing was wrong: `duplicate`, `budget`.
+    note: str | None = None
+    #: A bad input. The model gets it back as an error result.
     error: str | None = None
 
 
@@ -258,6 +261,8 @@ class ContractTools:
                 retrieved=call.retrieved,
                 evidence_tokens=self.evidence.tokens,
             )
+            if call.note:
+                bag["note"] = call.note
             if call.error:
                 bag["error"] = call.error
         self.calls.append(call)
@@ -320,12 +325,12 @@ class ContractTools:
         key = (call.name, json.dumps(call.args, sort_keys=True, default=str))
         if key in self._seen:
             ids = self._seen[key]
-            call.ids, call.returned = list(ids), len(ids)
+            call.ids, call.returned, call.note = list(ids), len(ids), "duplicate"
             if not ids:
                 return "No passages matched (same call as before)."
             return f"Same call as before; already retrieved: {', '.join(ids)}"
         if self.budget_reached:
-            call.error = "evidence budget reached"
+            call.note = "budget"
             return (
                 f"Evidence budget reached ({self.evidence.tokens} tokens over "
                 f"{len(self.evidence)} passages). Do not search again; answer from "

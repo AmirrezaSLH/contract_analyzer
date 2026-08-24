@@ -22,6 +22,12 @@ CREATE TABLE IF NOT EXISTS documents (
     -- worth knowing when a citation looks wrong.
     producer      TEXT,
     has_outline   INTEGER NOT NULL DEFAULT 0,
+    -- Where the section breadcrumbs came from: 'outline' (the PDF's own
+    -- /Outlines), 'headings' (synthesized from the document's headings and
+    -- clause numbering) or 'none'. Word writes contracts with no outline, so
+    -- 'headings' is the normal case here -- and a reviewer looking at a
+    -- citation that names a section deserves to know the section was inferred.
+    spine_source  TEXT    NOT NULL DEFAULT 'none',
     ingested_at   TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 

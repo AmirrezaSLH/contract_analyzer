@@ -5,5 +5,23 @@ path -- parse, chunk, embed, store -- and is the part that has to be idempotent.
 """
 
 from .chunker import ChunkingReport, chunk_document, chunk_elements
+from .pipeline import (
+    IngestResult,
+    ModelMismatch,
+    check_embedding_model,
+    collect_paths,
+    ingest_file,
+    ingest_paths,
+)
 
-__all__ = ["ChunkingReport", "chunk_document", "chunk_elements"]
+__all__ = [
+    "ChunkingReport",
+    "IngestResult",
+    "ModelMismatch",
+    "check_embedding_model",
+    "chunk_document",
+    "chunk_elements",
+    "collect_paths",
+    "ingest_file",
+    "ingest_paths",
+]

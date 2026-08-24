@@ -34,6 +34,8 @@ REQUIRED_KEYS: frozenset[str] = frozenset(
         "analysis.finish",
         "analysis.fix_structure",
         "analysis.revise",
+        "evaluator.system",
+        "evaluator.user",
     }
 )
 

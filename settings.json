@@ -9,6 +9,10 @@
   "max_evidence_tokens": 12000,
   "structure_fix_rounds": 2,
   "research_extra_tool_calls": 3,
+  "evaluator_model": "",
+  "evaluator_effort": "medium",
+  "evaluator_max_tokens": 2000,
+  "router_max_rounds": 1,
   "analysis_workers": 5,
   "prompts_path": "src/contract_analyzer/generation/prompts.json",
 

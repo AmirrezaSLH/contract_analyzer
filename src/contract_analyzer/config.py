@@ -162,6 +162,22 @@ class Settings(BaseSettings):
     #: already spent*. A delta, not a fresh allowance: the Router asked for a
     #: specific gap to be searched for, not for the criterion to be rerun.
     research_extra_tool_calls: int = Field(default=3, ge=0)
+    #: The critic. Empty means "the same model that did the analysis", which is
+    #: the honest default: the check that matters is that the critic sees only
+    #: the quotes and the claims, not that it is a different vendor. Point it
+    #: at another model to buy independence as well as isolation.
+    evaluator_model: str = ""
+    #: The critic reads a page of quotes and answers a fixed schema. That is
+    #: reading, not deduction, so it does not need the analyst's effort.
+    evaluator_effort: AnswerEffort = "medium"
+    #: The findings are a bounded structure -- a judgement per quote, one per
+    #: sub-requirement, a float and a note. A budget an order of magnitude
+    #: under the analyst's is generous, and a truncated critic is retried.
+    evaluator_max_tokens: int = Field(default=2000, gt=0)
+    #: Revision rounds the Router may spend after the first analysis. One is
+    #: the honest default: it demonstrates the mechanism, and the KPI page's
+    #: revise rate is what would justify raising it.
+    router_max_rounds: int = Field(default=1, ge=0)
     #: Criteria analysed in parallel inside one document run. Five criteria at
     #: five workers is ~60 s wall clock instead of ~190 s sequential. It is
     #: also the outbound rate limit: with the API's `api_workers` jobs in
@@ -221,6 +237,14 @@ class Settings(BaseSettings):
     retrieval_candidates: int = Field(default=20, gt=0)
     retrieval_top_k: int = Field(default=6, gt=0)
     rrf_k: int = Field(default=60, gt=0)
+
+    @field_validator("evaluator_model")
+    @classmethod
+    def _evaluator_model_defaults_to_the_analyst(cls, v: str, info) -> str:
+        """An unset critic model means the analyst's, resolved once here rather
+        than at every call site -- `settings.evaluator_model` is always the
+        model that will actually answer."""
+        return v or info.data.get("analysis_model") or ""
 
     @field_validator("chat_models")
     @classmethod

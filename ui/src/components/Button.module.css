@@ -103,4 +103,8 @@
 .tertiary.md,
 .tertiary.sm {
   padding: 0;
+  /* A text action, not a control: it sits where its text starts rather than
+   * stretching to the width of the column it is in. */
+  align-self: flex-start;
+  justify-content: flex-start;
 }

@@ -1,4 +1,4 @@
-import { StrictMode } from "react";
+import { StrictMode, Suspense, lazy } from "react";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
@@ -11,6 +11,21 @@ import { ChatView } from "./views/Chat/ChatView";
 import { NotFoundView } from "./views/NotFoundView";
 import { RootRedirect } from "./views/RootRedirect";
 import "./styles/global.css";
+
+/**
+ * The gap-state fixture page, in development only.
+ *
+ * `lazy` around a dynamic `import()` inside a dead `import.meta.env.DEV`
+ * branch is what keeps 24 KB of constructed compliance data out of the
+ * production bundle. A static import would not: Vite replaces the flag with
+ * `false`, but a top-level `import` of the view keeps its JSON reachable, and
+ * Rollup ships it. This shape leaves nothing behind to ship.
+ */
+const GapFixtureView = import.meta.env.DEV
+  ? lazy(() =>
+      import("./views/Analysis/GapFixtureView").then((m) => ({ default: m.GapFixtureView })),
+    )
+  : null;
 
 const client = new QueryClient({
   defaultOptions: {
@@ -37,6 +52,18 @@ createRoot(document.getElementById("root")!).render(
                 reads it; nothing writes a copy of it into React state. */}
             <Route path="documents/:id/analysis" element={<AnalysisView />} />
             <Route path="documents/:id/chat" element={<ChatView />} />
+            {/* The sample contract is all-green, so every gap state is
+                unreachable from real data. This is where they get looked at. */}
+            {GapFixtureView ? (
+              <Route
+                path="_gaps"
+                element={
+                  <Suspense fallback={null}>
+                    <GapFixtureView />
+                  </Suspense>
+                }
+              />
+            ) : null}
             <Route path="*" element={<NotFoundView />} />
           </Route>
         </Routes>

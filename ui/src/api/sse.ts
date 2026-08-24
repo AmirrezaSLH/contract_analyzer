@@ -84,10 +84,13 @@ export async function* readFrames(body: ReadableStream<Uint8Array>): AsyncGenera
       buffer = rest;
       yield* frames;
     }
-    // The server may close without a trailing blank line. What is left is a
-    // whole frame only if it parses as one; a half-written `data:` is not.
-    const { frames } = parseFrames(buffer + "\n\n");
-    yield* frames;
+    // Whatever is left in the buffer is **discarded**, which is what the SSE
+    // specification says to do and is also the only safe thing: `data: par` is
+    // a syntactically complete field, so a parser that flushed the tail could
+    // not tell a truncated frame from a whole one and would invent the
+    // difference. Nothing is lost -- SSE framing always writes the blank line
+    // after an event, so a frame the server finished sending has already been
+    // dispatched above.
   } finally {
     // Releasing the lock rather than cancelling: an aborted request has
     // already torn the body down, and cancelling a dead stream throws.

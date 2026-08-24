@@ -32,11 +32,11 @@ import pytest
 
 from conftest import ScriptedAPI, make_chunk, scripted_client, sse_message
 from contract_analyzer.compliance import get_criteria
-from contract_analyzer.compliance.report import analyze_document, totals_of
 from contract_analyzer.config import Settings
 from contract_analyzer.db import get_db
 from contract_analyzer.generation import tools as T
 from contract_analyzer.logger import trace_context
+from contract_analyzer.report import analyze_document, totals_of
 
 DIM = 4
 CLAUSE = "Supplier shall rotate credentials and encrypt data in transit at all times."
@@ -201,7 +201,7 @@ def test_an_unknown_document_is_rejected_before_any_request(settings, conn, sear
 
 def test_the_report_serialises_to_json_and_back(settings, conn, searches):
     """The report on disk is the report over the wire: no second schema."""
-    from contract_analyzer.compliance.report import AnalysisReport
+    from contract_analyzer.report import AnalysisReport
 
     report = run(script(), settings, conn)
     restored = AnalysisReport.model_validate_json(report.model_dump_json())
@@ -313,7 +313,7 @@ def test_five_criteria_run_in_parallel(settings, conn, searches):
 def test_each_criterion_gets_its_own_connection(settings, conn, searches, monkeypatch):
     """`db.py`: concurrent use of one connection from two threads is a bug, and
     `check_same_thread=False` only stops sqlite3 from catching it."""
-    from contract_analyzer.compliance import report as R
+    from contract_analyzer import report as R
 
     opened = []
     original = R.connect

@@ -14,6 +14,7 @@ x-env: &env
   ASSETS_DIR: /app/data/assets
   LOG_FILE: /app/.run/app.jsonl
   BACKEND_PORT: ${BACKEND_PORT:-8100}
+  MCP_PORT: ${MCP_PORT:-8102}
 
 x-app: &app
   build:
@@ -59,6 +60,36 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+
+  # The MCP connector, the fourth surface. It reaches the API over HTTP like
+  # every other client -- `CA_API_URL`, not `DB_PATH` -- and the empty
+  # `volumes` is that claim made structural rather than promised in a comment:
+  # this container has no database to open even if someone tried.
+  #
+  # HTTP rather than stdio, because a container's stdin is not where a desktop
+  # client is. A local Claude Desktop runs `python -m mcp_connector` against a
+  # checkout instead; see MCP-Connector/README.md.
+  mcp:
+    <<: *app
+    command: ["mcp"]
+    restart: unless-stopped
+    environment:
+      # A merge key replaces the whole mapping, so the shared block is merged
+      # in rather than dropped -- the same reason `x-env` exists at all.
+      <<: *env
+      CA_API_URL: http://api:${BACKEND_PORT:-8100}
+      MCP_TRANSPORT: http
+      # Not 127.0.0.1: inside a container that is the container, and the
+      # published port would answer nothing.
+      MCP_HOST: 0.0.0.0
+    volumes: []
+    ports:
+      - "${MCP_PORT:-8102}:${MCP_PORT:-8102}"
+    depends_on:
+      api:
+        # The connector's first call is the host's `get_started`, and an
+        # `api_unreachable` in the first ten seconds of a demo is avoidable.
+        condition: service_healthy
 
   # One-off container for the things that are not servers: pytest, ruff, the
   # ingest/search/chat CLIs, a shell. Built from the dev stage, never started

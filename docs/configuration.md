@@ -28,6 +28,8 @@ below, and `settings.json` only ever needs the fields in the second table.
 | `RAW_DIR` | `data/raw` | uploaded/ingested PDFs |
 | `ASSETS_DIR` | `data/assets` | extracted figure images |
 | `LOG_FILE` | `.run/app.jsonl` | blank disables the JSON file |
+| `API_KEY` | – | `SecretStr`; the `X-API-Key` the HTTP API demands. Blank means open, which is the local demo. |
+| `MCP_PORT` | `8102` | Host port for the MCP connector on its HTTP transport (`./start.bash`, compose). A stdio connector binds nothing. |
 
 ## `settings.json` fields
 
@@ -55,6 +57,24 @@ below, and `settings.json` only ever needs the fields in the second table.
 | | `retrieval_candidates` | 20 | per retriever, before fusion |
 | | `retrieval_top_k` | 6 | |
 | | `rrf_k` | 60 | |
+| MCP | `mcp_request_timeout_seconds` | 30 | every connector call except an upload |
+| | `mcp_upload_timeout_seconds` | 300 | an upload parses, chunks and embeds before it answers |
+| | `mcp_poll_seconds` | 10 | what a host is told to wait between `get_analysis` calls |
+| | `mcp_search_top_k` | 6 | passages per `search_contract`; not a tool argument |
+| | `mcp_max_download_mb` | 25 | cap on an upload-by-url, enforced while streaming |
+
+**The `mcp_*` fields are read by a different settings model.** The connector
+(`MCP-Connector/mcp_connector/config.py`) does not import `config.py` -- it is a
+client of the API, not part of the analyzer -- so it builds its own
+`BaseSettings` over the same two files, with the same precedence. `Settings` in
+`config.py` ignores the `mcp_*` keys; the connector ignores everything else.
+
+It also reads `CA_API_URL`, `MCP_TRANSPORT`, `MCP_HOST` and `MCP_UPLOAD_ROOT`
+from the process environment, and they are deliberately **not** in
+`.env.example`: each has a default that works, and the two things that run the
+connector as a server -- `./start.bash` and compose -- set what they need on
+the command line or on the service. A port is a fact about the machine; a
+transport is a decision the launcher has already made. See [mcp.md](mcp.md).
 
 ## Four behaviours worth knowing
 

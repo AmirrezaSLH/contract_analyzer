@@ -140,7 +140,10 @@ CREATE TABLE IF NOT EXISTS analyses (
     trace_id           TEXT,
     document_id        INTEGER NOT NULL,
     filename           TEXT    NOT NULL DEFAULT '',
-    -- 'api' or 'cli': which surface asked for it.
+    -- Which surface asked for it: 'cli' for `make analyze`, and for an HTTP
+    -- submission whatever `X-Surface` said -- 'api' when it said nothing,
+    -- 'ui' from the browser, 'mcp' from the MCP connector. The KPI page
+    -- slices on it, which it cannot do if every HTTP caller is 'api'.
     surface            TEXT    NOT NULL DEFAULT 'api',
     -- queued | running | done | failed | cancelled | interrupted.
     -- 'interrupted' is what `reconcile` writes over a row the process died

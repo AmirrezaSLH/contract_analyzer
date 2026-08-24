@@ -10,7 +10,8 @@ order their dependencies require:
 3. per page, claim table and figure regions, then extract the text that is left;
 4. pin outline entries to the headings actually rendered, so a section starts
    where its title does and not at the top of the page;
-5. find the document's clause enumerators and corroborate them by sequence,
+5. stitch a table that continues onto the next page back into one element;
+   find the document's clause enumerators and corroborate them by sequence,
    split any element that holds two clauses, then rejoin the lines a PDF
    hands out as separate blocks into paragraphs -- including across a page
    break, but never across a corroborated clause boundary;
@@ -45,6 +46,7 @@ from .outline import (
     page_labels,
     synthesize_spine,
 )
+from .tables import rows_to_markdown
 
 #: Three or more spaced dots: a table-of-contents row. Those are full width and
 #: flush left like body text, so the geometry alone would weld the whole
@@ -164,8 +166,10 @@ def parse_pdf(
 
         content: list[Element] = []
         furniture: list[Element] = []
+        page_heights: dict[int, float] = {}
 
         for page in doc:
+            page_heights[page.number] = page.rect.height
             label = labels[page.number]
             claimed: list[pymupdf.Rect] = []
 
@@ -205,6 +209,7 @@ def parse_pdf(
             page_elements.sort(key=lambda e: (round(e.bbox[1] / 3), e.bbox[0]))
             content.extend(page_elements)
 
+        content = stitch_spanning_tables(content, page_heights)
         lattice = EnumeratorLattice.from_elements(content)
         content = split_welded(content, lattice)
         content = join_wrapped_lines(content, profile, lattice=lattice)
@@ -221,6 +226,93 @@ def parse_pdf(
         return parsed
     finally:
         doc.close()
+
+
+#: Element types whose presence between two tables means the second is not a
+#: continuation of the first, whatever their headers say.
+_BREAKS_TABLE = frozenset({"heading", "paragraph", "caption", "equation"})
+
+#: Table qualities from most to least trustworthy; a stitched table takes the
+#: weaker of its halves.
+_QUALITY_RANK = {"ruled": 0, "recovered": 1, "text-fallback": 2}
+
+
+def stitch_spanning_tables(
+    elements: list[Element], page_heights: dict[int, float]
+) -> list[Element]:
+    """Rejoin a table that a page break split in two.
+
+    Word repeats the header row at the top of the continuation, so the two
+    halves arrive as two tables with identical headers. They are merged only
+    when *all* of the following hold, and the third is the one that matters:
+
+    1. the second half is on the page immediately after the first;
+    2. the header rows are identical after normalisation, with the same
+       number of columns;
+    3. **no heading or paragraph lies between them** -- a document with one
+       requirements table per numbered subsection (Exhibit G of the sample
+       contract) has ~20 tables sharing a header that must *not* be merged,
+       and it is the subsection heading between them that says so;
+    4. the first half ends in the lower half of its page and the second
+       begins in the upper half of its own: a continuation resumes at the
+       top, and the halves are judged against their own page rectangles.
+
+    The merged element keeps the first half's position and page for its
+    anchor, drops the repeated header once, regenerates its markdown, and
+    records the span in `page_end`. Text is otherwise conserved exactly.
+    """
+    out: list[Element] = []
+    last_table: TableElement | None = None  # the most recent table, if nothing broke since
+    #: Bottom edge of the last piece absorbed into a stitched table. Its bbox
+    #: stays that of the first half (the citation anchor), but a third page
+    #: continues from where the *second* half ended.
+    last_bottom: dict[int, float] = {}
+
+    for element in elements:
+        if not isinstance(element, TableElement):
+            if element.type in _BREAKS_TABLE:
+                last_table = None
+            out.append(element)
+            continue
+        if last_table is not None and _is_continuation(
+            last_table, element, page_heights, last_bottom.get(id(last_table), last_table.bbox[3])
+        ):
+            _absorb(last_table, element)
+            last_bottom[id(last_table)] = element.bbox[3]
+        else:
+            out.append(element)
+            last_table = element
+    return out
+
+
+def _is_continuation(
+    a: TableElement, b: TableElement, page_heights: dict[int, float], a_bottom: float
+) -> bool:
+    if not a.rows or not b.rows:
+        return False
+    if b.page_index != a.page_span[1] + 1:
+        return False
+    if len(a.rows[0]) != len(b.rows[0]) or _header_key(a.rows[0]) != _header_key(b.rows[0]):
+        return False
+    a_height = page_heights.get(a.page_span[1], 0.0)
+    b_height = page_heights.get(b.page_index, 0.0)
+    if not a_height or not b_height:
+        return False
+    return a_bottom > a_height / 2 and b.bbox[1] < b_height / 2
+
+
+def _header_key(row: list[str]) -> tuple[str, ...]:
+    return tuple(re.sub(r"\s+", " ", cell).strip().casefold() for cell in row)
+
+
+def _absorb(a: TableElement, b: TableElement) -> None:
+    a.rows = a.rows + b.rows[1:]
+    a.markdown = rows_to_markdown(a.rows)
+    a.text = f"{a.caption}\n{a.markdown}".strip() if a.caption else a.markdown
+    a.page_end = b.page_index
+    a.page_label_end = b.page_label
+    if _QUALITY_RANK[b.quality] > _QUALITY_RANK[a.quality]:
+        a.quality = b.quality
 
 
 def split_welded(elements: list[Element], lattice: EnumeratorLattice) -> list[Element]:
@@ -367,4 +459,11 @@ def _label_uncaptioned_figures(elements: list[Element]) -> None:
             element.text = f"Figure in {where} (page {element.page_label})"
 
 
-__all__ = ["ParsedDocument", "file_hash", "join_wrapped_lines", "parse_pdf", "split_welded"]
+__all__ = [
+    "ParsedDocument",
+    "file_hash",
+    "join_wrapped_lines",
+    "parse_pdf",
+    "split_welded",
+    "stitch_spanning_tables",
+]

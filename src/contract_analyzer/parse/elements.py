@@ -49,6 +49,14 @@ class Element:
     page_index: int  # 0-based physical page -- for opening the file
     page_label: str  # printed page ("37", "xxi") -- for display
     bbox: BBox
+    #: The last physical page this element's text touches, when it is not the
+    #: page it starts on: a paragraph rejoined across a page break, or a
+    #: table stitched across one. `page_index` keeps meaning "where it
+    #: starts", so nothing that only knows one page breaks; a citation that
+    #: knows both can say "p.4-5" instead of sending the reader to the wrong
+    #: page for the quoted obligation.
+    page_end: int | None = None
+    page_label_end: str = ""
     section: str = ""
     section_path: list[str] = field(default_factory=list)
     order: int = -1
@@ -64,6 +72,11 @@ class Element:
     def breadcrumb(self) -> str:
         """The section path as one display string."""
         return " > ".join(self.section_path)
+
+    @property
+    def page_span(self) -> tuple[int, int]:
+        """First and last physical page, equal for an element on one page."""
+        return (self.page_index, self.page_index if self.page_end is None else self.page_end)
 
 
 @dataclass(kw_only=True)

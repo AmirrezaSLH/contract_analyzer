@@ -1,0 +1,764 @@
+"""The HTTP API, offline: no network, no key, no real model.
+
+The suite is built around the claims that would be expensive to discover in a
+demo, and each one is falsifiable here:
+
+* **An upload cannot escape `RAW_DIR`.** `filename` is client-controlled and
+  `../../../evil.pdf` is a path; the test asserts that nothing is written
+  outside the upload directory whatever the client sends, and that the name the
+  client sent still comes back in the listing, as data.
+* **A failed ingest is not a 201.** `ingest_file` reports rather than raises, so
+  the route branches on its status; a missing embedding key must be `503
+  embedder_unavailable` and not a document with zero chunks.
+* **Two documents cannot see each other.** The whole point of `document_id`
+  everywhere. Analysis and chat on A must never quote B, and the decoy corpus is
+  what makes that falsifiable rather than assumed.
+* **A job is a job.** `POST /analyses` returns in milliseconds, polling shows
+  progress, the stream can be joined late, and a duplicate submission does not
+  spend a second dollar.
+* **One trace id runs through everything**, request header to the tool calls
+  five criteria deep.
+
+`analysis_workers=1` throughout: `ScriptedAPI` pops its outcomes off a list with
+no lock, so parallel criteria have no deterministic order. That is a property of
+the test harness, not of the runner -- `tests/test_report.py` covers the pool.
+"""
+
+from __future__ import annotations
+
+import json
+import threading
+from pathlib import Path
+
+import pytest
+from fastapi.testclient import TestClient
+
+from conftest import ScriptedAPI, make_chunk, scripted_client, sse_message, write_decoy_contract
+from contract_analyzer.api.main import create_app
+from contract_analyzer.compliance import get_criteria
+from contract_analyzer.config import Settings
+from contract_analyzer.embeddings.fake import FakeEmbedder
+from contract_analyzer.generation import tools as T
+
+CRITERIA = get_criteria()
+CLAUSE = "Supplier shall rotate credentials every ninety (90) days and encrypt data in transit."
+DECOY_CLAUSE = "Zephyrine Holdings shall vault every privileged password without exception."
+PDF_HEADER = b"%PDF-1.4\n"
+
+
+# --------------------------------------------------------------------------
+# The app under test
+# --------------------------------------------------------------------------
+
+
+@pytest.fixture
+def settings(tmp_path) -> Settings:
+    return Settings(
+        anthropic_api_key="k",
+        embedding_provider="fake",
+        embedding_model=None,
+        embedding_dim=64,
+        db_path=tmp_path / "contracts.db",
+        raw_dir=tmp_path / "raw",
+        assets_dir=tmp_path / "assets",
+        log_file=None,
+        analysis_workers=1,
+        api_workers=2,
+        analysis_max_tool_calls=4,
+        structure_fix_rounds=0,
+        api_max_upload_mb=1,
+        api_keepalive_seconds=60,
+    )
+
+
+@pytest.fixture
+def api() -> ScriptedAPI:
+    """The model. Tests push outcomes onto it before making a request."""
+    return ScriptedAPI()
+
+
+@pytest.fixture
+def client(settings, api):
+    app = create_app(settings, embedder=FakeEmbedder(settings), client=scripted_client(api))
+    with TestClient(app) as client:
+        yield client
+
+
+@pytest.fixture
+def keyless(settings):
+    """The same app with no answer key: upload works, analysis and chat do not."""
+    app = create_app(
+        settings.model_copy(update={"anthropic_api_key": None}),
+        embedder=FakeEmbedder(settings),
+        client=None,
+    )
+    with TestClient(app) as client:
+        yield client
+
+
+@pytest.fixture
+def searches(monkeypatch):
+    """Retrieval returns one clause from whichever document was asked for, so a
+    leak across documents would show up as the *other* document's text."""
+    from contract_analyzer.retrieval.base import RetrievalResult
+
+    def retrieve(question, conn, embedder=None, settings=None, *, document_id, mode=None,
+                 top_k=None, candidates=None):
+        text = CLAUSE if document_id == 1 else DECOY_CLAUSE
+        return RetrievalResult(
+            question=question, mode=mode or "hybrid", document_id=document_id,
+            chunks=[make_chunk(document_id, text, document_id=document_id)],
+            candidates=20, top_k=top_k or 6,
+        )
+
+    monkeypatch.setattr(T, "retrieve", retrieve)
+
+
+@pytest.fixture(scope="session")
+def small_pdf(tmp_path_factory) -> bytes:
+    """A two-page synthetic contract, built once.
+
+    Most tests here need *a* document, not *the* document: they are about
+    status codes, job states and streams. Parsing the 21-page sample for each
+    of them costs about a second a test, and `make test` runs before every
+    commit. The tests that are actually about the sample's content ask for it
+    by name.
+    """
+    pytest.importorskip("pymupdf")
+    path = write_decoy_contract(tmp_path_factory.mktemp("pdf") / "small.pdf")
+    return path.read_bytes()
+
+
+@pytest.fixture(scope="session")
+def sample_pdf() -> bytes:
+    """The real contract, for the assertions that are about its content."""
+    path = Path(__file__).resolve().parents[1] / "data" / "samples" / "Sample Contract.pdf"
+    if not path.exists():
+        pytest.skip("sample contract not present")
+    return path.read_bytes()
+
+
+def upload(client, body, name="Sample Contract.pdf"):
+    return client.post("/documents", files={"file": (name, body, "application/pdf")})
+
+
+# --------------------------------------------------------------------------
+# The script
+# --------------------------------------------------------------------------
+
+
+def draft_for(criterion, quote="rotate credentials") -> str:
+    return json.dumps({
+        "compliance_question": criterion.question,
+        "compliance_state": "Fully Compliant",
+        "sub_requirements": [
+            {"id": s.id, "requirement": s.requirement, "status": "met", "quote_indexes": [0]}
+            for s in criterion.sub_requirements
+        ],
+        "relevant_quotes": [{"text": quote, "evidence_id": "E1"}],
+        "rationale": "The clause is explicit.",
+        "raw_confidence": 0.9,
+    })
+
+
+def analysis_turns(criterion, quote="rotate credentials") -> list[str]:
+    return [
+        sse_message([{"type": "tool_use", "id": "t1", "name": "search_contract",
+                      "input": {"query": criterion.requirement}}], stop_reason="tool_use"),
+        sse_message([{"type": "text", "text": "Enough."}]),
+        sse_message([{"type": "text", "text": draft_for(criterion, quote)}]),
+    ]
+
+
+def full_analysis(quote="rotate credentials") -> list[str]:
+    return [turn for c in CRITERIA for turn in analysis_turns(c, quote)]
+
+
+def chat_turns(answer="Credentials rotate every ninety days.", quote="rotate credentials"):
+    """A search, then a cited answer. The citation is what the real API would
+    extract from the document block we sent."""
+    return [
+        sse_message([{"type": "tool_use", "id": "t1", "name": "search_contract",
+                      "input": {"query": "rotation"}}], stop_reason="tool_use"),
+        sse_message([{"type": "text", "text": "Enough."}]),
+        sse_message([{
+            "type": "text", "text": answer,
+            "citations": [{
+                "type": "char_location", "document_index": 0, "document_title": "6.6",
+                "cited_text": quote, "start_char_index": 0, "end_char_index": len(quote),
+            }],
+        }]),
+    ]
+
+
+def poll(client, analysis_id, until=("done", "failed", "cancelled"), tries=200):
+    for _ in range(tries):
+        body = client.get(f"/analyses/{analysis_id}").json()
+        if body["status"] in until:
+            return body
+        threading.Event().wait(0.01)
+    raise AssertionError(f"analysis stayed {body['status']}")
+
+
+def events_of(response) -> list[tuple[str, dict]]:
+    """Parse an SSE body into (event, data) pairs, ignoring keepalive comments."""
+    out = []
+    name = None
+    for line in response.text.splitlines():
+        if line.startswith("event:"):
+            name = line.split(":", 1)[1].strip()
+        elif line.startswith("data:") and name:
+            out.append((name, json.loads(line.split(":", 1)[1].strip())))
+            name = None
+    return out
+
+
+# --------------------------------------------------------------------------
+# Health and reference
+# --------------------------------------------------------------------------
+
+
+def test_health_reports_what_the_service_can_actually_do(client, keyless):
+    body = client.get("/health").json()
+    assert body["status"] == "ok" and body["db"] is True
+    assert body["embedder"] == "fake" and body["key_present"] is True
+    assert body["auth_required"] is False
+
+    # The question a UI actually asks: upload works, analysis does not.
+    assert keyless.get("/health").json()["key_present"] is False
+
+
+def test_criteria_publishes_the_sub_requirements(client):
+    body = client.get("/criteria").json()
+    assert len(body) == 5
+    assert all(c["sub_requirements"] for c in body)
+    assert {c["id"] for c in body} == {c.id for c in CRITERIA}
+    assert "Fully Compliant" in body[0]["states"]
+
+
+# --------------------------------------------------------------------------
+# Upload: the parts that handle bytes from outside
+# --------------------------------------------------------------------------
+
+
+def test_upload_indexes_the_contract_and_returns_an_id(client, sample_pdf):
+    body = upload(client, sample_pdf).json()
+    assert body["document_id"] >= 1
+    assert body["filename"] == "Sample Contract.pdf"
+    assert body["pages"] == 21 and body["chunks"] > 50
+    assert body["spine_source"] == "headings"
+
+
+def test_the_same_bytes_twice_are_two_documents(client, small_pdf):
+    """Sessions are isolated by construction: `ingest_file` keys uniqueness on
+    path, and every upload gets a fresh one."""
+    first, second = upload(client, small_pdf).json(), upload(client, small_pdf).json()
+    assert first["document_id"] != second["document_id"]
+    listed = client.get("/documents").json()
+    assert [d["document_id"] for d in listed] == [second["document_id"], first["document_id"]]
+
+
+def test_a_traversing_filename_cannot_write_outside_raw_dir(client, settings, tmp_path):
+    body = upload(client, PDF_HEADER + b"not a contract", name="../../../evil.pdf").json()
+
+    # The upload is rejected by the parser, or accepted -- either way the only
+    # thing that matters is where the bytes went.
+    assert not (tmp_path / "evil.pdf").exists()
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["contracts.db", "raw"]
+    written = list((settings.raw_dir).iterdir())
+    assert all(p.parent == settings.raw_dir for p in written)
+    assert all(".." not in p.name and "/" not in p.name for p in written)
+    if "document_id" in body:
+        # The name the client sent survives as *data*, which is what a list has
+        # to show; it just never became a path.
+        assert body["filename"] == "../../../evil.pdf"
+
+
+@pytest.mark.parametrize("name", ["..%2f..%2fx.pdf", "....//x.pdf", "/etc/passwd.pdf", ".pdf"])
+def test_hostile_filenames_all_land_inside_raw_dir(client, settings, tmp_path, name):
+    upload(client, PDF_HEADER + b"x", name=name)
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["contracts.db", "raw"]
+    assert all(p.parent == settings.raw_dir for p in settings.raw_dir.iterdir())
+
+
+def test_a_non_pdf_is_refused_before_it_is_stored(client, settings):
+    response = client.post("/documents", files={"file": ("notes.txt", b"hello", "text/plain")})
+    assert response.status_code == 415
+    assert response.json()["error"]["code"] == "unsupported_media_type"
+    assert list(settings.raw_dir.iterdir()) == []
+
+
+def test_an_empty_upload_is_refused(client, settings):
+    response = client.post("/documents", files={"file": ("x.pdf", b"", "application/pdf")})
+    assert response.status_code == 422
+    assert list(settings.raw_dir.iterdir()) == []
+
+
+def test_an_oversize_upload_is_413_and_leaves_no_partial_file(client, settings):
+    """Enforced while the body streams: the cap is 1 MB here and the body is 2,
+    so a handler that read it whole would have had it in memory already."""
+    response = client.post(
+        "/documents", files={"file": ("big.pdf", PDF_HEADER + b"x" * (2 * 1024 * 1024),
+                                      "application/pdf")}
+    )
+    assert response.status_code == 413
+    assert response.json()["error"]["code"] == "payload_too_large"
+    assert list(settings.raw_dir.iterdir()) == []
+
+
+def test_a_missing_embedding_key_is_503_not_a_201_with_no_chunks(settings, tmp_path):
+    """`ingest_file` returns its failure rather than raising, so a handler that
+    only mapped exceptions would answer 201 with an empty document."""
+    openai_settings = settings.model_copy(
+        update={"embedding_provider": "openai", "openai_api_key": None}
+    )
+    with TestClient(create_app(openai_settings, embedder=None, client=None)) as client:
+        response = upload(client, PDF_HEADER + b"x")
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "embedder_unavailable"
+    assert "embedding" in response.json()["error"]["hint"].lower()
+
+
+# --------------------------------------------------------------------------
+# The catalogue over HTTP
+# --------------------------------------------------------------------------
+
+
+def test_sections_are_the_outline_a_picker_shows(client, sample_pdf):
+    document_id = upload(client, sample_pdf).json()["document_id"]
+    sections = client.get(f"/documents/{document_id}/sections").json()
+    assert len(sections) > 20
+    assert all(s["chunks"] >= 1 for s in sections)
+    assert any(s["title"].startswith("6.6") for s in sections)
+
+
+def test_unknown_ids_are_404_with_a_hint_a_model_can_act_on(client):
+    for path in ("/documents/999", "/documents/999/sections", "/analyses/nope"):
+        body = client.get(path).json()
+        assert "hint" in body["error"], path
+        assert "GET /" in body["error"]["hint"], path
+
+
+def test_delete_removes_the_document_and_its_file(client, settings, small_pdf):
+    document_id = upload(client, small_pdf).json()["document_id"]
+    assert len(list(settings.raw_dir.iterdir())) == 1
+
+    assert client.delete(f"/documents/{document_id}").status_code == 204
+    assert client.get(f"/documents/{document_id}").status_code == 404
+    assert list(settings.raw_dir.iterdir()) == []
+
+
+def test_delete_is_refused_while_an_analysis_is_running(client, api, searches, small_pdf):
+    document_id = upload(client, small_pdf).json()["document_id"]
+    api.outcomes.extend(full_analysis())
+    analysis_id = client.post("/analyses", json={"document_id": document_id}).json()["analysis_id"]
+
+    # The job may already have finished; only assert the conflict if it has not.
+    response = client.delete(f"/documents/{document_id}")
+    if response.status_code == 409:
+        assert response.json()["error"]["code"] == "analysis_running"
+    poll(client, analysis_id)
+    assert client.delete(f"/documents/{document_id}").status_code == 204
+
+
+# --------------------------------------------------------------------------
+# Analyses as jobs
+# --------------------------------------------------------------------------
+
+
+def test_an_analysis_is_queued_and_polled_to_a_report(client, api, searches, small_pdf):
+    document_id = upload(client, small_pdf).json()["document_id"]
+    api.outcomes.extend(full_analysis())
+
+    accepted = client.post("/analyses", json={"document_id": document_id})
+    assert accepted.status_code == 202
+    queued = accepted.json()
+    assert queued["status"] in ("queued", "running")
+    assert queued["progress"]["total"] == 5
+    assert [c["id"] for c in queued["criteria"]] == [c.id for c in CRITERIA]
+
+    done = poll(client, queued["analysis_id"])
+    assert done["status"] == "done"
+    assert done["progress"] == {"done": 5, "total": 5}
+    report = done["report"]
+    assert [r["criterion_id"] for r in report["results"]] == [c.id for c in CRITERIA]
+    assert all(r["compliance_state"] == "Fully Compliant" for r in report["results"])
+    assert all(q["verified"] for r in report["results"] for q in r["relevant_quotes"])
+    assert report["totals"]["criteria"] == 5 and report["totals"]["cost_usd"] > 0
+
+
+def test_summary_detail_drops_the_bulky_fields(client, api, searches, small_pdf):
+    document_id = upload(client, small_pdf).json()["document_id"]
+    api.outcomes.extend(full_analysis())
+    analysis_id = client.post("/analyses", json={"document_id": document_id}).json()["analysis_id"]
+    poll(client, analysis_id)
+
+    summary = client.get(f"/analyses/{analysis_id}", params={"detail": "summary"}).json()
+    assert all(r["relevant_quotes"] == [] and r["rationale"] == ""
+               for r in summary["report"]["results"])
+    # And the stored report is untouched for the next reader.
+    full = client.get(f"/analyses/{analysis_id}").json()
+    assert full["report"]["results"][0]["relevant_quotes"]
+
+
+def test_a_duplicate_submission_joins_the_running_analysis(client, api, searches, small_pdf):
+    """At roughly a dollar a run, a double-clicked button must not be two runs."""
+    document_id = upload(client, small_pdf).json()["document_id"]
+    api.outcomes.extend(full_analysis())
+
+    first = client.post("/analyses", json={"document_id": document_id})
+    second = client.post("/analyses", json={"document_id": document_id})
+
+    assert first.status_code == 202
+    if first.json()["status"] in ("queued", "running"):
+        assert second.status_code == 200
+        assert second.json()["analysis_id"] == first.json()["analysis_id"]
+    poll(client, first.json()["analysis_id"])
+    assert len(client.get("/analyses", params={"document_id": document_id}).json()) == 1
+
+
+def test_an_idempotency_key_forces_a_second_run(client, api, searches, small_pdf):
+    document_id = upload(client, small_pdf).json()["document_id"]
+    api.outcomes.extend(full_analysis() * 2)
+
+    first = client.post("/analyses", json={"document_id": document_id})
+    second = client.post(
+        "/analyses", json={"document_id": document_id}, headers={"Idempotency-Key": "again"}
+    )
+    assert second.status_code == 202
+    assert second.json()["analysis_id"] != first.json()["analysis_id"]
+
+
+def test_a_bad_submission_is_rejected_before_anything_is_queued(client, api, small_pdf):
+    document_id = upload(client, small_pdf).json()["document_id"]
+
+    assert client.post("/analyses", json={}).status_code == 422
+    unknown = client.post("/analyses", json={"document_id": 999})
+    assert unknown.status_code == 404
+    assert unknown.json()["error"]["code"] == "document_not_found"
+
+    bad = client.post("/analyses", json={"document_id": document_id, "criteria": ["nope"]})
+    assert bad.status_code == 422
+    assert "GET /criteria" in bad.json()["error"]["hint"]
+
+    assert api.calls == 0
+    assert client.get("/analyses", params={"document_id": document_id}).json() == []
+
+
+def test_without_a_key_no_job_is_queued_at_all(keyless, small_pdf):
+    """A 202 followed by a job that fails immediately is a worse answer than an
+    error, so the key is checked before the submission is accepted."""
+    document_id = upload(keyless, small_pdf).json()["document_id"]
+
+    response = keyless.post("/analyses", json={"document_id": document_id})
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "no_api_key"
+    assert keyless.get("/analyses", params={"document_id": document_id}).json() == []
+    assert keyless.post("/chat", json={"document_id": document_id, "question": "?"})\
+        .status_code == 503
+
+
+def test_a_subset_of_criteria_can_be_analysed(client, api, searches, small_pdf):
+    document_id = upload(client, small_pdf).json()["document_id"]
+    api.outcomes.extend(analysis_turns(CRITERIA[0]))
+
+    queued = client.post(
+        "/analyses", json={"document_id": document_id, "criteria": [CRITERIA[0].id]}
+    ).json()
+    assert queued["progress"]["total"] == 1
+    done = poll(client, queued["analysis_id"])
+    assert [r["criterion_id"] for r in done["report"]["results"]] == [CRITERIA[0].id]
+
+
+def test_cancelling_leaves_a_partial_report(client, api, searches, small_pdf):
+    document_id = upload(client, small_pdf).json()["document_id"]
+    api.outcomes.extend(full_analysis())
+    analysis_id = client.post("/analyses", json={"document_id": document_id}).json()["analysis_id"]
+
+    client.post(f"/analyses/{analysis_id}/cancel")
+    done = poll(client, analysis_id)
+    assert done["status"] == "cancelled"
+    assert len(done["report"]["results"]) + len(done["report"]["skipped"]) == 5
+
+    again = client.post(f"/analyses/{analysis_id}/cancel")
+    assert again.status_code == 409 and again.json()["error"]["code"] == "not_running"
+
+
+def test_a_failing_model_fails_the_job_rather_than_hanging_it(client, api, searches, small_pdf):
+    document_id = upload(client, small_pdf).json()["document_id"]
+    api.outcomes.append(500)
+
+    analysis_id = client.post("/analyses", json={"document_id": document_id}).json()["analysis_id"]
+    done = poll(client, analysis_id)
+    assert done["status"] == "failed" and done["error"]
+    assert done["report"] is None
+
+
+# --------------------------------------------------------------------------
+# The event stream
+# --------------------------------------------------------------------------
+
+
+def test_the_stream_reports_every_criterion_and_then_closes(client, api, searches, small_pdf):
+    document_id = upload(client, small_pdf).json()["document_id"]
+    api.outcomes.extend(full_analysis())
+    analysis_id = client.post("/analyses", json={"document_id": document_id}).json()["analysis_id"]
+
+    with client.stream("GET", f"/analyses/{analysis_id}/events") as response:
+        assert response.status_code == 200
+        response.read()
+    events = events_of(response)
+
+    names = [name for name, _ in events]
+    assert names[-1] == "done"
+    assert names.count("criterion") == 5
+    tool_calls = [data for name, data in events if name == "tool_call"]
+    assert len(tool_calls) == 5
+    # Every tool call says which criterion made it: five parallel runs would be
+    # unattributable otherwise.
+    assert {t["criterion"] for t in tool_calls} == {c.id for c in CRITERIA}
+
+
+def test_subscribing_after_the_job_finished_replays_and_closes(client, api, searches, small_pdf):
+    """A stream that hangs until a keepalive gives up is the failure this
+    replaces: the client gets what it missed, the terminal event, and EOF."""
+    document_id = upload(client, small_pdf).json()["document_id"]
+    api.outcomes.extend(full_analysis())
+    analysis_id = client.post("/analyses", json={"document_id": document_id}).json()["analysis_id"]
+    poll(client, analysis_id)
+
+    with client.stream("GET", f"/analyses/{analysis_id}/events") as response:
+        response.read()
+    events = events_of(response)
+    assert [name for name, _ in events].count("criterion") == 5
+    assert events[-1][0] == "done"
+    assert events[-1][1]["status"] == "done"
+
+
+def test_two_subscribers_both_see_the_whole_run(client, api, searches, small_pdf):
+    """One `queue.Queue` per job would let a reconnecting UI steal the first
+    stream's events; each subscriber gets its own."""
+    document_id = upload(client, small_pdf).json()["document_id"]
+    api.outcomes.extend(full_analysis())
+    analysis_id = client.post("/analyses", json={"document_id": document_id}).json()["analysis_id"]
+
+    collected: list[list[tuple[str, dict]]] = []
+    lock = threading.Lock()
+
+    def watch():
+        with client.stream("GET", f"/analyses/{analysis_id}/events") as response:
+            response.read()
+        with lock:
+            collected.append(events_of(response))
+
+    watchers = [threading.Thread(target=watch) for _ in range(2)]
+    for w in watchers:
+        w.start()
+    for w in watchers:
+        w.join(timeout=30)
+
+    assert len(collected) == 2
+    for events in collected:
+        assert [n for n, _ in events].count("criterion") == 5
+        assert events[-1][0] == "done"
+
+
+# --------------------------------------------------------------------------
+# Chat
+# --------------------------------------------------------------------------
+
+
+def test_chat_returns_one_json_body_when_not_streaming(client, api, searches, small_pdf):
+    document_id = upload(client, small_pdf).json()["document_id"]
+    api.outcomes.extend(chat_turns())
+
+    body = client.post(
+        "/chat", json={"document_id": document_id, "question": "How often do passwords rotate?",
+                       "stream": False}
+    ).json()
+
+    assert body["text"] == "Credentials rotate every ninety days."
+    assert len(body["citations"]) == 1
+    citation = body["citations"][0]
+    assert citation["quote"] == "rotate credentials"
+    assert citation["evidence_id"] == "E1" and citation["chunk_id"] == document_id
+    assert body["grounded"] is True and body["tool_calls"] == 1
+    assert body["usage"]["input_tokens"] > 0 and body["cost_usd"] > 0
+
+
+def test_chat_streams_deltas_then_citations_then_done(client, api, searches, small_pdf):
+    document_id = upload(client, small_pdf).json()["document_id"]
+    api.outcomes.extend(chat_turns())
+
+    with client.stream(
+        "POST", "/chat", json={"document_id": document_id, "question": "rotation?"}
+    ) as response:
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("text/event-stream")
+        response.read()
+    events = events_of(response)
+
+    text = "".join(data["text"] for name, data in events if name == "text")
+    assert text == "Credentials rotate every ninety days."
+    names = [name for name, _ in events]
+    assert names.count("citations") == 1 and names[-1] == "done"
+    assert names.count("tool_call") == 1
+    done = events[-1][1]
+    assert done["usage"]["output_tokens"] > 0 and done["grounded"] is True
+
+
+def test_chat_on_an_unknown_document_is_404_not_an_error_event(client):
+    """A 404 has to be a 404: an `error` frame inside a 200 is invisible to
+    every client that checks the status code first."""
+    response = client.post("/chat", json={"document_id": 999, "question": "?"})
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "document_not_found"
+
+
+def test_a_failing_model_becomes_an_error_event_and_a_clean_close(client, api, searches, small_pdf):
+    document_id = upload(client, small_pdf).json()["document_id"]
+    api.outcomes.extend([500, 500, 500, 500])
+
+    with client.stream(
+        "POST", "/chat", json={"document_id": document_id, "question": "?"}
+    ) as response:
+        response.read()
+    events = events_of(response)
+    assert events[-1][0] == "error"
+    assert events[-1][1]["code"] in ("upstream_failure", "HttpFailure")
+
+
+def test_history_is_replayed_from_the_client(client, api, searches, small_pdf):
+    """The API keeps no transcript: four consumers share one backend precisely
+    because there is no session store between them."""
+    document_id = upload(client, small_pdf).json()["document_id"]
+    api.outcomes.extend(chat_turns())
+
+    client.post("/chat", json={
+        "document_id": document_id, "question": "and rotation?", "stream": False,
+        "history": [{"role": "user", "content": "what about MFA?"},
+                    {"role": "assistant", "content": "Section 6.7 requires it."}],
+    })
+    sent = json.dumps(api.requests[0])
+    assert "what about MFA?" in sent and "Section 6.7 requires it." in sent
+
+
+# --------------------------------------------------------------------------
+# Isolation between documents
+# --------------------------------------------------------------------------
+
+
+def test_chat_on_one_contract_never_quotes_the_other(client, api, searches, small_pdf):
+    """`document_id` is threaded to the tools in Python, so the model cannot
+    widen its own scope even if it wanted to."""
+    first = upload(client, small_pdf).json()["document_id"]
+    second = upload(client, small_pdf).json()["document_id"]
+    assert first == 1 and second == 2  # the `searches` fixture keys on this
+
+    api.outcomes.extend(chat_turns(answer="Zephyrine vaults passwords.", quote="vault every"))
+    body = client.post("/chat", json={"document_id": second, "question": "passwords?",
+                                      "stream": False}).json()
+    assert body["citations"][0]["chunk_id"] == second
+
+    api.outcomes.extend(chat_turns())
+    body = client.post("/chat", json={"document_id": first, "question": "passwords?",
+                                      "stream": False}).json()
+    assert body["citations"][0]["chunk_id"] == first
+    assert "Zephyrine" not in json.dumps(body)
+
+
+def test_an_analysis_never_reaches_the_other_document(client, api, searches, small_pdf):
+    upload(client, small_pdf)
+    second = upload(client, small_pdf).json()["document_id"]
+    api.outcomes.extend(full_analysis(quote="vault every"))
+
+    analysis_id = client.post("/analyses", json={"document_id": second}).json()["analysis_id"]
+    report = poll(client, analysis_id)["report"]
+
+    assert report["document_id"] == second
+    quotes = [q for r in report["results"] for q in r["relevant_quotes"]]
+    assert quotes and all(q["chunk_id"] == second for q in quotes)
+
+
+# --------------------------------------------------------------------------
+# Cross-cutting: tracing, auth, the spec
+# --------------------------------------------------------------------------
+
+
+def test_an_incoming_trace_id_is_honoured_and_returned(client):
+    response = client.get("/health", headers={"X-Trace-Id": "abc123"})
+    assert response.headers["X-Trace-Id"] == "abc123"
+
+
+def test_a_trace_id_is_minted_when_none_is_sent(client):
+    trace_id = client.get("/health").headers["X-Trace-Id"]
+    assert len(trace_id) == 32
+    assert client.get("/health").headers["X-Trace-Id"] != trace_id
+
+
+def test_the_request_trace_runs_through_the_whole_analysis(
+    client, api, searches, tmp_path, small_pdf
+):
+    """The demo's claim, asserted: one id from the request header appears on
+    every line of the job, including the tool-call spans five criteria deep."""
+    from contract_analyzer.logger import configure_logging
+
+    document_id = upload(client, small_pdf).json()["document_id"]
+    api.outcomes.extend(full_analysis())
+
+    log_file = tmp_path / "app.jsonl"
+    configure_logging("INFO", log_file, console=False, force=True)
+    try:
+        analysis_id = client.post(
+            "/analyses", json={"document_id": document_id}, headers={"X-Trace-Id": "d" * 32}
+        ).json()["analysis_id"]
+        poll(client, analysis_id)
+    finally:
+        configure_logging("INFO", None, console=False, force=True)
+
+    lines = [json.loads(line) for line in log_file.read_text().splitlines()]
+    spans = {line.get("span") for line in lines}
+    assert {"api.analysis", "analysis.criterion", "agent.call", "agent.tool"} <= spans
+    assert [line for line in lines if line.get("trace_id") != "d" * 32] == []
+
+
+def test_a_key_protects_everything_except_health_and_criteria(settings):
+    # Constructed, not `model_copy`d: `api_key` is a `SecretStr`, and
+    # `model_copy` skips validation, so an update would store a bare `str`.
+    protected = Settings(**{**settings.model_dump(), "api_key": "s3cret"})
+    with TestClient(create_app(protected, embedder=FakeEmbedder(settings), client=None)) as client:
+        assert client.get("/health").status_code == 200
+        assert client.get("/criteria").status_code == 200
+        assert client.get("/health").json()["auth_required"] is True
+
+        assert client.get("/documents").status_code == 401
+        assert client.get("/documents").json()["error"]["code"] == "unauthorized"
+        assert client.get("/documents", headers={"X-API-Key": "wrong"}).status_code == 401
+        assert client.get("/documents", headers={"X-API-Key": "s3cret"}).status_code == 200
+
+
+def test_metrics_are_declared_and_honestly_unavailable(client):
+    """Documented and 503 beats absent: the OpenAPI document is a deliverable
+    and the UI is written against it before the store exists."""
+    for path in ("/metrics/summary", "/metrics/timeseries", "/metrics/runs",
+                 "/metrics/runs/x/spans"):
+        response = client.get(path)
+        assert response.status_code == 503, path
+        assert response.json()["error"]["code"] == "metrics_unavailable"
+
+
+def test_the_openapi_document_is_fit_to_be_the_connector_spec(client):
+    spec = client.get("/openapi.json").json()
+
+    assert spec["info"]["title"] == "Contract Analyzer"
+    assert "APIKeyHeader" in spec["components"]["securitySchemes"]
+
+    operations = [
+        (path, method, op)
+        for path, methods in spec["paths"].items()
+        for method, op in methods.items()
+    ]
+    assert len(operations) >= 17
+    missing = [f"{m.upper()} {p}" for p, m, op in operations if not op.get("summary")]
+    assert missing == []
+    assert "Error" in spec["components"]["schemas"]

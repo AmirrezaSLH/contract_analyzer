@@ -1,11 +1,11 @@
 # Docker
 
 `Dockerfile`, `docker-compose.yml`, `docker/entrypoint.sh`, `.dockerignore` --
-a build-and-run foundation for the whole project, laid before the surfaces it
-serves exist. Today it builds an image, installs the package and runs the test
-suite; the `api` and `ui` verbs are wired and will start working when Phase C
-lands, and until then they exit with a message naming the missing module rather
-than an `ImportError` from inside uvicorn.
+a build-and-run foundation for the whole project. One image serves both
+servers -- the entrypoint's verb picks which -- and `make docker-up` brings up
+the API on 8000 and the Streamlit UI on 8501. The `mcp` verb is wired and not
+yet implemented; it exits with a message naming the missing module rather than
+an `ImportError` from inside its runner.
 
 ## Stages
 
@@ -40,8 +40,8 @@ arrive empty) and then dispatches:
 
 | Verb | Runs | State |
 |---|---|---|
-| `api` | `uvicorn contract_analyzer.api.main:app` on 8000 | Phase C |
-| `ui` | `streamlit run src/contract_analyzer/ui/app.py` on 8501 | Phase C |
+| `api` | `uvicorn contract_analyzer.api.main:app` on 8000 | works |
+| `ui` | `streamlit run src/contract_analyzer/ui/app.py` on 8501 | works |
 | `mcp` | `python -m contract_analyzer.mcp.server` (stdio) | Phase C |
 | `test` | `pytest -q` | works |
 | `lint` | `ruff check src tests scripts` | works |
@@ -53,9 +53,18 @@ arrive empty) and then dispatches:
 | Service | Image stage | Ports | Started by `up` |
 |---|---|---|---|
 | `api` | runtime | 8000 | yes |
-| `ui` | runtime | 8501 | yes |
+| `ui` | runtime | 8501 | yes, after `api` is **healthy** |
 | `tools` | dev | – | no (profile `tools`) |
 
+* **`ui` waits for `api` to be healthy**, not merely started: the UI calls
+  `GET /health` on its first render, and booting into "the API is not
+  reachable" is a worse first impression than waiting three seconds. It reaches
+  the API as `CA_API_URL: http://api:8000`, over the compose network -- the
+  Streamlit *server* makes those calls, not the browser, so there is no
+  cross-origin request and `api_cors_origins` stays empty.
+* **Both servers set `restart: unless-stopped`** on themselves rather than in
+  the shared anchor, because `tools` is a one-off container and restarting a
+  finished pytest run is not a policy anyone wants.
 * **Secrets** come from `.env` at run time (`env_file`, `required: false`) and
   are never baked into a layer; `.dockerignore` excludes `.env` from the build
   context entirely.

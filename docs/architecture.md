@@ -74,8 +74,9 @@ Two modules cut across everything and were built first:
 | `api/` | the HTTP surface: upload, analyses as jobs, streamed cited chat | [api.md](api.md) | done, tested; `/metrics/*` declared and 503 until the store lands |
 | `metrics/` | `runs` / `spans` / `criterion_results`, and the KPI queries | -- | next |
 | `evaluator` | the critic pass over each result | -- | next |
-| `ui/`, `mcp/` | the other two surfaces | -- | Phase C |
-| `Dockerfile`, `docker-compose.yml`, `docker/` | build and run the whole thing in a container | [docker.md](docker.md) | `api` live; the `ui` verb awaits Phase C |
+| `ui/` | the Streamlit front end: upload, library, analysis, chat -- a client of the API like any other | [ui.md](ui.md) | done, tested |
+| `mcp/` | the fourth surface | -- | Phase C |
+| `Dockerfile`, `docker-compose.yml`, `docker/` | build and run the whole thing in a container | [docker.md](docker.md) | `api` and `ui` live; the `mcp` verb awaits Phase C |
 
 ## Data flow, end to end (Phase A)
 
@@ -135,6 +136,7 @@ Two modules cut across everything and were built first:
 | Analyses are jobs, not long requests | measured: 187 s sequential, ~60 s at five workers, $0.96 -- past every browser, proxy and MCP client timeout | a synchronous POST that the client cannot wait for |
 | The API contains no logic the CLI does not have | `POST /analyses` and `scripts/analyze.py` call one `analyze_document()`; a handler that decides something is a decision the command line cannot reach | business logic in route handlers |
 | Every upload mints a new `document_id` | `ingest_file` keys uniqueness on path, so a uuid in the stored path is how two people demoing at once stay isolated | content-hash dedupe, which would share one document between sessions |
+| The UI holds no logic either | it parses nothing, opens no database, calls no model; `CA_API_URL` is its whole configuration, so the four consumers cannot drift apart | rendering logic in the front end, which would need a second implementation for MCP |
 | Ids are the only server state | one dict of jobs, no sessions, no server-side transcript; the UI, an MCP tool and a connector can all watch the same job | a session store between four consumers |
 
 ## Repository layout

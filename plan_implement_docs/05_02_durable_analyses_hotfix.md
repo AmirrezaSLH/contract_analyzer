@@ -1,9 +1,22 @@
 # Step 12b — the durable analysis record (hotfix)
 
-**Status: draft for review, 2026-08-24.** A fix to step 12, to land *before*
+**Status: ready to implement, 2026-08-24.** A fix to step 12, to land *before*
 step 13 (`06_metrics_plan.md`). Small, and deliberately not a detour: the table
 it creates is the one the metrics store was going to create anyway, in its
 final shape.
+
+> **Scope, before anything else.** This step does **not** touch
+> `06_metrics_plan.md`. That plan is deliberately deferred and will be stale
+> the moment this lands — it still says table `runs` in `metrics.sql` with
+> `MetricsStore.start_run`, and this creates `analyses` in `schema.sql`
+> instead. Leaving it stale is the decision, not an oversight. The section
+> [Deferred](#deferred-what-this-will-change-in-06_metrics_planmd) at the end
+> is a **record for whoever picks 06 up**, not a to-do for this step. Do not
+> "helpfully" reconcile them.
+>
+> Nothing else in 06 is settled by this step, with one exception: the table
+> name. Creating `analyses` makes 06's `runs` dead on arrival, because renaming
+> a table that exists is a migration.
 
 ## The bug
 
@@ -109,9 +122,20 @@ importable by the CLI.
 invariant — the API contains no logic the CLI does not have — and it is the
 whole reason `analyze_document` takes `analysis_id` already.
 `analyze_document` calls `mark_running` on entry and `finish_analysis` /
-`fail_analysis` on exit, on its own connection. `JobRunner.submit` additionally
-calls `queue_analysis`, because the API has a state the CLI does not: accepted
-but not yet started. `mark_running` is an upsert precisely so both paths work.
+`fail_analysis` on exit, on the connection it was handed. `JobRunner.submit`
+additionally calls `queue_analysis`, because the API has a state the CLI does
+not: accepted but not yet started. `mark_running` is an upsert precisely so
+both paths work.
+
+Two wiring details, so nobody has to invent them:
+
+* **`submit` takes the request's connection.** `routes/analyses.submit`
+  already has `conn: ConnDep` and runs on the request thread, so it passes it
+  to `runner.submit(conn, ...)`. `JobRunner` does not open one of its own —
+  it would be a second connection on the same thread for one `INSERT`, and the
+  worker's connection does not exist yet at that point.
+* **`reconcile(conn)` runs in the lifespan**, on a connection opened and closed
+  there, before the pool accepts anything.
 
 Result: **`make analyze` populates the same table the API does.** A report
 produced from the command line is readable through `GET /analyses/{id}`, which
@@ -119,24 +143,34 @@ is a better demonstration of the invariant than any assertion about it.
 
 ### Columns
 
-Identity and lifecycle, populated now:
+Identity and lifecycle:
 
 `analysis_id` (PK), `trace_id`, `document_id`, `filename`, `surface`
 (`api` | `cli`), `status`, `criteria_requested`, `criteria_completed`,
 `criteria_skipped`, `error`, `report_json`, `created_at`, `started_at`,
 `completed_at`.
 
-Declared now, nullable, populated by step 13:
+Derived from the report, **also populated now**:
 
 `latency_s`, `cost_usd`, `input_tokens`, `output_tokens`, `tool_calls`,
-`needs_review`, `capped`, `mean_confidence`, `quotes_total`,
-`quotes_verified`, `evaluator_accepted`, `evaluator_revised`,
-`evaluator_fallback`.
+`needs_review`, `capped`, `mean_confidence`, `quotes_total`, `quotes_verified`.
 
-Declaring them now costs nothing and removes an `ALTER TABLE` from the middle
-of step 13. They are all derivable from `report_json`, so populating them later
-is a backfill rather than a re-run. (Populating them *now* is about ten lines,
-since `finish_analysis` is holding the report — see Open questions.)
+This is not KPI work smuggled into a hotfix. `finish_analysis` has to walk the
+report anyway to count `criteria_completed` and `criteria_skipped`; once it is
+holding an `AnalysisReport`, `latency_s`, `cost_usd`, the token counts,
+`tool_calls`, `needs_review`, `capped` and `mean_confidence` are field reads off
+`report.totals`, and the two quote counts are one comprehension over
+`report.results`. Six lines, not a subsystem — and it means step 13 inherits a
+populated table instead of a backfill.
+
+Declared now, left `NULL`, populated when the evaluator lands:
+
+`evaluator_accepted`, `evaluator_revised`, `evaluator_fallback`.
+
+These are the only ones that genuinely cannot be filled, because the data does
+not exist yet. Declaring them costs nothing and removes an `ALTER TABLE` from
+the middle of a later step — the same argument as `cross_criterion_notes` on
+the report.
 
 **`document_id` carries no foreign key**, and `filename` is denormalised beside
 it. `DELETE /documents/{id}` must not take the analyses with it: the report is
@@ -164,6 +198,14 @@ at all after a restart.
 | `GET /documents/{id}` | same union for the `analyses` array |
 | `DELETE /documents/{id}` | the `409` check becomes a query, so a running analysis in *another* worker also blocks it |
 | `POST /analyses` | `find_live` stays in-memory. A duplicate can only be joined if this process owns its stream and its cancel flag; a row in another process is not something this one can hand back a live handle to. Documented, not pretended. |
+
+One helper carries the merge: `analyses.Analysis` (the row) → `AnalysisSummary`
+(the wire type), living in `api/jobs.py` beside `JobState.summary()` so the two
+producers of that type sit together. A row has no `stage`, `progress` or
+per-criterion list; those fields come back as the terminal values implied by
+`status` (`done` → `progress.done == criteria_completed`) rather than as
+invented ones, and `criteria` is rebuilt from `report_json` when there is a
+report and left empty when there is not.
 
 `api/errors.py`'s `analysis_not_found` hint loses its apology about restarts.
 
@@ -232,9 +274,11 @@ report lives) → the `DELETE` conflict query, keeping the in-memory check.
       analysis and its report are not.
 - [ ] `docs/openapi.json` regenerated with `interrupted` in the status enum.
 
-## What this changes in `06_metrics_plan.md`
+## Deferred: what this will change in `06_metrics_plan.md`
 
-Edits to make when this lands, so the two plans do not disagree:
+**Do not apply any of this while implementing this step.** `06` is deliberately
+left stale; this is the record for whoever picks it up, so the divergence is
+found on purpose rather than by collision:
 
 * `runs` → `analyses`; `spans.run_id` → `spans.analysis_id`; `run_id`
   ContextVar → `analysis_id` ContextVar.
@@ -246,23 +290,27 @@ Edits to make when this lands, so the two plans do not disagree:
   report"* moves to this plan.
 * The estimate drops from ~5 h to ~4 h.
 
+## Decided, so the implementer does not have to guess
+
+* **The derived columns are populated now**, evaluator columns excepted. See
+  [Columns](#columns).
+* **`documents.ingested_at` is out of scope.** It is SQLite's `datetime('now')`
+  (`2026-08-24 04:30:50`) while every timestamp this table mints is
+  `2026-08-24T04:30:50+00:00`, so a query comparing the two compares formats.
+  Real, and **not this step's** — nothing here joins on it. Recorded in
+  `docs/storage.md` as a known inconsistency, fixed on its own when something
+  needs it.
+* **`POST /analyses` does not join a live analysis owned by another worker.**
+  `find_live` stays in-memory: this process cannot hand back a stream or a
+  cancel handle it does not own. Stated in `docs/api.md` beside the existing
+  note about rate limiting.
+* **No retention policy.** ~30 KB per report; the number goes in the docs so
+  nobody is surprised at ten thousand analyses. No `prune()` until asked.
+
 ## Open questions
 
-1. **Populate the derived columns now, or in step 13?** `finish_analysis` is
-   holding the `AnalysisReport`, so `cost_usd`, `latency_s`,
-   `mean_confidence`, `quotes_total` and `quotes_verified` are about ten lines
-   away. Recommendation: **do it** — it is cheaper than a backfill, and it
-   means the KPI page's headline tiles work off this table with no further
-   write path. The columns that genuinely have to wait are the evaluator's.
-2. **`ingested_at` is not ISO-8601.** `documents.ingested_at` is SQLite's
-   `datetime('now')` — `2026-08-24 04:30:50` — while every timestamp the API
-   mints is `2026-08-24T04:30:50+00:00`. The new table will use the API's
-   format, so any query comparing the two is comparing formats. Recommendation:
-   normalise on read in `documents._document()` rather than migrating the
-   column, and note it in `docs/storage.md`.
-3. **Should `POST /analyses` join a live analysis owned by another worker?**
-   Recommendation: no, as above — it cannot hand back a stream or a cancel
-   handle it does not own. Worth stating in `docs/api.md` beside the existing
-   note about rate limiting.
-4. **Retention.** ~30 KB per report. Recommendation: none for the demo; the
-   number goes in the docs so nobody is surprised at ten thousand analyses.
+1. **Is `analyses` the right name?** It is the one decision here that cannot be
+   deferred — the table exists after this, and renaming it later is a
+   migration. Recommendation stands: yes, because the domain object is an
+   analysis and `analysis_id` is what every surface already calls it. Flagged
+   because it also settles the matter for `06`, which is otherwise untouched.

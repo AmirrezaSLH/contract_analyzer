@@ -25,7 +25,14 @@ from __future__ import annotations
 
 import pymupdf
 
-from .blocks import CAPTION_RE, DocumentProfile, block_text, normalize_ws, text_blocks
+from .blocks import (
+    CAPTION_RE,
+    DocumentProfile,
+    block_text,
+    join_lines,
+    normalize_ws,
+    text_blocks,
+)
 from .elements import TableElement
 
 #: A drawing this flat and this wide is a horizontal rule.
@@ -66,14 +73,30 @@ def table_captions(page: pymupdf.Page, profile: DocumentProfile | None = None) -
     return out
 
 
-def compact(rows: list[list[str | None]]) -> list[list[str]]:
+def compact(
+    rows: list[list[str | None]], profile: DocumentProfile | None = None
+) -> list[list[str]]:
     """Drop wholly empty rows and columns, and normalise every cell.
 
     Both detectors emit padding: `strategy="text"` in particular returns a row
     per visual line, so a table with multi-line cells arrives interleaved with
     blank rows.
+
+    A cell's text keeps the line breaks the extractor saw, and those breaks
+    carry the same hyphen and wrap information as the lines of a prose block:
+    ``GOV-`` / ``01`` is one identifier, ``Requiremen`` / ``t Ref`` is one word.
+    With a `profile` the cell goes through `join_lines` exactly as prose does;
+    without one the lines are simply joined by spaces.
     """
-    grid = [[normalize_ws(cell or "") for cell in row] for row in rows]
+
+    def cell_text(cell: str | None) -> str:
+        if not cell:
+            return ""
+        if profile is None:
+            return normalize_ws(cell)
+        return join_lines([normalize_ws(line) for line in cell.split("\n")], profile)
+
+    grid = [[cell_text(cell) for cell in row] for row in rows]
     grid = [row for row in grid if any(row)]
     if not grid:
         return []
@@ -258,7 +281,7 @@ def extract_tables_from_page(
 
     for table in located:
         bbox = pymupdf.Rect(table.bbox)
-        rows = compact(table.extract())
+        rows = compact(table.extract(), profile)
         if not validate(rows):
             continue
         caption_block = _nearest_caption(bbox, table_captions(page, profile))
@@ -294,7 +317,7 @@ def extract_tables_from_page(
         except Exception:
             recovered = []
         if recovered:
-            rows = compact(max((t.extract() for t in recovered), key=len, default=[]))
+            rows = compact(max((t.extract() for t in recovered), key=len, default=[]), profile)
 
         quality = "recovered" if validate(rows) else "text-fallback"
         if quality == "text-fallback":

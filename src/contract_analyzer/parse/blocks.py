@@ -49,6 +49,19 @@ _BARE_NUMBER = re.compile(r"^[ivxlcdm\d]+$", re.I)
 _WS = re.compile(r"\s+")
 _DIGITS = re.compile(r"\d+")
 
+#: The document's vocabulary. Tokens may contain digits so that identifiers
+#: such as "PASS-02" or "ISO 27001" are attested like any other word.
+_TOKEN = re.compile(r"[A-Za-z0-9]+")
+_COMPOUND = re.compile(r"[A-Za-z0-9]+(?:-[A-Za-z0-9]+)+")
+#: The word fragment before a line-final hyphen, and the one starting the next
+#: line. Digits are allowed on both sides: "GOV-" + "01" is the common case in
+#: a control matrix.
+_HEAD = re.compile(r"([A-Za-z0-9]+)-$")
+_TAIL = re.compile(r"([A-Za-z0-9]+)")
+#: The last and first whole token of two lines with no hyphen between them.
+_LAST_TOKEN = re.compile(r"([A-Za-z]+)$")
+_FIRST_TOKEN = re.compile(r"^([A-Za-z]+)")
+
 #: A heading must exceed the body size by more than rounding noise. Inline bold
 #: runs (CMBX12 at the body's own 12.0pt) are deliberately excluded by this.
 HEADING_SIZE_MARGIN = 0.5
@@ -93,10 +106,17 @@ class DocumentProfile:
     #: full-width lines, both files agree.
     body_left: float = 0.0
     body_right: float = 0.0
-    #: Words seen hyphenated somewhere in the document ("single-family").
+    #: Tokens seen hyphenated somewhere in the document ("single-family",
+    #: "PASS-02"). Letter-digit compounds are collected too, so a control
+    #: identifier that appears unwrapped anywhere attests its own shape.
     hyphenated: Counter[str] = field(default_factory=Counter)
-    #: Every word seen, unhyphenated ("building").
+    #: Every token seen, unhyphenated ("building", "27001").
     words: Counter[str] = field(default_factory=Counter)
+    #: Whether this document hyphenates words at line ends. Measured, not
+    #: assumed: LaTeX does (so an unattested line-final hyphen is typographic
+    #: and should be dropped), Word does not (so it is part of the word and
+    #: must be kept). See `infer_breaks_hyphenate`.
+    breaks_hyphenate: bool = True
     #: Digit-masked texts that recur in the header/footer bands.
     furniture_patterns: set[str] = field(default_factory=set)
 
@@ -193,6 +213,7 @@ def profile_document(doc: pymupdf.Document) -> DocumentProfile:
     band_texts: Counter[str] = Counter()
     extents: Counter[tuple[float, float]] = Counter()
     edges: Counter[tuple[float, float]] = Counter()
+    breaks: list[tuple[str, str]] = []
 
     for page in doc:
         height = page.rect.height or 1.0
@@ -203,11 +224,17 @@ def profile_document(doc: pymupdf.Document) -> DocumentProfile:
                     # paragraph when deciding what "body text" means.
                     sizes[round(span["size"], 1)] += len(span["text"].strip())
 
-            for text in _block_lines(block):
-                for word in re.findall(r"[A-Za-z]+(?:-[A-Za-z]+)+", text):
+            lines = _block_lines(block)
+            for text in lines:
+                for word in _COMPOUND.findall(text):
                     hyphenated[word.casefold()] += 1
-                for word in re.findall(r"[A-Za-z]+", text):
+                for word in _TOKEN.findall(text):
                     words[word.casefold()] += 1
+            for line, nxt in zip(lines, lines[1:], strict=False):
+                head = _HEAD.search(line)
+                tail = _TAIL.match(nxt)
+                if head and tail:
+                    breaks.append((head.group(1), tail.group(1)))
 
             if len(block["lines"]) >= 3:
                 # Three or more lines makes a block a paragraph beyond much
@@ -236,6 +263,7 @@ def profile_document(doc: pymupdf.Document) -> DocumentProfile:
         body_right=right,
         hyphenated=hyphenated,
         words=words,
+        breaks_hyphenate=infer_breaks_hyphenate(breaks, hyphenated, words),
         furniture_patterns={t for t, n in band_texts.items() if n >= threshold},
     )
 
@@ -255,31 +283,100 @@ def _text_left(edges: Counter[tuple[float, float]], right: float, tolerance: flo
     return lefts.most_common(1)[0][0] if lefts else 0.0
 
 
-def join_lines(lines: list[str], profile: DocumentProfile) -> str:
-    """Join a block's lines into one string, resolving line-break hyphens.
+def infer_breaks_hyphenate(
+    breaks: list[tuple[str, str]],
+    hyphenated: Counter[str] | dict[str, int],
+    words: Counter[str] | dict[str, int],
+) -> bool:
+    """Whether a document hyphenates at line ends, judged from its own breaks.
 
-    When a line ends in a hyphen, the document's own vocabulary decides:
-    the compound wins if it is attested hyphenated elsewhere, otherwise the
-    merged word wins if *it* is attested, otherwise we join -- which is the
-    common case by roughly four to one in this corpus.
+    For every line-final hyphen, the vocabulary is asked which form of the
+    broken word it attests elsewhere: the merged word (``build-`` + ``ing``
+    with ``building`` in the text -- a typographic break) or the compound
+    (``single-`` + ``family`` with ``single-family`` -- a lexical hyphen).
+    A document whose merged forms dominate auto-hyphenates; one whose
+    compounds dominate does not. With no evidence either way the hyphen is
+    kept, because that is the reversible choice.
+    """
+    merged = compound = 0
+    for head, tail in breaks:
+        if words.get(f"{head}{tail}".casefold(), 0):
+            merged += 1
+        if hyphenated.get(f"{head}-{tail}".casefold(), 0):
+            compound += 1
+    return merged > compound
+
+
+def join_lines(lines: list[str], profile: DocumentProfile) -> str:
+    """Join a block's lines into one string, resolving the breaks between them.
+
+    Every decision is taken from evidence the document supplies about itself.
+    At a line-final hyphen, in order:
+
+    1. the compound is attested and the merged word is not -- a real compound,
+       keep the hyphen (``single-family``);
+    2. the hyphen sits at a letter/digit boundary -- no language hyphenates a
+       word there, so it is part of a token: keep it (``GOV-01``, ``ISO-27001``);
+    3. the merged word is attested -- a typographic break, drop the hyphen
+       (``building``);
+    4. otherwise follow the document's measured habit (`breaks_hyphenate`).
+
+    At a line end with no hyphen, the two lines are concatenated without a
+    space only when the result is an attested word and neither fragment is a
+    word on its own: ``Monitoring/Alertin`` + ``g`` closes up, ``Special`` +
+    ``Handling`` does not, and ``a`` + ``gain`` does not either.
     """
     if not lines:
         return ""
 
     out = lines[0]
     for nxt in lines[1:]:
-        head = re.search(r"([A-Za-z]+)-$", out)
-        tail = re.match(r"([A-Za-z]+)", nxt)
+        head = _HEAD.search(out)
+        tail = _TAIL.match(nxt)
         if head and tail:
-            compound = f"{head.group(1)}-{tail.group(1)}".casefold()
-            merged = f"{head.group(1)}{tail.group(1)}".casefold()
-            if profile.hyphenated.get(compound, 0) > 0 and not profile.words.get(merged, 0):
-                out = f"{out}{nxt}"  # a real compound: keep the hyphen, drop the break
-                continue
-            out = f"{out[:-1]}{nxt}"  # drop the hyphen and close the word up
+            resolved = _resolve_hyphen(head.group(1), tail.group(1), profile)
+            out = f"{out[: head.start()]}{resolved}{nxt[tail.end() :]}"
+            continue
+        if _is_hard_wrap(out, nxt, profile):
+            out = f"{out}{nxt}"
             continue
         out = f"{out} {nxt}"
     return normalize_ws(out)
+
+
+def _resolve_hyphen(head: str, tail: str, profile: DocumentProfile) -> str:
+    compound = f"{head}-{tail}"
+    merged = f"{head}{tail}"
+    if profile.hyphenated.get(compound.casefold(), 0) and not profile.words.get(
+        merged.casefold(), 0
+    ):
+        return compound
+    if head[-1].isdigit() != tail[0].isdigit():
+        return compound  # a letter/digit boundary is never a typographic break
+    if profile.words.get(merged.casefold(), 0):
+        return merged
+    return merged if profile.breaks_hyphenate else compound
+
+
+def _is_hard_wrap(out: str, nxt: str, profile: DocumentProfile) -> bool:
+    """Whether a line ended mid-word with no hyphen to say so.
+
+    A narrow table cell does this ("Requiremen" / "t Ref"). The document's
+    vocabulary decides: the concatenation must be attested strictly more often
+    than the longer of the two fragments. A fragment always attests itself at
+    least once (the wrapped cell is in the vocabulary too), so "alerting" at 8
+    beats "alertin" at 2, while two real words are never welded because a
+    real word is at least as common as whatever it happens to spell when
+    glued to its neighbour. The shorter fragment is not consulted: a stub
+    like "g" or "t" is also a frequent token in its own right ("e.g.").
+    """
+    last = _LAST_TOKEN.search(out)
+    first = _FIRST_TOKEN.match(nxt)
+    if not last or not first:
+        return False
+    longer = max(last.group(1), first.group(1), key=len)
+    joined = profile.words.get(f"{last.group(1)}{first.group(1)}".casefold(), 0)
+    return joined > profile.words.get(longer.casefold(), 0)
 
 
 def classify(block: dict, profile: DocumentProfile, page_height: float) -> str:
@@ -372,6 +469,7 @@ __all__ = [
     "classify",
     "extract_text_elements",
     "headings_of",
+    "infer_breaks_hyphenate",
     "join_lines",
     "normalize_ws",
     "profile_document",

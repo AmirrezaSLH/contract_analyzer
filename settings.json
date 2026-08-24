@@ -7,6 +7,7 @@
   "analysis_max_tool_calls": 8,
   "max_evidence_tokens": 12000,
   "structure_fix_rounds": 2,
+  "analysis_workers": 5,
   "prompts_path": "src/contract_analyzer/generation/prompts.json",
 
   "http_timeout_seconds": 60,

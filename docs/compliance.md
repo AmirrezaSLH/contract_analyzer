@@ -77,3 +77,79 @@ that is Phase B's evaluator, a separate concern.
 
 How the analysis uses it -- rounds, dropping, `needs_review`, the confidence
 formula -- is in [generation.md](generation.md#surface-1-analysis-analysispy).
+
+## The document runner (`report.py`)
+
+`analyze_criterion` answers one question; `analyze_document` is the layer that
+knows a *contract-level* analysis exists. It is the function the CLI calls and
+the function the API's job worker calls -- the same arguments in both cases,
+which is what makes "the API contains no logic the CLI does not have" a fact
+rather than an intention.
+
+```python
+report = analyze_document(document_id, conn, embedder, settings, client,
+                          criteria=None, on_event=None, cancelled=None,
+                          workers=None)
+```
+
+It contains no prompting and no model logic. What it does contain is the three
+consequences of running five agents at once:
+
+**A connection per criterion, and the caller's is never touched.** The database
+*path* is read once on the calling thread; each criterion opens its own
+connection to it and closes it. `db.py` is explicit that concurrent use of one
+connection from two threads is a bug and that `check_same_thread=False` only
+stops sqlite3 from catching it -- and sharing would buy nothing, since SQLite
+gives concurrent readers no parallelism on one connection. An in-memory
+database has no path to reopen, so those runs are serial on the calling thread:
+one connection, no pool, and the honest amount of parallelism available.
+
+**The trace id carried across the pool.** `trace_id` lives in a `ContextVar`,
+and `ThreadPoolExecutor.submit` does not copy the calling context. Every
+submission goes through `contextvars.copy_context().run`. Without it, every
+line the five agents emit -- `analysis.criterion`, `agent.call`, `agent.tool`,
+every transport retry -- carries a null trace and the log stops reconstructing
+the run. `tests/test_report.py` asserts the whole JSON log is free of null
+trace ids, and fails when the `copy_context()` is removed.
+
+**Events tagged, and delivered one at a time.** The agent loop emits
+`tool_call` with no criterion on it, because at that level there is only one;
+five interleaved runs would be unattributable. The runner stamps `criterion` on
+every event, and holds a lock while calling `on_event` -- so a caller's
+callback is **never invoked concurrently and never needs a lock of its own**.
+The CLI prints, the API fans out to its SSE subscribers, neither has to think
+about it.
+
+Cancellation is honest rather than aspirational. `cancelled()` is polled before
+each criterion starts, so it skips whatever has not begun and the report lists
+those ids in `skipped` with `status="cancelled"`. At `workers >= len(criteria)`
+everything starts at once and there is nothing left to skip: cancel then only
+stops a job still waiting for a free worker. Stopping a *running* criterion
+would mean threading the flag into the agent loop between tool calls, which is
+a change to `generation/`, not to this file.
+
+### The report
+
+`AnalysisReport` is a pydantic model, so **the report on disk is the report
+over the wire** -- no second schema between `scripts/analyze.py --out` and the
+API's `GET /analyses/{id}`. `results` are in criteria order rather than
+finishing order, so two runs of the same contract diff line by line.
+`AnalysisTotals` sums the run: latency, cost, tokens, tool calls, how many
+results need review, how many were stopped by a counter, and the mean
+confidence -- the KPI page's row for this analysis. `cross_criterion_notes` is
+present and empty until the evaluator's cross-criterion pass lands, so its
+arrival does not change the wire format.
+
+### The CLI
+
+```
+make analyze F="data/samples/Sample Contract.pdf"
+python scripts/analyze.py --document-id 3 --criteria password_management
+```
+
+A path is ingested first (unchanged files cost nothing -- `ingest_file` skips
+on the content hash); `--document-id` analyses what is already stored. Progress
+prints as it happens, one line per tool call with its arguments and one per
+verdict, each tagged with the criterion it belongs to. The report is written as
+JSON to `.run/analysis-<id>.json` unless `--out` says otherwise. Exit code 2
+means the run was cancelled or incomplete, 1 that it could not start.

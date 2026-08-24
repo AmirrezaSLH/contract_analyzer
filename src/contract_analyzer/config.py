@@ -134,6 +134,12 @@ class Settings(BaseSettings):
     #: Rounds of structural self-correction before a bad quote is dropped and
     #: the result flagged `needs_review`.
     structure_fix_rounds: int = Field(default=2, ge=0)
+    #: Criteria analysed in parallel inside one document run. Five criteria at
+    #: five workers is ~60 s wall clock instead of ~190 s sequential. It is
+    #: also the outbound rate limit: with the API's `api_workers` jobs in
+    #: flight, `api_workers * analysis_workers` requests can be open at once.
+    #: Tests set it to 1, because the scripted transport is a FIFO.
+    analysis_workers: int = Field(default=5, gt=0)
     #: The prompt library. Point it elsewhere to re-aim the assistant at
     #: another domain without touching the package -- see generation/prompts.py.
     prompts_path: Path = Path("src/contract_analyzer/generation/prompts.json")

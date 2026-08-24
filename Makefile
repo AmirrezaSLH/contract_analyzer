@@ -2,7 +2,7 @@
 
 PYTHON ?= .venv/bin/python
 
-.PHONY: help venv ingest reingest search chat test lint fmt logs \
+.PHONY: help venv ingest reingest search chat analyze test lint fmt logs \
 	docker-build docker-up docker-down docker-logs docker-shell docker-test
 
 help:  ## List the targets
@@ -23,6 +23,9 @@ search:  ## Vector, keyword and hybrid retrieval side by side: make search Q="..
 
 chat:  ## Multi-turn cited conversation over an ingested contract
 	$(PYTHON) scripts/chat.py
+
+analyze:  ## The five criteria over one contract: make analyze F=path.pdf
+	$(PYTHON) scripts/analyze.py "$(F)"
 
 test:  ## The whole suite. No network, no key, no corpus files.
 	$(PYTHON) -m pytest -q

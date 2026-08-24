@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Stop everything this app started, including what it orphaned.
 #
-#   ./stop.bash           stop the API and, if running, the Vite dev server
+#   ./stop.bash           stop the API, the MCP connector, and, if running,
+#                         the Vite dev server
 #   ./stop.bash --dry-run list what would be killed, kill nothing
 #
 # Three passes, because a pidfile is not the whole story:
@@ -45,6 +46,10 @@ if [[ -z "${FRONTEND_PORT:-}" ]]; then
     FRONTEND_PORT="$(dotenv FRONTEND_PORT)"
 fi
 FRONTEND_PORT="${FRONTEND_PORT:-8101}"
+if [[ -z "${MCP_PORT:-}" ]]; then
+    MCP_PORT="$(dotenv MCP_PORT)"
+fi
+MCP_PORT="${MCP_PORT:-8102}"
 #: Seconds between SIGTERM and SIGKILL. uvicorn's shutdown marks jobs in
 #: flight as failed and closes the database rather than leaving rows saying
 #: `running`, so it is worth waiting for.
@@ -62,6 +67,14 @@ DRY=0
 #: bundle the API serves; the only separate UI process is Vite under `--dev`.
 PATTERNS=(
     'python[0-9.]* +-m +uvicorn +contract_analyzer\.api\.main:app'
+    # The MCP connector, and only the one serving a port. A stdio connector is
+    # a desktop client's own child, launched from its config and possibly from
+    # this directory; it holds no port, it stops when that client does, and
+    # killing it would end somebody's conversation mid-turn. `--transport http`
+    # is what start.bash passes, so requiring it here is what keeps the two
+    # cases apart. An http one started some other way is still caught by the
+    # port pass below.
+    'python[0-9.]* +-m +mcp_connector +.*--transport +http'
     # Vite via `npm run dev` in ui/: the bin path contains this checkout.
     "node .+${ROOT//./\\.}/ui/.+vite"
 )
@@ -156,7 +169,7 @@ bold "Stopping Contract Analyzer"
 
 # -- pass 1: the pidfiles ---------------------------------------------------
 
-for name in api ui; do
+for name in api mcp ui; do
     pid_file="$RUN_DIR/$name.pid"
     [[ -f "$pid_file" ]] || continue
     pgid=$(tr -d '[:space:]' < "$pid_file")
@@ -232,7 +245,7 @@ port_owner() {
     fi
 }
 
-for spec in "API:$BACKEND_PORT" "UI:$FRONTEND_PORT"; do
+for spec in "API:$BACKEND_PORT" "MCP:$MCP_PORT" "UI:$FRONTEND_PORT"; do
     name=${spec%%:*} port=${spec##*:}
     owner=$(port_owner "$port" || true)
     [[ -n "$owner" ]] || continue
@@ -260,7 +273,7 @@ fi
 # returns success is worse than one that does neither.
 status=0
 if ((!DRY)); then
-    for spec in "API:$BACKEND_PORT" "UI:$FRONTEND_PORT"; do
+    for spec in "API:$BACKEND_PORT" "MCP:$MCP_PORT" "UI:$FRONTEND_PORT"; do
         name=${spec%%:*} port=${spec##*:}
         owner=$(port_owner "$port" || true)
         if [[ -n "$owner" ]]; then

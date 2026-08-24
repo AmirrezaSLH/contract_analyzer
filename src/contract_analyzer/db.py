@@ -14,6 +14,9 @@ from pathlib import Path
 import sqlite_vec
 
 from .config import Settings, get_settings
+from .logger import get_logger
+
+log = get_logger(__name__)
 
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
 
@@ -90,7 +93,30 @@ def apply_schema(conn: sqlite3.Connection, dim: int) -> None:
             "table cannot gain one in place -- delete the database and re-ingest."
         )
     conn.executescript(SCHEMA_PATH.read_text(encoding="utf-8").format(dim=dim))
+    _add_missing_columns(conn)
     conn.commit()
+
+
+#: Columns added to a table after it shipped, as `(table, column, declaration)`.
+#: `CREATE TABLE IF NOT EXISTS` silently keeps the definition a database
+#: already has, so a column added to `schema.sql` reaches new databases only.
+#: Each entry here is applied as a guarded `ALTER TABLE`, which is idempotent
+#: because it runs only when `PRAGMA table_info` says the column is absent.
+#: Append-only, and nothing else: dropping or retyping a column is a migration
+#: with a data question in it, and would need more than a list.
+_ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
+    ("analyses", "evaluator_unevaluated", "INTEGER"),
+    ("analyses", "evaluator_cost_usd", "REAL"),
+)
+
+
+def _add_missing_columns(conn: sqlite3.Connection) -> None:
+    for table, column, declaration in _ADDED_COLUMNS:
+        present = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+        if not present or column in present:
+            continue
+        log.info("db.add_column", extra={"table": table, "column": column})
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {declaration}")
 
 
 def stored_dim(conn: sqlite3.Connection) -> int | None:

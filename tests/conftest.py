@@ -288,6 +288,40 @@ def scripted_client(api: ScriptedAPI, *, retries: int = 0):
     return Anthropic(api_key="test-key", http_client=http, max_retries=0)
 
 
+def clean_findings(criterion, *, quote_index: int = 0, confidence: float = 0.85) -> str:
+    """An all-agree `EvaluatorFindings` for a draft whose sub-requirements all
+    cite the same quote.
+
+    Every path through the analysis now ends with a critic call, so every
+    scripted run needs one more reply than it used to. The disagreement cases
+    are authored in `test_evaluator.py` and `test_router.py`, where they are
+    the subject; here the critic exists so the pipeline can run, and one helper
+    keeps that from being five lines in every test.
+    """
+    import json
+
+    return json.dumps({
+        "quote_support": [
+            {"quote_index": quote_index, "sub_requirement_id": sub.id,
+             "support": "supports", "note": "carries the claim"}
+            for sub in criterion.sub_requirements
+        ],
+        "status_agreement": [
+            {"sub_requirement_id": sub.id, "agreement": "agree", "note": ""}
+            for sub in criterion.sub_requirements
+        ],
+        "state_agreement": "agree",
+        "missing_searches": [],
+        "critic_confidence": confidence,
+        "notes": "",
+    })
+
+
+def critic_turn(criterion, **kw) -> str:
+    """The scripted SSE body for one clean evaluation."""
+    return sse_message([{"type": "text", "text": clean_findings(criterion, **kw)}])
+
+
 def make_chunk(chunk_id: int, text: str, *, section: str = "6.6 Password Management Standard",
                page: str = "9", document_id: int = 1, element_type: str = "paragraph",
                payload: str | None = None):

@@ -33,7 +33,14 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from conftest import ScriptedAPI, make_chunk, scripted_client, sse_message, write_decoy_contract
+from conftest import (
+    ScriptedAPI,
+    critic_turn,
+    make_chunk,
+    scripted_client,
+    sse_message,
+    write_decoy_contract,
+)
 from contract_analyzer.analyses import queue_analysis
 from contract_analyzer.api.main import create_app
 from contract_analyzer.compliance import get_criteria
@@ -173,11 +180,14 @@ def draft_for(criterion, quote="rotate credentials") -> str:
 
 
 def analysis_turns(criterion, quote="rotate credentials") -> list[str]:
+    """Search, stop, draft, and the critic's findings on the draft -- the four
+    requests one criterion makes now that every result is evaluated."""
     return [
         sse_message([{"type": "tool_use", "id": "t1", "name": "search_contract",
                       "input": {"query": criterion.requirement}}], stop_reason="tool_use"),
         sse_message([{"type": "text", "text": "Enough."}]),
         sse_message([{"type": "text", "text": draft_for(criterion, quote)}]),
+        critic_turn(criterion),
     ]
 
 

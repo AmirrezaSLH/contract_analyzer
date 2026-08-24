@@ -1,9 +1,15 @@
 """One contract against all five criteria: the runner, and what it produces.
 
-`analyze_criterion` answers one question. This module is the layer above it --
-the thing a CLI calls, the thing the API's job worker calls, and the only place
-that knows a *document-level* analysis exists. It contains no prompting and no
-model logic; it is a fan-out, a fan-in and a report.
+`route_criterion` answers one question -- Analyzer, Evaluator and the Router
+that runs them (`docs/agents/`). This module is the layer above that: the thing
+a CLI calls, the thing the API's job worker calls, and the only place that
+knows a *document-level* analysis exists. It contains no prompting and no model
+logic; it is a fan-out, a fan-in and a report.
+
+It is the **harness**, not a fourth agent, and keeping it out of the agent count
+is part of the design's honesty: threads, a connection per criterion, event
+serialisation and the analyses row are plumbing. The Router is logic inside the
+worker, not a rearrangement of the process model.
 
 It lives at the top of the package rather than inside `compliance/` because
 that is where it actually sits: it uses `compliance` for the criteria and the
@@ -28,9 +34,10 @@ connection, no pool, and the honest amount of parallelism available.
 
 **The trace id carried across the pool.** `trace_id` lives in a `ContextVar`,
 and `ThreadPoolExecutor.submit` does not copy the calling context. Without
-`copy_context().run`, every line the five agents emit -- `analysis.criterion`,
-`agent.call`, `agent.tool`, every retry in the transport -- would carry a null
-trace and the log would no longer reconstruct the run.
+`copy_context().run`, every line the five criterion runs emit --
+`router.criterion`, `analysis.criterion`, `agent.call`, `agent.tool`,
+`evaluator.critic`, every retry in the transport -- would carry a null trace
+and the log would no longer reconstruct the run.
 
 **Events that say which criterion they came from, delivered one at a time.**
 The agent loop emits `tool_call` events with no criterion on them, because at
@@ -76,8 +83,8 @@ from .db import connect, describe_path
 from .documents import get_document
 from .embeddings.base import Embedder
 from .generation.agent import Event, OnEvent
-from .generation.analysis import analyze_criterion
 from .generation.client import get_client
+from .generation.router import cross_criterion_check, route_criterion
 from .logger import get_logger, new_id, span, trace_context
 
 log = get_logger(__name__)
@@ -104,6 +111,19 @@ class AnalysisTotals(BaseModel):
     #: Runs a counter stopped rather than the model finishing.
     capped: int = 0
     mean_confidence: float = 0.0
+    #: Criteria the Router sent back for another round after the critic spoke.
+    #: The rate this implies is the number that says whether the revise loop is
+    #: doing anything -- and whether a second round would ever be worth it.
+    revised: int = 0
+    #: Criteria the critic accepted outright, and criteria that shipped with
+    #: findings still open (`fallback`) or with no critic at all
+    #: (`unevaluated`). Three counts rather than one rate, because the KPI page
+    #: has to be able to say *which* kind of not-accepted it was.
+    accepted: int = 0
+    fallback: int = 0
+    unevaluated: int = 0
+    #: The critic's share of the bill, already inside `cost_usd`.
+    evaluator_cost_usd: float = 0.0
 
 
 class AnalysisReport(BaseModel):
@@ -124,10 +144,12 @@ class AnalysisReport(BaseModel):
     trace_id: str | None = None
     results: list[ComplianceResult] = Field(default_factory=list)
     totals: AnalysisTotals = Field(default_factory=AnalysisTotals)
-    #: Contradictions between criteria -- "3 says encrypted in transit, 5 says
-    #: no TLS requirement". The evaluator's cross-criterion pass fills this;
-    #: until it lands the field exists and is empty, so the wire format does
-    #: not change when it arrives. See plan_implement_docs/04_02.
+    #: Contradictions between criteria -- "1 found no vaulting language, 3
+    #: quotes a vaulting clause". Filled by the Router's cross-criterion pass
+    #: after fan-in (`generation/router.py`), which is the only frame that sees
+    #: all five: the criteria run in parallel and never meet. The field existed
+    #: and was empty before that pass did, so its arrival changed no wire
+    #: format. See plan_implement_docs/AGENT_PLAN_01/.
     cross_criterion_notes: list[str] = Field(default_factory=list)
     #: Criteria that were asked for but never ran, because the run was
     #: cancelled while they were still queued.
@@ -251,6 +273,7 @@ def analyze_document(
             trace_id=trace_id,
             results=ordered,
             totals=totals_of(ordered, latency_s=time.perf_counter() - started),
+            cross_criterion_notes=cross_criterion_check(ordered),
             skipped=skipped,
             created_at=created_at,
             completed_at=_now(),
@@ -283,6 +306,11 @@ def totals_of(results: Sequence[ComplianceResult], *, latency_s: float = 0.0) ->
         needs_review=sum(1 for r in results if r.needs_review),
         capped=sum(1 for r in results if r.ended_by == "cap"),
         mean_confidence=round(sum(r.confidence for r in results) / len(results), 4),
+        revised=sum(1 for r in results if r.rounds > 0),
+        accepted=sum(1 for r in results if r.verdict == "accept"),
+        fallback=sum(1 for r in results if r.verdict == "fallback"),
+        unevaluated=sum(1 for r in results if r.verdict == "unevaluated"),
+        evaluator_cost_usd=round(sum(r.evaluator_cost_usd for r in results), 6),
     )
 
 
@@ -331,29 +359,16 @@ def _run_one(
         return None
 
     own = connect(target, same_thread=False) if isinstance(target, str) else None
-    on_event = emit.for_criterion(criterion.id)
     try:
-        started = time.perf_counter()
-        outcome = analyze_criterion(
+        return route_criterion(
             criterion,
             own if own is not None else target,
             embedder,
             settings,
             document_id=document_id,
             client=client,
-            on_event=on_event,
+            on_event=emit.for_criterion(criterion.id),
         )
-        result = outcome.result
-        # Timed out here rather than inside the Analyzer: what a reviewer means
-        # by "how long did criterion 3 take" is the whole of it, and this is the
-        # frame that sees the whole of it. When the Router lands in front of the
-        # Analyzer, the whole of it grows an evaluation and possibly a revision,
-        # and this timing and this event move in there with it.
-        result.latency_s = round(time.perf_counter() - started, 3)
-        on_event({"type": "result", "surface": "analysis", "criterion": criterion.id,
-                  "state": result.compliance_state, "confidence": result.confidence,
-                  "needs_review": result.needs_review, "latency_s": result.latency_s})
-        return result
     finally:
         if own is not None:
             own.close()

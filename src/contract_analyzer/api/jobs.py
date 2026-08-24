@@ -270,6 +270,11 @@ def _totals_of(record: AnalysisRecord) -> AnalysisTotals | None:
         needs_review=record.needs_review or 0,
         capped=record.capped or 0,
         mean_confidence=record.mean_confidence or 0.0,
+        revised=record.evaluator_revised or 0,
+        accepted=record.evaluator_accepted or 0,
+        fallback=record.evaluator_fallback or 0,
+        unevaluated=record.evaluator_unevaluated or 0,
+        evaluator_cost_usd=record.evaluator_cost_usd or 0.0,
     )
 
 

@@ -36,17 +36,11 @@ export function App() {
 
         <div className={styles.group}>
           <Label>Active document</Label>
-          <button
-            type="button"
-            className={styles.active}
-            onClick={() => navigate("/library")}
-            title={doc ? doc.filename : "Pick a contract from the library"}
-          >
+          <div className={styles.active} title={doc ? doc.filename : undefined}>
             <span className={styles.activeName}>
               {doc ? doc.filename : "No document selected"}
             </span>
-            <Icon name="chevron" size={10} weight={1.5} className={styles.activeChevron} />
-          </button>
+          </div>
           <span className={styles.meta}>
             {doc
               ? `id ${doc.document_id} · ${doc.pages ?? "—"} pages · ${doc.chunks} passages`

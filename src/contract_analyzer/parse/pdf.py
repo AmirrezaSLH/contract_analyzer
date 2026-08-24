@@ -4,7 +4,9 @@ This is the module the rest of the pipeline calls. It runs the passes in the
 order their dependencies require:
 
 1. profile the document (body font size, vocabulary, running furniture);
-2. read the outline and page labels;
+2. read the outline and page labels (and, when there is no outline,
+   synthesize the section spine from the document's own numbering after
+   step 5);
 3. per page, claim table and figure regions, then extract the text that is left;
 4. pin outline entries to the headings actually rendered, so a section starts
    where its title does and not at the top of the page;
@@ -35,7 +37,14 @@ from .blocks import (
 )
 from .elements import Element, FigureElement, TableElement
 from .enumerators import EnumeratorLattice
-from .outline import Section, assign_sections, build_spine, locate_headings, page_labels
+from .outline import (
+    Section,
+    assign_sections,
+    build_spine,
+    locate_headings,
+    page_labels,
+    synthesize_spine,
+)
 
 #: Three or more spaced dots: a table-of-contents row. Those are full width and
 #: flush left like body text, so the geometry alone would weld the whole
@@ -76,6 +85,10 @@ class ParsedDocument:
     #: is far harder to debug than a list you can look at.
     furniture: list[Element] = field(default_factory=list)
     sections: list[Section] = field(default_factory=list)
+    #: Where the section structure came from: the PDF's own ``/Outlines``,
+    #: the document's headings and clause numbering (`synthesize_spine`), or
+    #: nowhere -- in which case every `section_path` is honestly empty.
+    spine_source: str = "none"
     profile: DocumentProfile | None = None
 
     def of_type(self, kind: str) -> list[Element]:
@@ -134,6 +147,7 @@ def parse_pdf(
             producer=str(doc.metadata.get("producer") or ""),
             has_outline=bool(spine),
             sections=spine,
+            spine_source="outline" if spine else "none",
             profile=profile,
         )
 
@@ -194,6 +208,10 @@ def parse_pdf(
         lattice = EnumeratorLattice.from_elements(content)
         content = split_welded(content, lattice)
         content = join_wrapped_lines(content, profile, lattice=lattice)
+        if not spine:
+            spine = synthesize_spine(content, lattice)
+            parsed.sections = spine
+            parsed.spine_source = "headings" if spine else "none"
         assign_sections(content, spine)
         assign_sections(furniture, spine)
         _label_uncaptioned_figures(content)

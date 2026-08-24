@@ -10,8 +10,11 @@ planning to reconstruct by heuristic:
   index whenever there is roman-numbered front matter. The offset is 13 pages
   in one corpus file and 20 in the other.
 
-The fallback for a PDF carrying neither (anything a user uploads later) is font
--size clustering, in `blocks.py`; this module is the primary path.
+A Word-produced contract carries neither. For that case `synthesize_spine`
+builds the same structure from the document's own numbering: the heading
+elements found by font size, and the clause enumerators that `enumerators.py`
+has corroborated by sequence. Which path produced the spine is recorded in
+`ParsedDocument.spine_source`.
 """
 
 from __future__ import annotations
@@ -23,6 +26,7 @@ from dataclasses import dataclass, field
 import pymupdf
 
 from .elements import Element
+from .enumerators import Enumerator, EnumeratorLattice, match_enumerator
 
 #: Ligatures pdfTeX paints as single glyphs, plus the dashes and quotes that
 #: differ between an outline title and the same words rendered on the page.
@@ -200,6 +204,95 @@ def _stitch(first: str, second: str) -> str:
     if first.endswith("-"):
         return f"{first[:-1]}{second}"
     return f"{first} {second}"
+
+
+#: Where a clause title ends: the first sentence terminator followed by space
+#: or the end of the text. "6.6 Password Management Standard. Vendor will" ->
+#: "Password Management Standard".
+_TITLE_END = re.compile(r"[.;:](?:\s|$)")
+#: A defined term opens with a quote; the term itself is the natural title:
+#: '3.1 "Company Data" means all data...' -> '3.1 "Company Data"'.
+_QUOTED_TERM = re.compile(r"""^([“"'‘])(.+?)([”"'’])""")
+_MAX_TITLE_CHARS = 80
+
+#: Enumerator kinds a paragraph may open a section with. An exhibit label at
+#: the start of a paragraph is a reference ("Exhibit G requires ..."), not a
+#: heading; a numbered clause is.
+_PARAGRAPH_SECTION_KINDS = frozenset({"integer", "decimal", "alnum"})
+
+
+def synthesize_spine(elements: list[Element], lattice: EnumeratorLattice) -> list[Section]:
+    """Build a section spine for a document that has no outline.
+
+    Two sources, both evidence the document supplies about itself:
+
+    * every `heading` element (found by font size) is a section;
+    * every `paragraph` that opens with a corroborated sectional enumerator
+      is a section too -- this is how "6.6 Password Management Standard",
+      set bold at the body size, gets its place.
+
+    Nesting comes from the enumerator, not from the font: ``6.6`` is a child
+    of whichever section registered the key ``6``, ``G3A`` of the one that
+    registered ``G`` (Exhibit G). An entry whose parent is unknown nests
+    under the nearest preceding section of a shallower level, so a lone
+    sub-clause is never promoted to the top.
+
+    Every entry is pinned to its element's own y-position, so
+    `assign_sections` needs no change. Returns an empty list when the stream
+    holds no headings and no corroborated clauses at all -- the caller then
+    records `spine_source = "none"` rather than guessing.
+    """
+    spine: list[Section] = []
+    by_key: dict[str, Section] = {}
+
+    for element in elements:
+        if element.type == "heading":
+            enumerator = match_enumerator(element.text)
+            title = element.text
+        elif element.type == "paragraph":
+            enumerator = lattice.opens(element)
+            if enumerator is None or enumerator.kind not in _PARAGRAPH_SECTION_KINDS:
+                continue
+            title = _clause_title(element.text, enumerator)
+        else:
+            continue
+
+        depth = enumerator.depth if enumerator is not None and enumerator.sectional else 1
+        parent = by_key.get(enumerator.parent) if enumerator is not None else None
+        if parent is None and depth > 1:
+            parent = next((s for s in reversed(spine) if s.level < depth), None)
+
+        if parent is None:
+            section = Section(
+                level=1, title=title, page_index=element.page_index,
+                start_y=element.bbox[1], path=[title],
+            )  # fmt: skip
+        else:
+            section = Section(
+                level=parent.level + 1, title=title, page_index=element.page_index,
+                start_y=element.bbox[1], path=[*parent.path, title],
+            )  # fmt: skip
+        spine.append(section)
+        if enumerator is not None and enumerator.sectional:
+            by_key[enumerator.key] = section
+
+    return spine
+
+
+def _clause_title(text: str, enumerator: Enumerator) -> str:
+    """`"6.6 Password Management Standard. Vendor will..."` ->
+    `"6.6 Password Management Standard"`."""
+    rest = text[enumerator.end :]
+    quoted = _QUOTED_TERM.match(rest)
+    if quoted:
+        body = quoted.group(0)
+    else:
+        end = _TITLE_END.search(rest)
+        body = rest[: end.start()] if end else rest
+    body = body.strip()
+    if len(body) > _MAX_TITLE_CHARS:
+        body = body[:_MAX_TITLE_CHARS].rsplit(" ", 1)[0] + "…"
+    return f"{enumerator.label} {body}".strip()
 
 
 def assign_sections(elements: list[Element], spine: list[Section]) -> None:

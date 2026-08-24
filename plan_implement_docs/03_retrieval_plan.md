@@ -1,8 +1,10 @@
 # Step 9 — hybrid retrieval scoped to one contract
 
-**Status: draft for review.** Refines step 9 of
-`01_02_chunking_retrieval_plan.md` in light of what checkpoint 3 landed and of
-two findings below. Steps 10–14 are unchanged.
+**Status: implemented, 2026-08-23** (`d40db7d`, `0bab21f`, `8509b02`). Refines
+step 9 of `01_02_chunking_retrieval_plan.md` in light of what checkpoint 3
+landed and of two findings below. Steps 10–14 are unchanged. What was built
+differs from this plan in four places, all of them from the review below; see
+[What landed](#what-landed).
 
 ## Where we stand
 
@@ -162,12 +164,12 @@ Feature before test, so `make test` is green at every commit.
 
 | # | Commit | What |
 |---|---|---|
-| 9a | `feat(storage): partition chunks_vec by document` | `schema.sql`, `pipeline._write`. Exact per-document KNN. |
-| 9b | `feat(retrieval): hybrid vector+BM25 retrieval scoped to one document` | `retrieval/{__init__,base,vector,keyword,sections,hybrid}.py` |
-| 9c | `test: retrieval suite -- scoping, fusion, section lookup` | `tests/test_retrieval.py`, `conftest` gains `ingested_sample` |
-| 9d | `docs(retrieval): two retrievers, one fusion, one contract` | `docs/retrieval.md`; `architecture.md` status line |
+| 9a ✅ `d40db7d` | `feat(storage): partition chunks_vec by document` | `schema.sql`, `pipeline._write`. Exact per-document KNN. |
+| 9b ✅ `0bab21f` | `feat(retrieval): hybrid vector+BM25 retrieval scoped to one document` | `retrieval/{__init__,base,vector,keyword,sections,hybrid}.py` |
+| 9c ✅ `8509b02` | `test: retrieval suite -- scoping, fusion, section lookup` | `tests/test_retrieval.py`, `conftest` gains `ingested_sample` |
+| 9d ✅ | `docs(retrieval): two retrievers, one fusion, one contract` | `docs/retrieval.md`; `architecture.md` status line |
 
-Estimated effort: ~1.5 h.
+Estimated effort: ~1.5 h. Actual: ~1.5 h, plus the four changes below.
 
 ## Tests (9c)
 
@@ -206,24 +208,79 @@ plus a second, synthetic contract ingested into one temporary database with
 
 ## Acceptance
 
-- [ ] `make test` green, `make lint` clean, no module imports `logging`.
+- [x] `make test` green (209 tests, up from 161), `make lint` clean, no module
+      imports `logging`.
 - [ ] `make search Q="GOV-01" --mode keyword` → the Exhibit G G1 row first.
-- [ ] `retrieve(..., document_id=N)` returns nothing from any other document
+      **Deferred to step 11**, which is where `scripts/search.py` is written;
+      `scripts/` is still empty. The equivalent is asserted in the suite
+      (`test_keyword_finds_the_hyphenated_identifier`) and was run by hand:
+      keyword `GOV-01` returns ordinal 79, `Exhibit G — Security Schedule >
+      G1. Governance and Risk Management`, first and alone.
+- [x] `retrieve(..., document_id=N)` returns nothing from any other document
       in any mode, with the vector side filtered by the partition key rather
       than after the fact.
-- [ ] A citation line shows breadcrumb and printed page, `p.9-10` where the
-      chunk spans a break.
-- [ ] Re-ingesting still leaves `chunks` = `chunks_vec` = `chunks_fts`.
+- [x] A citation line shows section and printed page, `p.9-10` where the chunk
+      spans a break (the *leaf* section -- see resolved question 3).
+- [x] Re-ingesting still leaves `chunks` = `chunks_vec` = `chunks_fts`, now
+      asserted per document rather than in total.
 
-## Open questions
+## Open questions, as resolved
 
-1. **`spine_source` on `RetrievedChunk`** — carry it (my recommendation; the
-   join is already there and it lets a surface mark an inferred section) or
-   leave the surfaces to query `documents` themselves?
-2. **`retrieve_by_section` pattern semantics** — anchor to the start of a path
-   component as described (my recommendation: it makes `6.6%` mean what a
-   reader expects and excludes `16.6`), or pass the caller's pattern through
-   to a plain `LIKE` and document the sharp edge?
-3. **`citation_title` format** — `filename — breadcrumb (p.N)` may be long for
-   a deep breadcrumb. Truncate the middle, use the leaf section only, or leave
-   the full path and let the surface elide it?
+1. **`spine_source` on `RetrievedChunk`** — carried. `documents` is joined for
+   the filename anyway, so a surface can mark an inferred section without a
+   second query. Asserted: the sample's chunks come back `spine_source =
+   'headings'`.
+2. **`retrieve_by_section` pattern semantics** — anchored, *and the anchoring
+   moved inside the function*. See change 3 below.
+3. **`citation_title` format** — the **leaf** section, not the full path:
+   `Sample Contract.pdf — 6.6 Password Management Standard (p.9-10)`. A deep
+   breadcrumb is longer than the line it has to fit on, and the leaf plus the
+   page is what a reviewer needs to find the clause; the full path is still on
+   the object as `.breadcrumb` for a surface with room for it. Each part is
+   dropped rather than faked when missing, so a chunk with no section still
+   gets a usable title.
+
+## What landed
+
+The two findings above were implemented as written. Four things changed during
+the review of this plan, all of them defended in the code they touch:
+
+1. **The stale-database guard** (`db.apply_schema`). `CREATE VIRTUAL TABLE IF
+   NOT EXISTS` keeps an existing definition, and the guard only compared
+   *width* — so a `chunks_vec` built before 9a would survive, and the failure
+   would surface much later as `no such column: document_id` from the first
+   scoped search. `apply_schema` now also checks for the partition key and
+   raises `SchemaMismatch` with what to do about it. There was such a database
+   on the machine at the time (`ingest_smoke/c.db`), so "the database has never
+   been built" was not quite true.
+2. **The NULL partition is asserted against.** A vec0 row written without its
+   partition value is accepted, lands in the NULL partition, and is invisible
+   to every scoped query — while `chunks` = `chunks_vec` still tallies. The
+   acceptance criterion is therefore counted **per document**, which is the
+   only form of it that fails on that mistake.
+3. **`retrieve_by_section` takes a prefix, not a LIKE expression.** As planned,
+   the caller supplied the trailing `%` (`"6.6%"`), which means
+   `retrieve_by_section(conn, doc, "6.6")` would return nothing rather than
+   erroring — a JSON path never ends mid-component. The function now builds
+   `'%"' || ? || '%' ESCAPE '\'` itself and escapes `%`, `_` and `\`, so a
+   router hint containing one is read literally (`6_6` no longer finds `6.6`).
+4. **`document_id` is required, and corpus-wide is spelled `ALL_DOCUMENTS`.**
+   Defaulting to `None` means a Phase B call site that forgets the argument
+   does not raise: it answers a question about one contract with another
+   contract's clause, in a well-formed citation. Making the scope explicit
+   costs the CLI one keyword.
+
+Measured on the two-document test corpus, scoped to the sample contract:
+
+| Query | Mode | First result |
+|---|---|---|
+| `GOV-01` | keyword | ordinal 79, `Exhibit G … > G1. Governance and Risk Management` (table), and nothing else matches |
+| `password rotation break-glass credentials` | keyword | `G3A. Password Management (Added)`, then `6.6 Password Management Standard` |
+| `retrieve_by_section("6.6")` | — | the one 6.6 chunk; `"Exhibit G"` → 15 chunks in document order; `"16.6"` → none |
+
+Timings on this corpus are sub-millisecond per retriever (`retrieve()` records
+`embed_ms` / `vector_ms` / `keyword_ms` / `hydrate_ms` in `RetrievalResult`,
+which is what the KPI page reads later).
+
+Deferred, deliberately: `scripts/search.py` and `make search` (step 11), and
+the eval harness that would make hit@5 a number rather than a claim.

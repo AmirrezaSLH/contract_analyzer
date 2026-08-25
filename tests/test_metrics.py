@@ -335,9 +335,13 @@ def test_a_bucket_carries_its_own_percentiles_and_state_mix(conn):
 
 
 def test_the_window_picks_its_bucket_when_the_caller_does_not(conn):
-    """24h -> 1h, 7d -> 6h, 30d -> 1d: the pairing the UI selector drives, in
-    the API rather than in the browser."""
+    """30m/1h -> 1m, 24h -> 1h, 7d -> 6h, 30d -> 1d: the pairing the UI
+    selector drives, in the API rather than in the browser."""
+    assert windows.bucket_for("30m") == "1m"
+    assert windows.bucket_for("1h") == "1m"
     assert windows.bucket_for("7d") == "6h"
+    assert len(queries.timeseries(conn, window="30m", now=NOW)) == 31
+    assert len(queries.timeseries(conn, window="1h", now=NOW)) == 61
     assert len(queries.timeseries(conn, window="7d", now=NOW)) == 29
     assert len(queries.timeseries(conn, window="30d", now=NOW)) == 31
 
@@ -517,6 +521,13 @@ def test_a_malformed_window_is_a_422_in_this_apis_envelope(analysed):
     response = client.get("/api/metrics/summary?window=last-tuesday")
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "validation"
+
+
+def test_a_minute_window_is_accepted(analysed):
+    client, _ = analysed
+
+    assert client.get("/api/metrics/summary?window=30m").status_code == 200
+    assert client.get("/api/metrics/timeseries?window=1h").status_code == 200
 
 
 # --------------------------------------------------------------------------

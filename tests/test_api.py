@@ -1131,7 +1131,8 @@ def test_every_metrics_operation_answers_over_an_empty_database(client):
 
     A run id with no spans is an empty list rather than a 404: the run may well
     be in `/metrics/runs` beside it, from a boot before this table existed."""
-    for path in ("/api/metrics/summary", "/api/metrics/timeseries", "/api/metrics/runs"):
+    for path in ("/api/metrics/summary", "/api/metrics/timeseries", "/api/metrics/runs",
+                 "/api/monitor/stages"):
         assert client.get(path).status_code == 200, path
 
     response = client.get("/api/metrics/runs/x/spans")

@@ -11,6 +11,7 @@ cost family, and `Metric_Store.md` for the phased plan this module implements.
 metrics/
   windows.py   window/bucket arithmetic, and the empty buckets a chart needs
   queries.py   the SQL: summary, timeseries, runs, spans
+  stages.py    Monitor: worst pipeline stage, GROUP BY name over spans
   handler.py   span.end log records -> rows, on a queue and a writer thread
   metrics.sql  the spans DDL, applied by the store on the same database
   store.py     MetricsStore -- what the surfaces hold
@@ -93,6 +94,7 @@ quiet one.
 | `GET /api/metrics/timeseries?window=&bucket=` | One entry per bucket, oldest first |
 | `GET /api/metrics/runs?limit=` | The global runs table, each row with its `trace_id` |
 | `GET /api/metrics/runs/{id}/spans` | One run's span tree, for the waterfall |
+| `GET /api/monitor/stages?window=` | Worst `span` name over five minutes, its error rate, and the error-count trend across named stages |
 
 A window is `\d+[hd]`; anything else is a `422` in the API's error envelope.
 `503 metrics_unavailable` now means one thing only — the process could not

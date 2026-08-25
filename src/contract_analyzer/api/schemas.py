@@ -684,6 +684,39 @@ class SpanNode(BaseModel):
     children: list[SpanNode]
 
 
+class StageBucket(BaseModel):
+    """One bucket: worst-stage error rate, and error count across all named stages.
+
+    Rates and totals are null when that bucket had no spans, not zero.
+    """
+
+    bucket: str
+    n: int = 0
+    error_rate: float | None = None
+    errors_total: int | None = None
+
+
+class MonitorStages(BaseModel):
+    """`GET /monitor/stages`: the worst pipeline stage, and its trend.
+
+    Tiles are the last five minutes when anything ran; otherwise the chart
+    window. `n` under `min_samples` is not a rate worth paging on.
+    `errors_total` is every named stage in that tile window, not just `name`.
+    """
+
+    window: str
+    live_window: str
+    since: str
+    generated_at: str
+    name: str | None = None
+    n: int = 0
+    errors: int = 0
+    error_rate: float | None = None
+    errors_total: int | None = None
+    min_samples: int
+    series: list[StageBucket]
+
+
 Detail = Annotated[
     Literal["full", "summary"],
     Field(description="`summary` omits quotes and rationale from the report."),

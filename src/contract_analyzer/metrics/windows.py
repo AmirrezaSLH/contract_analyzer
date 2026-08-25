@@ -26,8 +26,8 @@ from datetime import UTC, datetime, timedelta
 #: The window selector's pairs. 24 h -> 24 bars, 7 d -> 28, 30 d -> 30.
 DEFAULT_BUCKETS: dict[str, str] = {"24h": "1h", "7d": "6h", "30d": "1d"}
 
-_UNITS = {"h": 3600, "d": 86400}
-_SPEC = re.compile(r"^(\d+)([hd])$")
+_UNITS = {"m": 60, "h": 3600, "d": 86400}
+_SPEC = re.compile(r"^(\d+)([mhd])$")
 
 #: How a bucket start is spelled on the wire. `Z` rather than `+00:00` because
 #: it is a label a chart prints, not a value SQLite has to parse back.
@@ -35,10 +35,10 @@ _LABEL = "%Y-%m-%dT%H:%M:%SZ"
 
 
 def seconds(spec: str) -> int:
-    """`24h` -> 86400. Raises ValueError on anything else."""
+    """`24h` -> 86400, `5m` -> 300. Raises ValueError on anything else."""
     match = _SPEC.match(spec.strip().lower())
     if match is None or int(match.group(1)) < 1:
-        raise ValueError(f"expected a window like 24h, 7d or 1h, got {spec!r}")
+        raise ValueError(f"expected a window like 24h, 7d, 1h or 5m, got {spec!r}")
     return int(match.group(1)) * _UNITS[match.group(2)]
 
 

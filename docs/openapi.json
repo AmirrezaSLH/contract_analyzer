@@ -1582,6 +1582,91 @@
         "title": "ModelCost",
         "type": "object"
       },
+      "MonitorStages": {
+        "description": "`GET /monitor/stages`: the worst pipeline stage, and its trend.\n\nTiles are the last five minutes when anything ran; otherwise the chart\nwindow. `n` under `min_samples` is not a rate worth paging on.\n`errors_total` is every named stage in that tile window, not just `name`.",
+        "properties": {
+          "error_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Rate"
+          },
+          "errors": {
+            "default": 0,
+            "title": "Errors",
+            "type": "integer"
+          },
+          "errors_total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Errors Total"
+          },
+          "generated_at": {
+            "title": "Generated At",
+            "type": "string"
+          },
+          "live_window": {
+            "title": "Live Window",
+            "type": "string"
+          },
+          "min_samples": {
+            "title": "Min Samples",
+            "type": "integer"
+          },
+          "n": {
+            "default": 0,
+            "title": "N",
+            "type": "integer"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "series": {
+            "items": {
+              "$ref": "#/components/schemas/StageBucket"
+            },
+            "title": "Series",
+            "type": "array"
+          },
+          "since": {
+            "title": "Since",
+            "type": "string"
+          },
+          "window": {
+            "title": "Window",
+            "type": "string"
+          }
+        },
+        "required": [
+          "window",
+          "live_window",
+          "since",
+          "generated_at",
+          "min_samples",
+          "series"
+        ],
+        "title": "MonitorStages",
+        "type": "object"
+      },
       "PassageOut": {
         "description": "One retrieved chunk, as something to read and to cite.\n\n`text`, not `quote`. A quote in this API is an extraction the model API\npulled out of a passage we sent, and `verified` says whether it survived\nthe check -- see `CitationOut`. This is the passage itself, unextracted and\nunchecked, and calling it a quote would promise a guarantee it does not\ncarry.",
         "properties": {
@@ -2373,6 +2458,47 @@
           "children"
         ],
         "title": "SpanNode",
+        "type": "object"
+      },
+      "StageBucket": {
+        "description": "One bucket: worst-stage error rate, and error count across all named stages.\n\nRates and totals are null when that bucket had no spans, not zero.",
+        "properties": {
+          "bucket": {
+            "title": "Bucket",
+            "type": "string"
+          },
+          "error_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Rate"
+          },
+          "errors_total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Errors Total"
+          },
+          "n": {
+            "default": 0,
+            "title": "N",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "bucket"
+        ],
+        "title": "StageBucket",
         "type": "object"
       },
       "SubRequirementOut": {
@@ -5212,6 +5338,146 @@
           "metrics"
         ]
       }
+    },
+    "/api/monitor/stages": {
+      "get": {
+        "description": "Where it broke, not whether a run failed.\n\nTiles are the last five minutes; the series follows `window`. `errors_total`\ncounts every named stage, not only the worst. A stage with fewer than\n`min_samples` hits is reported with its n so 1-of-1 is not a 100% error rate.",
+        "operationId": "stages_api_monitor_stages_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "window",
+            "required": false,
+            "schema": {
+              "default": "24h",
+              "pattern": "^\\d+[hd]$",
+              "title": "Window",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MonitorStages"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Malformed request."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or wrong X-API-Key."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "No such document or analysis."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The resource is busy, or already in the requested state."
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The upload is over api_max_upload_mb."
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Only PDF uploads are supported."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The request body did not validate."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unhandled server error; the X-Trace-Id is on every log line."
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "An upstream call failed after its retries."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "A key or a dependency the operation needs is not configured."
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Worst pipeline stage, and its trend",
+        "tags": [
+          "monitor"
+        ]
+      }
     }
   },
   "tags": [
@@ -5234,6 +5500,10 @@
     {
       "description": "KPI data over the metrics store.",
       "name": "metrics"
+    },
+    {
+      "description": "Is the box healthy: pipeline stages, then more.",
+      "name": "monitor"
     },
     {
       "description": "The live console, as server-sent events.",

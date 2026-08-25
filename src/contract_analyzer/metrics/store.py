@@ -33,7 +33,7 @@ from typing import Any
 from ..config import Settings
 from ..db import connect
 from ..logger import attach_handler, detach_handler, get_logger
-from . import queries
+from . import queries, stages
 from .handler import SpanHandler
 
 log = get_logger(__name__)
@@ -130,6 +130,10 @@ class MetricsStore:
     def spans(self, conn: sqlite3.Connection, run_id: str) -> list[dict[str, Any]]:
         """One run's spans as a tree, for the waterfall."""
         return queries.spans(conn, run_id)
+
+    def stages(self, conn: sqlite3.Connection, *, window: str = "24h") -> dict[str, Any]:
+        """Worst pipeline stage over the last five minutes, and its trend."""
+        return stages.stage_map(conn, window=window)
 
     def criterion_mix(
         self, conn: sqlite3.Connection, *, window: str = "30d"

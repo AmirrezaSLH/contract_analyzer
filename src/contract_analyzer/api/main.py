@@ -71,7 +71,7 @@ from . import errors
 from .errors import ApiError
 from .jobs import JobRunner
 from .log_stream import MCP_LOG, LogStream
-from .routes import analyses, chat, documents, health, logs, metrics
+from .routes import analyses, chat, documents, health, logs, metrics, monitor
 from .schemas import Error
 
 log = get_logger(__name__)
@@ -197,6 +197,7 @@ def create_app(
             {"name": "analyses", "description": "The five criteria as a background job."},
             {"name": "chat", "description": "Cited question answering over one contract."},
             {"name": "metrics", "description": "KPI data over the metrics store."},
+            {"name": "monitor", "description": "Is the box healthy: pipeline stages, then more."},
             {"name": "logs", "description": "The live console, as server-sent events."},
         ],
     )
@@ -226,7 +227,7 @@ def create_app(
     # Every route behind one prefix, so that everything *not* behind it can be
     # the front end. See `_serve_front_end`.
     api = APIRouter(prefix=API_PREFIX)
-    for module in (health, documents, analyses, chat, metrics, logs):
+    for module in (health, documents, analyses, chat, metrics, monitor, logs):
         api.include_router(module.router, responses=ERROR_RESPONSES)
     # Last on the router, so it matches only what the real routes did not. An
     # unknown path under /api is a client's mistake and must answer in this

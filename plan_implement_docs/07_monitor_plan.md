@@ -61,15 +61,17 @@ every request for `X-Trace-Id`. After `call_next`, record
 * **Skip**: the static mount (`/`, `/assets/…`); SSE
   (`/api/logs/events`, `/analyses/{id}/events`) — duration is "tab left
   open," not latency. Optional: `POST /api/chat` while it is streaming.
-* **Live tile**: last 5 minutes, **this process**: requests/min, 5xx rate,
+* **Live tiles**: last 5 minutes, **this process**: requests/min, 5xx rate,
   p95 of the requests that were not skipped. One number each, not five
   route groups. 4xx is omitted — most of it is a client sending garbage.
-* **Historical**: none. A restart zeros the tile, which is honest for "is
-  this box healthy."
+* **Historical**: the same three series, bucketed over the page window. The
+  ring is only ~5 minutes of raw hits; the 30s sampler (#4) writes the
+  derived rates onto `system_samples` (`http_rpm`, `http_5xx_rate`,
+  `http_p95_ms`) so a 24 h chart does not require `http.request` spans.
+  A restart still zeros the live tiles until the next samples land.
 * **Capture**: `HttpStats` on `app.state`, a few dozen lines on the existing
-  `trace` middleware. **No spans, no table.** Polling
-  `GET /api/metrics/summary` every 5 s must not land in the same `spans`
-  table the waterfall reads.
+  `trace` middleware. **No HTTP spans.** Polling `GET /api/metrics/summary`
+  every 5 s must not land in the KPI `spans` table.
 * **Threshold**: no pager. Chip only, same words-and-colour rule as #4:
   5xx rate > 1% over 5 min → red / "failing"; otherwise green / "answering."
 * **What this still cannot see**: nginx upstream on the wrong port. The app
@@ -84,12 +86,11 @@ rate and exhausted-retry rate for calls through `http_client.py`, broken down
 by reason (`docs/http-client.md`'s own taxonomy — connect/read/write/pool
 timeout, connection error, protocol error, 408/409/429/500/502/503/504).
 
-* **Live tile**: retries per 100 upstream calls (last 5 min), exhausted-retry
+* **Live tiles**: retries per 100 upstream calls (last 5 min), exhausted-retry
   (total failure) rate, and the top failure reason right now.
-* **Historical**: retry rate over the window, one line per reason, so a
-  demo-time incident is legible as "429s spiking" vs. "connect timeouts
-  spiking" — the first says *we're being rate-limited*, the second says
-  *network path is bad* — different responses, same chart today shows neither.
+* **Historical**: retry rate and exhausted rate over the window — two line
+  charts, one unit each. A breakdown by reason is a tooltip / the "top
+  reason" tile, not five lines on one axis.
 * **Capture**: `RetryingTransport` already logs `http.retry` (WARNING) and
   `http.failed` (ERROR) with method, URL, attempt, reason — right now those
   are log lines nobody aggregates. Promote them to zero-duration spans
@@ -112,13 +113,14 @@ entire five-criterion analysis. A single `ingest.embed` failure and a single
 `agent.call` failure both just show up as "this run failed" — indistinguishable
 from the dashboard, distinguishable only by opening the Logs tab and reading.
 
-* **Live tile**: the worst-performing span name right now (highest error
-  rate over the last 5 min, minimum sample size), e.g. "`ingest.parse`: 3 of
-  8 failed (37%)".
-* **Historical**: a small table or heatmap, one row per span name
-  (`ingest.parse`, `ingest.embed`, `retrieve`, `agent.tool`, `agent.call`,
-  `chat`), columns = error rate and p95 latency over the window. Reads like a
-  service-dependency table because that's what a span name already is here.
+* **Live tiles**: the worst-performing span name right now (highest error
+  rate over the last 5 min, minimum sample size), plus its error rate and
+  p95, e.g. "`ingest.parse`" / `37%` / `1.2 s`. One extra tile for sample
+  count, so a 1-of-1 is visible as "not enough" rather than 100%.
+* **Historical**: line charts of error rate and p95 for that worst name
+  (or a fixed short list: `ingest.parse`, `ingest.embed`, `retrieve`,
+  `agent.call`, `chat`) over the window. Not a heatmap — the page is tiles
+  then lines, same as the other three sections.
 * **Capture**: **nothing new.** This is a pure query over the `spans` table
   step 13 already builds — `GROUP BY name` instead of `GROUP BY run_id`. It
   is the cheapest of the four and ships the same day the spans table exists,
@@ -142,17 +144,12 @@ with no retention policy ("There is no retention policy and none is planned
 until asked for"). On this box, **disk fills up or the process gets OOM-killed
 long before any model-quality metric would tell you something is wrong.**
 
-* **Live tile**: process RSS and disk **used %** — RSS as a share of host
-  RAM (`VmRSS` / `MemTotal` from `/proc`), disk as
-  `shutil.disk_usage(DB_PATH.parent)` used/total. Absolute MB and GB sit
-  next to the percent so a 90% on a 2 GB box is still readable as a size.
-* **Historical**: RSS and disk-free % over the window — the two curves that
-  matter are their *slope*, not their instantaneous value (a slow SQLite/log
-  file creep is invisible on a live tile and obvious on a 7-day chart), plus
-  an uptime chart that reads as a sawtooth — every restart is a visible drop
-  to zero, which is itself a signal (an unexpected restart is a deploy
-  nobody ran, and `[[demo-deployment]]` has already shown its `start.bash`
-  can silently half-fail).
+* **Live tiles**: process RSS used % and disk used %, each with MB/GB in the
+  sub-line so a 90% on a 2 GB box is still a size.
+* **Historical**: RSS % and disk used % over the window — slope, not the
+  live snapshot. Two charts, one unit (percent) that they share, but still
+  two cards so a disk cliff is not scaled against a flat RSS line. No
+  uptime sawtooth on this pass.
 * **Capture**: **the one genuinely new piece.** A daemon sampler thread,
   started from the API's lifespan next to `reconcile()`, ticking every ~30s:
   `resource.getrusage(RUSAGE_SELF).ru_maxrss` (or `/proc/self/status`
@@ -160,10 +157,10 @@ long before any model-quality metric would tell you something is wrong.**
   memory, `shutil.disk_usage(DB_PATH.parent)` for disk — both stdlib, no new
   dependency, matching this project's existing allergy to adding a library
   for something the standard library already does. Writes to one new table,
-  `system_samples(ts, rss_mb, rss_pct, disk_used_pct, uptime_s)`, in the same
-  metrics database (still "one file" — the argument `storage.md` already
-  makes for `analyses` living beside `documents` applies again: this is
-  operational telemetry, not a second datastore).
+  `system_samples(ts, rss_mb, rss_pct, disk_used_pct, http_rpm, http_5xx_rate, http_p95_ms)`,
+  in the same metrics database (still "one file"). HTTP columns are the
+  ring's derived rates at that tick, so #1's charts share the sampler
+  with #4 instead of growing `spans`.
 * **Threshold**: none as an alert. No pager, no `MONITOR_RSS_ALERT_MB`, no
   action that pauses runs. The tile is a **chip**, same rule as the KPI page
   (`thresholds.ts`: colour never carries a fact without words):
@@ -173,15 +170,59 @@ long before any model-quality metric would tell you something is wrong.**
   a full disk fails writes to *both* the contracts DB and the log file at
   once.
 
+## Front end
+
+Four sections on one page, same skeleton in each: **a row of labelled tiles,
+then line charts of those numbers over the window.** No heatmap, no extra
+bands, no cost. The KPI page already has the parts; this is composition.
+
+`MonitorView` at `/monitor`. Application-level, like `/metrics` and `/logs`:
+no `:id`, no document tabs, sidebar drops the library block. `ModeToggle`
+gains a fourth link (App / KPI / Monitor / Log). The track already uses
+`flex: 1` per option; four labels are tighter than three and that is fine.
+`App.tsx` treats `/monitor` as `offApp` the same way it treats KPI and Log.
+
+Reuse, do not fork:
+
+| Piece | Where |
+|---|---|
+| Tiles | `MetricTile` — label, value, optional chip, sub-line |
+| Charts | `charts.ts` `lineGeometry` + the SVG in `TrendBand` (copy the card, do not import KPI types into Monitor) |
+| Window | `WindowSelector` — 1h / 24h / 7d, drives tiles' "last 5 min" vs the charts' window independently: tiles are always ~5 min live, charts follow the selector |
+| Errors | `ErrorSurface` per section, so one failed query does not blank the page |
+| Poll | 5 s on `GET /monitor/summary`, same as KPI |
+
+**Chips still carry words.** Colour never travels alone (`thresholds.ts` on
+KPI). HTTP: 5xx > 1% → red / "failing", else green / "answering". Host:
+used &lt; 20% → green / "plenty", &gt; 90% → red / "tight", else warn /
+"filling". Upstream exhausted &gt; 1% and stage error &gt; 5% (n ≥ 10)
+use the same chip pattern; they are not pagers.
+
+**Chart rules, copied from `charts.ts`:** null percentiles **break the
+line**, they are not drawn as 0. Empty buckets are allowed on the axis.
+**One unit per chart** — requests/min and p95 ms are two cards, not a
+second y-axis. The last bucket is the current partial one.
+
+| Section | Tiles | Charts |
+|---|---|---|
+| HTTP | req/min, 5xx rate, p95 | those three series from `system_samples` |
+| Upstream | retries/100, exhausted rate, top reason | retry rate, exhausted rate from `spans` |
+| Stages | worst name, its error rate, its p95, n | error rate and p95 for that name (or the short list) from `spans` |
+| Host | RSS %, disk % | those two series from `system_samples` |
+
+`GET /monitor/summary?window=` is the tiles (plus whatever live 5 min the
+ring still holds for HTTP). `GET /monitor/timeseries?window=` is the
+buckets for every chart on the page, one payload, oldest first.
+
 ## What ties this to the existing metrics infrastructure vs. what's new
 
 | Piece | Reused from step 13 | New |
 |---|---|---|
-| Storage | same SQLite file, `spans` for #2–#3 | `system_samples` for #4. #1 is in-memory and dies with the process |
-| Capture | `span()` for #2 (promote `http.retry` / `http.failed`) and #3 (already emitted) | a few lines on the existing `trace` middleware for #1; a sampler thread for #4 |
-| Query layer | `metrics/queries.py` conventions — percentiles in SQL, window parsing | `GROUP BY name` for #3; ring-buffer percentiles in process for #1 |
-| API | `routes/metrics.py` pattern | `routes/monitor.py`: `GET /monitor/summary` (live tiles); `GET /monitor/timeseries` only for #2–#4 |
-| UI | `MetricsView`'s band layout, `WindowSelector`, `ErrorSurface`-per-band, 5s polling | `MonitorView` at `/monitor`, tab next to `/metrics` |
+| Storage | same SQLite file, `spans` for #2–#3 | `system_samples` for #4 and for #1's chart (derived HTTP rates on the same 30s tick). The HTTP ring stays in-memory for the live tiles |
+| Capture | `span()` for #2 and #3 | `trace` middleware → `HttpStats`; sampler thread writes host + HTTP snapshot |
+| Query layer | percentiles in SQL, window parsing | `GROUP BY name` for #3; ring for live HTTP; `system_samples` for HTTP/host history |
+| API | `routes/metrics.py` pattern | `routes/monitor.py`: `GET /monitor/summary`, `GET /monitor/timeseries` |
+| UI | `MetricTile`, `WindowSelector`, `lineGeometry`, `ErrorSurface`, 5s polling | `MonitorView`, fourth `ModeToggle` link |
 
 The reuse is the point: #3 is a query over data that already exists, #2 is
 one promotion at a call site that already logs, #1 is a filter on middleware

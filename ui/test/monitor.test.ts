@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { lineSeries } from "../src/views/Monitor/charts";
 import { monitorFixture } from "../src/views/Monitor/fixture";
-import { exhaustedChip, stageChip, usedChip } from "../src/views/Monitor/status";
+import { exhaustedChip, stageChip, topReasonLabel, topReasonTitle, usedChip } from "../src/views/Monitor/status";
 
 describe("host used-% chips", () => {
   it("is plenty under 20%, filling in the band, tight over 90%", () => {
@@ -23,6 +23,16 @@ describe("reliability chips", () => {
   it("treats exhausted retries the same as 5xx", () => {
     expect(exhaustedChip(0.002)).toBeNull();
     expect(exhaustedChip(0.02)?.words).toBe("failing");
+    expect(exhaustedChip(null)).toBeNull();
+  });
+
+  it("prints the status code and its share of retry events", () => {
+    expect(topReasonTitle("HTTP 429")).toBe("Top HTTP status");
+    expect(topReasonTitle("ConnectError")).toBe("Top error type");
+    expect(topReasonTitle(null)).toBe("Top retry reason");
+    expect(topReasonLabel("HTTP 429", 0.62)).toBe("429 · 62%");
+    expect(topReasonLabel("ConnectError", 0.3)).toBe("ConnectError · 30%");
+    expect(topReasonLabel(null, null)).toBe("Null");
   });
 });
 

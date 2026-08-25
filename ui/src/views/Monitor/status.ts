@@ -1,4 +1,5 @@
 import type { ChipState } from "../../components/StateChip";
+import { percent } from "../Metrics/format";
 
 /**
  * Chips for this page. Colour never travels without words.
@@ -20,7 +21,8 @@ export function usedChip(fraction: number | null | undefined): Chip | null {
 }
 
 /** Exhausted-retry rate. > 1% of upstream calls. */
-export function exhaustedChip(rate: number): Chip | null {
+export function exhaustedChip(rate: number | null | undefined): Chip | null {
+  if (rate === null || rate === undefined) return null;
   if (rate > 0.01) return { state: "Non-Compliant", words: "failing" };
   return null;
 }
@@ -33,4 +35,22 @@ export function stageChip(rate: number | null | undefined, n: number): Chip | nu
   if (rate === null || rate === undefined) return null;
   if (rate > 0.05) return { state: "Non-Compliant", words: "failing" };
   return null;
+}
+
+/** Tile title: HTTP statuses vs ConnectError / timeout class names. */
+export function topReasonTitle(reason: string | null | undefined): string {
+  if (!reason) return "Top retry reason";
+  if (reason.startsWith("HTTP ")) return "Top HTTP status";
+  return "Top error type";
+}
+
+/** `HTTP 429` plus that reason's share of retry/exhausted events. */
+export function topReasonLabel(
+  reason: string | null | undefined,
+  share: number | null | undefined,
+): string {
+  if (!reason) return "Null";
+  const code = reason.startsWith("HTTP ") ? reason.slice(5) : reason;
+  if (share === null || share === undefined) return code;
+  return `${code} · ${percent(share)}`;
 }

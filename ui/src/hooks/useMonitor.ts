@@ -23,3 +23,14 @@ export function useMonitorHost(window: MonitorWindow) {
     placeholderData: keepPreviousData,
   });
 }
+
+export function useMonitorUpstream(window: MonitorWindow) {
+  return useQuery({
+    queryKey: keys.monitorUpstream(window),
+    queryFn: () => api.monitorUpstream(window),
+    refetchInterval: 5_000,
+    refetchIntervalInBackground: false,
+    staleTime: 0,
+    placeholderData: keepPreviousData,
+  });
+}

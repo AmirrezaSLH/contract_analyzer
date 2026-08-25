@@ -96,6 +96,30 @@ export interface MonitorHost {
   series: HostBucket[];
 }
 
+export interface UpstreamBucket {
+  bucket: string;
+  calls: number;
+  retries: number;
+  failed: number;
+  retries_per_100: number | null;
+  exhausted_rate: number | null;
+}
+
+export interface MonitorUpstream {
+  window: string;
+  live_window: string;
+  since: string;
+  generated_at: string;
+  calls: number;
+  retries: number;
+  failed: number;
+  retries_per_100: number | null;
+  exhausted_rate: number | null;
+  top_reason: string | null;
+  top_reason_share: number | null;
+  series: UpstreamBucket[];
+}
+
 /** `AnalysisReport` types `results` as `ComplianceResult[] | undefined`, and
  *  `relevant_quotes` likewise. These narrow the optionality away once, here,
  *  rather than in every component that reads a report. */
@@ -236,6 +260,9 @@ export const api = {
 
   monitorHost: (window: MonitorWindow) =>
     request<MonitorHost>(`/monitor/host?window=${window}`),
+
+  monitorUpstream: (window: MonitorWindow) =>
+    request<MonitorUpstream>(`/monitor/upstream?window=${window}`),
 };
 
 // --------------------------------------------------------------------------

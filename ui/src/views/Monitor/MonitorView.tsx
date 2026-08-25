@@ -1,31 +1,31 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { ErrorSurface } from "../../components/ErrorSurface";
 import { MetricTile } from "../../components/MetricTile";
 import { PageHead } from "../../components/PageHead";
 import { StateChip } from "../../components/StateChip";
-import { useMonitorHost, useMonitorStages } from "../../hooks/useMonitor";
+import { useMonitorHost, useMonitorStages, useMonitorUpstream } from "../../hooks/useMonitor";
 import { WindowSelector, bucketWords } from "./WindowSelector";
 import { percent } from "../Metrics/format";
 import kpi from "../Metrics/MetricsView.module.css";
 import { LineChart } from "./LineChart";
 import styles from "./MonitorView.module.css";
-import { monitorFixture } from "./fixture";
-import { exhaustedChip, stageChip, usedChip } from "./status";
+import { exhaustedChip, stageChip, topReasonLabel, topReasonTitle, usedChip } from "./status";
 import type { MonitorWindow } from "./types";
 
 /**
  * The Monitor tab: is the box healthy, not is the model good.
  *
- * Route `/monitor`. Stages and host are live. Upstream is still a fixture.
+ * Route `/monitor`. Upstream, stages and host are live from `/monitor/*`.
  */
 export function MonitorView() {
   const [window, setWindow] = useState<MonitorWindow>("30m");
-  const data = useMemo(() => monitorFixture(window), [window]);
   const stages = useMonitorStages(window);
   const host = useMonitorHost(window);
+  const up = useMonitorUpstream(window);
   const buckets = bucketWords(window);
 
-  const upChip = exhaustedChip(data.upstream.exhaustedRate);
+  const upLive = up.data;
+  const upChip = exhaustedChip(upLive?.exhausted_rate);
   const live = stages.data;
   const stage = live ? stageChip(live.error_rate, live.n) : null;
   const snap = host.data;
@@ -36,12 +36,14 @@ export function MonitorView() {
   const stageValue = hasStage
     ? `${live!.name} · ${live!.errors} failed`
     : "Null";
+  const hasCalls = Boolean(upLive?.calls);
+  const reasonLabel = topReasonLabel(upLive?.top_reason, upLive?.top_reason_share);
 
   return (
     <div className={kpi.view}>
       <PageHead
         title="Monitor"
-        subtitle="This process · stages and host are live · upstream is a fixture until the API lands"
+        subtitle="This process · upstream, stages and host"
       />
 
       <div className={kpi.controls}>
@@ -54,38 +56,58 @@ export function MonitorView() {
           <span className={kpi.bandTitle}>Upstream</span>
           <span className={kpi.bandNote}>Anthropic and OpenAI through http_client · retries, not spend</span>
         </div>
-        <div className={styles.tiles}>
-          <MetricTile
-            label="Retries / 100 calls"
-            value={data.upstream.retriesPer100.toFixed(1)}
-            sub="last 5 min"
-          />
-          <MetricTile
-            label="Exhausted rate"
-            value={percent(data.upstream.exhaustedRate)}
-            chip={upChip ? <StateChip state={upChip.state} label={upChip.words} size="sm" /> : null}
-            sub="target ≤ 1%"
-          />
-          <MetricTile label="Top reason" value={data.upstream.topReason} sub="right now" />
-        </div>
-        <div className={styles.charts}>
-          <LineChart
-            title="Retries / 100"
-            sub={buckets}
-            samples={data.series.retries}
-            window={window}
-            words={(v) => v.toFixed(1)}
-            label="Upstream retries per 100 calls"
-          />
-          <LineChart
-            title="Exhausted rate"
-            sub={buckets}
-            samples={data.series.exhausted}
-            window={window}
-            words={(v) => percent(v)}
-            label="Upstream exhausted-retry rate"
-          />
-        </div>
+        {up.error ? (
+          <ErrorSurface error={up.error} onRetry={() => void up.refetch()} as="inline" />
+        ) : (
+          <>
+            <div className={styles.tiles}>
+              <MetricTile
+                label="Retries / 100 calls"
+                value={hasCalls ? (upLive!.retries_per_100 ?? 0).toFixed(1) : "Null"}
+                sub={hasCalls ? `${upLive!.calls} calls · last 5 min` : "no outbound calls"}
+              />
+              <MetricTile
+                label="Exhausted rate"
+                value={hasCalls ? percent(upLive!.exhausted_rate) : "Null"}
+                chip={upChip ? <StateChip state={upChip.state} label={upChip.words} size="sm" /> : null}
+                sub="target ≤ 1%"
+              />
+              <MetricTile
+                label={topReasonTitle(upLive?.top_reason)}
+                value={reasonLabel}
+                sub={
+                  upLive?.top_reason
+                    ? "share of retries and exhausted calls"
+                    : "no retries in this window"
+                }
+              />
+            </div>
+            <div className={styles.charts}>
+              <LineChart
+                title="Retries / 100"
+                sub={buckets}
+                samples={(upLive?.series ?? []).map((row) => ({
+                  bucket: row.bucket,
+                  value: row.retries_per_100,
+                }))}
+                window={window}
+                words={(v) => v.toFixed(1)}
+                label="Upstream retries per 100 calls"
+              />
+              <LineChart
+                title="Exhausted rate"
+                sub={buckets}
+                samples={(upLive?.series ?? []).map((row) => ({
+                  bucket: row.bucket,
+                  value: row.exhausted_rate,
+                }))}
+                window={window}
+                words={(v) => percent(v)}
+                label="Upstream exhausted-retry rate"
+              />
+            </div>
+          </>
+        )}
       </section>
 
       <section className={kpi.band}>

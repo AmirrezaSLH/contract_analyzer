@@ -20,4 +20,5 @@ export const keys = {
   metricsRuns: (limit: number) => ["metrics", "runs", limit] as const,
   monitorStages: (window: string) => ["monitor", "stages", window] as const,
   monitorHost: (window: string) => ["monitor", "host", window] as const,
+  monitorUpstream: (window: string) => ["monitor", "upstream", window] as const,
 };

@@ -1,7 +1,7 @@
 import type { MonitorSnapshot, MonitorWindow, Sample } from "./types";
 
 /**
- * Upstream numbers until `GET /monitor/upstream` exists.
+ * Chart-length fixture for tests. Live tiles come from `GET /monitor/upstream`.
  *
  * Stages and host are live. Values here are plausible for a quiet demo box,
  * not a recording.

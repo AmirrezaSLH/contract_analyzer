@@ -10,11 +10,15 @@ interface Props {
 }
 
 /**
- * Band 1 -- what is happening now. Four tiles.
+ * Band 1 -- what is happening now. Five tiles.
  *
  * **Every threshold travels in its own sub-line**, so the number and the bar
  * it has to clear are never separated, and a tile that crosses one takes a
  * chip that carries the words. Colour says nothing on its own here.
+ *
+ * Spend is two tiles, not one: the window total against the budget, and the
+ * p95 per job against the tail tripwire. Combining them hid which number was
+ * which, and which alert belonged to which.
  */
 export function NowBand({ summary }: Props) {
   if (!summary) return <SkeletonTiles />;
@@ -22,14 +26,8 @@ export function NowBand({ summary }: Props) {
   const { runs, reliability, job_duration_s, cost_usd } = summary;
   const failure = statusOf(reliability.failure_rate, THRESHOLDS.failureRate);
   const duration = statusOf(job_duration_s.p95, THRESHOLDS.jobDurationP95);
-  // Two things can be wrong with spend, and they are different alerts. The
-  // window total against the budget is the one that pauses new runs; the p95
-  // against the p50 is the "one run went wild" tripwire, which fires long
-  // before the budget does and is the one an average would hide. The budget
-  // wins the chip when both are lit -- it is the one with an action behind it.
   const spend = statusOf(cost_usd.total, THRESHOLDS.dailyBudget);
   const tail = statusOf(costTailRatio(cost_usd.p50, cost_usd.p95), THRESHOLDS.costTail);
-  const spendChip = spend.tone === "warn" ? spend : tail.tone === "warn" ? { ...tail, words: "tail" } : spend;
 
   return (
     <div className={styles.tiles}>
@@ -53,19 +51,17 @@ export function NowBand({ summary }: Props) {
         chip={<Chip tone={duration.tone} words={duration.words} />}
         sub={`${THRESHOLDS.jobDurationP95.label} · p50 ${seconds(job_duration_s.p50)}`}
       />
-      {/*
-        Dollars on the tile, tokens and calls behind it: cost is the only
-        family where three numbers describe the same event, and promoting all
-        three says the same thing thrice. The sub-line is **p50 per run**, not
-        the mean -- `02_costs.md` §1 -- because the mean is the number that
-        hides the run that went wild, and the tail is the whole reason this
-        tile has a tripwire.
-      */}
       <MetricTile
-        label="Spend"
+        label="Total spend"
         value={usd(cost_usd.total)}
-        chip={<Chip tone={spendChip.tone} words={spendChip.words} />}
-        sub={`${usd(cost_usd.p50)} per run (p50) · ${THRESHOLDS.dailyBudget.label}`}
+        chip={<Chip tone={spend.tone} words={spend.words} />}
+        sub={`${summary.window} window · ${THRESHOLDS.dailyBudget.label}`}
+      />
+      <MetricTile
+        label="p95 job cost"
+        value={usd(cost_usd.p95)}
+        chip={<Chip tone={tail.tone} words={tail.words} />}
+        sub={`${THRESHOLDS.costTail.label} · p50 ${usd(cost_usd.p50)}`}
       />
     </div>
   );
@@ -81,7 +77,7 @@ function Chip({ tone, words }: { tone: "good" | "warn" | "neutral"; words: strin
 function SkeletonTiles() {
   return (
     <div className={styles.tiles}>
-      {[0, 1, 2, 3].map((index) => (
+      {[0, 1, 2, 3, 4].map((index) => (
         <MetricTile
           key={index}
           label=""

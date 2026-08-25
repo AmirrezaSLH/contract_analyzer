@@ -1,48 +1,27 @@
 import type { MetricsSummary } from "../../api/client";
 import { Card } from "../../components/Card";
 import { Label } from "../../components/Label";
-import { StateChip } from "../../components/StateChip";
 import { DASH, millis, percent, plural, usd } from "./format";
-import { costTailRatio, statusOf, THRESHOLDS } from "./thresholds";
 import styles from "./MetricsView.module.css";
 
 /**
- * The cost breakdown -- the third of the three things `02_costs.md` §3 asks
- * for, after the Spend tile and the cost trend chart.
+ * The cost breakdown -- after the spend tiles and the cost time series.
  *
- * **One tile, one chart, one breakdown. Not eight tiles.** The rule this band
- * is built on is §1: *dollars on the tile, tokens and calls behind it*. Cost
- * is the only family where three numbers describe the same event -- calls,
- * tokens, dollars -- and promoting all three to tiles says the same thing
- * three times. The dollar is what a budget is written in; the tokens explain
- * the dollar; the call count explains retries and caps. So all three are
- * stored, one is displayed, and this is the "behind it".
+ * **Not eight tiles.** The rule is §1: *dollars on the tile, tokens and calls
+ * behind it*. Per-run p50/p95 live on the tiles and the spend chart, so this
+ * band only splits the window total: which model, and who asked.
  *
- * Three slices, each answering a different question:
+ * Two slices:
  *
  *   * **By model** -- from `agent.call` spans, so it covers analysis *and*
- *     chat in one pass. This is why per-model cost waited for `spans` instead
- *     of being mined out of `report_json`: that would have been analysis-only.
- *   * **By surface** -- who asked. `ui`, `cli`, `mcp`, `api`. A free
- *     `GROUP BY`, and **not the same slice as chat-vs-analyze**: every row in
- *     it is an analysis, because chat writes no run row by design.
- *   * **Chat** -- which is exactly why it is separate: chat is stateless and
- *     is queried as `spans WHERE name = 'chat'`. Giving it a row in `analyses`
- *     would have meant every analysis KPI needing `WHERE surface != 'chat'`
- *     forever.
- *
- * Two honest-emptiness rules, both from `03_data_contract.md` trap 7. An empty
- * `cost_by_model` is a real answer -- a window with no calls, or a database
- * whose spans predate the table -- and says so rather than drawing a blank
- * box. And its **token counts are best-effort**: cost is shown, tokens are
- * context.
+ *     chat in one pass.
+ *   * **By surface** -- who asked. `ui`, `cli`, `mcp`, `api`. Every row in it
+ *     is an analysis. Chat is counted separately because it writes no run row.
  */
 export function CostBand({ summary }: { summary: MetricsSummary | undefined }) {
   if (!summary) return null;
 
   const { cost_usd, tokens, surfaces, cost_by_model, chat, runs } = summary;
-  const tail = costTailRatio(cost_usd.p50, cost_usd.p95);
-  const tailStatus = statusOf(tail, THRESHOLDS.costTail);
   // A model id the price table has not learned prices at $0.00 and logs
   // `pricing.unknown_model` once. So a zero here has a known meaning, and it
   // is not "the run was free" -- which is worth the footnote below.
@@ -53,32 +32,11 @@ export function CostBand({ summary }: { summary: MetricsSummary | undefined }) {
       <div className={styles.bandHead}>
         <span className={styles.bandTitle}>Where the money went</span>
         <span className={styles.bandNote}>
-          dollars on the tile, tokens and calls behind it · per-run cost is in the runs table, row by
-          row
+          which model billed, and who asked · per-run dollars are on the tiles and in the runs table
         </span>
       </div>
 
       <div className={styles.costGrid}>
-        <Card className={styles.costCard}>
-          <div className={styles.meterHead}>
-            <Label>Per run</Label>
-            <StateChip
-              state={tailStatus.tone}
-              label={tail === null ? "not measured" : `p95 ${tail.toFixed(1)}× p50`}
-              size="sm"
-            />
-          </div>
-          <Split rows={[
-            ["p50", usd(cost_usd.p50)],
-            ["p95", usd(cost_usd.p95)],
-            ["mean", usd(cost_usd.mean)],
-          ]} />
-          <span className={styles.meterNote}>
-            Percentiles, not the average — {THRESHOLDS.costTail.action} The mean is here as context
-            and carries no threshold of its own.
-          </span>
-        </Card>
-
         <Card className={styles.costCard}>
           <Label>By model</Label>
           {cost_by_model.length === 0 ? (

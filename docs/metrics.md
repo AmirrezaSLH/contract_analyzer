@@ -92,7 +92,8 @@ the same site as `http.retry` / `http.failed`. Tiles use the last five minutes
 when anything was called; otherwise the chart window. `top_reason_share` is
 that reason's share of retry + exhausted events, not of all calls.
 
-A window on `/metrics/*` is `\d+[hd]`; on `/monitor/*` it is `30m` or `1h`.
+A window on `/metrics/*` is `\d+[hd]`; on `/monitor/*` it is `30m`, `1h`,
+`24h`, `7d` or `30d`.
 Anything else is a `422` in the API's error envelope.
 `503 metrics_unavailable` now means one thing only — the process could not
 build a store. **An empty database is a `200` with zeroes and nulls on it**,
@@ -104,8 +105,8 @@ Monitor host is not a span query. A daemon sampler in the API process writes
 share of `MemTotal`, and `shutil.disk_usage` of the database directory. HTTP
 columns on that table stay NULL until the request ring lands. Tiles are the
 latest row; charts take the last sample in each `monitor_sample_seconds`
-bucket. `make analyze` does not start the sampler — "is the box healthy" is
-not a laptop question.
+bucket on 30m/1h, and in each paired bucket on 24h / 7d / 30d. `make analyze`
+does not start the sampler — "is the box healthy" is not a laptop question.
 
 The payloads are JSON objects rather than pydantic models on purpose: which
 numbers the dashboard shows is the KPI plan's business, and pinning the shape

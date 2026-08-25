@@ -40,6 +40,9 @@ describe("fixture", () => {
   it("emits one bucket per window slot so a window change redraws the chart", () => {
     expect(monitorFixture("30m").series.retries).toHaveLength(60);
     expect(monitorFixture("1h").series.retries).toHaveLength(120);
+    expect(monitorFixture("24h").series.retries).toHaveLength(25);
+    expect(monitorFixture("7d").series.retries).toHaveLength(29);
+    expect(monitorFixture("30d").series.retries).toHaveLength(31);
   });
 });
 

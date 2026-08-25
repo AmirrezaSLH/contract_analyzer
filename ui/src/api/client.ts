@@ -53,7 +53,7 @@ export type EvaluatorSlot = Schemas["EvaluatorSlot"];
  *  900-pixel axis. */
 export type MetricsWindow = "30m" | "1h" | "24h" | "7d" | "30d";
 
-export type MonitorWindow = "30m" | "1h";
+export type MonitorWindow = "30m" | "1h" | "24h" | "7d" | "30d";
 
 export interface StageBucket {
   bucket: string;

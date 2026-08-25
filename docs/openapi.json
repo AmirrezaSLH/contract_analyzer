@@ -1757,7 +1757,7 @@
         "type": "object"
       },
       "MonitorHost": {
-        "description": "`GET /monitor/host`: latest RAM and disk, and their trend.\n\nTiles are the newest `system_samples` row. Charts use one bar per\n`monitor_sample_seconds` tick. HTTP columns on that table are not part of\nthis payload.",
+        "description": "`GET /monitor/host`: latest RAM and disk, and their trend.\n\nTiles are the newest `system_samples` row. Charts use one bar per\n`monitor_sample_seconds` tick on 30m/1h, and the window pairing (hourly,\nsix-hour, daily) on 24h / 7d / 30d. HTTP columns on that table are not\npart of this payload.",
         "properties": {
           "bucket": {
             "title": "Bucket",
@@ -5836,7 +5836,7 @@
     },
     "/api/monitor/host": {
       "get": {
-        "description": "How much RAM this process is using, and how full the disk is.\n\nTiles are the latest sample. Charts are one point per sampler tick\n(`monitor_sample_seconds`). No pager: the chips say plenty / filling / tight.",
+        "description": "How much RAM this process is using, and how full the disk is.\n\nTiles are the latest sample. Charts are one point per sampler tick\n(`monitor_sample_seconds`) on 30m/1h, and follow the window pairing on\n24h / 7d / 30d. No pager: the chips say plenty / filling / tight.",
         "operationId": "host_api_monitor_host_get",
         "parameters": [
           {
@@ -5845,7 +5845,7 @@
             "required": false,
             "schema": {
               "default": "30m",
-              "pattern": "^(30m|1h)$",
+              "pattern": "^(30m|1h|24h|7d|30d)$",
               "title": "Window",
               "type": "string"
             }
@@ -5985,7 +5985,7 @@
             "required": false,
             "schema": {
               "default": "30m",
-              "pattern": "^(30m|1h)$",
+              "pattern": "^(30m|1h|24h|7d|30d)$",
               "title": "Window",
               "type": "string"
             }
@@ -6125,7 +6125,7 @@
             "required": false,
             "schema": {
               "default": "30m",
-              "pattern": "^(30m|1h)$",
+              "pattern": "^(30m|1h|24h|7d|30d)$",
               "title": "Window",
               "type": "string"
             }

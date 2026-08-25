@@ -376,7 +376,8 @@ export interface paths {
          * @description How much RAM this process is using, and how full the disk is.
          *
          *     Tiles are the latest sample. Charts are one point per sampler tick
-         *     (`monitor_sample_seconds`). No pager: the chips say plenty / filling / tight.
+         *     (`monitor_sample_seconds`) on 30m/1h, and follow the window pairing on
+         *     24h / 7d / 30d. No pager: the chips say plenty / filling / tight.
          */
         get: operations["host_api_monitor_host_get"];
         put?: never;
@@ -1348,8 +1349,9 @@ export interface components {
          * @description `GET /monitor/host`: latest RAM and disk, and their trend.
          *
          *     Tiles are the newest `system_samples` row. Charts use one bar per
-         *     `monitor_sample_seconds` tick. HTTP columns on that table are not part of
-         *     this payload.
+         *     `monitor_sample_seconds` tick on 30m/1h, and the window pairing (hourly,
+         *     six-hour, daily) on 24h / 7d / 30d. HTTP columns on that table are not
+         *     part of this payload.
          */
         MonitorHost: {
             /** Bucket */

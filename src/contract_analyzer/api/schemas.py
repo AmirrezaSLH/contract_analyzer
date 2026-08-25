@@ -736,8 +736,9 @@ class MonitorHost(BaseModel):
     """`GET /monitor/host`: latest RAM and disk, and their trend.
 
     Tiles are the newest `system_samples` row. Charts use one bar per
-    `monitor_sample_seconds` tick. HTTP columns on that table are not part of
-    this payload.
+    `monitor_sample_seconds` tick on 30m/1h, and the window pairing (hourly,
+    six-hour, daily) on 24h / 7d / 30d. HTTP columns on that table are not
+    part of this payload.
     """
 
     window: str

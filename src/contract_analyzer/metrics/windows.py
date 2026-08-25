@@ -33,9 +33,17 @@ DEFAULT_BUCKETS: dict[str, str] = {
     "30d": "1d",
 }
 
-#: Monitor's shorter windows. Stages charts are 1-minute bars; host charts
-#: use `monitor_sample_seconds` and never this map.
-MONITOR_BUCKETS: dict[str, str] = {"30m": "1m", "1h": "1m"}
+#: Monitor's windows, same pairing as KPI. Stages and upstream charts follow
+#: this map. Host charts keep `monitor_sample_seconds` on 30m/1h and this
+#: pairing on the longer windows, so a week is not tens of thousands of 30s
+#: points.
+MONITOR_BUCKETS: dict[str, str] = {
+    "30m": "1m",
+    "1h": "1m",
+    "24h": "1h",
+    "7d": "6h",
+    "30d": "1d",
+}
 MONITOR_WINDOWS = frozenset(MONITOR_BUCKETS)
 
 _UNITS = {"s": 1, "m": 60, "h": 3600, "d": 86400}

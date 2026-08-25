@@ -1,4 +1,4 @@
-export type MonitorWindow = "30m" | "1h";
+export type MonitorWindow = "30m" | "1h" | "24h" | "7d" | "30d";
 
 /** One chart point. `null` is a gap: the line breaks, it is not drawn as 0. */
 export interface Sample {

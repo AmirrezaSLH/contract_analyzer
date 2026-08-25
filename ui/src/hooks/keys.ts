@@ -19,4 +19,5 @@ export const keys = {
   metricsTimeseries: (window: string) => ["metrics", "timeseries", window] as const,
   metricsRuns: (limit: number) => ["metrics", "runs", limit] as const,
   monitorStages: (window: string) => ["monitor", "stages", window] as const,
+  monitorHost: (window: string) => ["monitor", "host", window] as const,
 };

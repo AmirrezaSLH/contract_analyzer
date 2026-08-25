@@ -74,6 +74,25 @@ export interface MonitorStages {
   series: StageBucket[];
 }
 
+export interface HostBucket {
+  bucket: string;
+  rss_pct: number | null;
+  disk_used_pct: number | null;
+}
+
+export interface MonitorHost {
+  window: string;
+  since: string;
+  generated_at: string;
+  ts: string | null;
+  rss_mb: number | null;
+  rss_pct: number | null;
+  disk_used_pct: number | null;
+  disk_used_gb: number | null;
+  disk_total_gb: number | null;
+  series: HostBucket[];
+}
+
 /** `AnalysisReport` types `results` as `ComplianceResult[] | undefined`, and
  *  `relevant_quotes` likewise. These narrow the optionality away once, here,
  *  rather than in every component that reads a report. */
@@ -211,6 +230,9 @@ export const api = {
 
   monitorStages: (window: MetricsWindow) =>
     request<MonitorStages>(`/monitor/stages?window=${window}`),
+
+  monitorHost: (window: MetricsWindow) =>
+    request<MonitorHost>(`/monitor/host?window=${window}`),
 };
 
 // --------------------------------------------------------------------------

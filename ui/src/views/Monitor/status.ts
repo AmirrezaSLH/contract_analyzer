@@ -13,7 +13,8 @@ export interface Chip {
   words: string;
 }
 
-export function usedChip(fraction: number): Chip {
+export function usedChip(fraction: number | null | undefined): Chip | null {
+  if (fraction === null || fraction === undefined) return null;
   if (fraction < 0.2) return { state: "good", words: "plenty" };
   if (fraction > 0.9) return { state: "Non-Compliant", words: "tight" };
   return { state: "warn", words: "filling" };

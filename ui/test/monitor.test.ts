@@ -8,6 +8,7 @@ describe("host used-% chips", () => {
     expect(usedChip(0.18)).toEqual({ state: "good", words: "plenty" });
     expect(usedChip(0.41)).toEqual({ state: "warn", words: "filling" });
     expect(usedChip(0.91)).toEqual({ state: "Non-Compliant", words: "tight" });
+    expect(usedChip(null)).toBeNull();
   });
 });
 

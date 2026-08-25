@@ -12,3 +12,14 @@ export function useMonitorStages(window: MetricsWindow) {
     placeholderData: keepPreviousData,
   });
 }
+
+export function useMonitorHost(window: MetricsWindow) {
+  return useQuery({
+    queryKey: keys.monitorHost(window),
+    queryFn: () => api.monitorHost(window),
+    refetchInterval: 5_000,
+    refetchIntervalInBackground: false,
+    staleTime: 0,
+    placeholderData: keepPreviousData,
+  });
+}

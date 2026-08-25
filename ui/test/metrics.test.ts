@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { MetricsBucket, RunRow } from "../src/api/client";
-import { barGeometry, costGeometry, lineGeometry, niceMax } from "../src/views/Metrics/charts";
+import { barGeometry, costLineGeometry, lineGeometry, niceMax, runsLineGeometry } from "../src/views/Metrics/charts";
 import { ago, millis, percent, seconds, usd } from "../src/views/Metrics/format";
 import { runOutcome } from "../src/views/Metrics/outcome";
 import {
@@ -139,32 +139,33 @@ describe("run outcome", () => {
   });
 });
 
-describe("the bar chart", () => {
+describe("the runs line", () => {
   const buckets = [
     bucket({ bucket: "2026-08-24T10:00:00Z", runs: 4 }),
     bucket({ bucket: "2026-08-24T11:00:00Z", runs: 0 }),
     bucket({ bucket: "2026-08-24T12:00:00Z", runs: 1 }),
   ];
 
-  it("draws a stub for an empty bucket rather than nothing", () => {
-    // The axis has to show the quiet hours, or a busy night reads continuous.
-    const { bars } = barGeometry(buckets, "24h");
-    expect(bars[1]!.empty).toBe(true);
-    expect(bars[1]!.height).toBe(2);
-    expect(bars[1]!.title).toContain("no runs");
+  it("goes through a quiet hour rather than breaking", () => {
+    // Zero runs is a fact. Breaking here would hide the quiet hours the way a
+    // null percentile must not.
+    const { series } = runsLineGeometry(buckets, "24h");
+    const runs = series[0]!;
+    expect(runs.points).toHaveLength(3);
+    expect(runs.points[1]!.title).toContain("no runs");
+    expect(runs.segments).toHaveLength(1);
   });
 
   it("marks the last bucket as the partial one it is", () => {
-    // Trap 8. Its bar is always short because the hour is not over.
-    const { bars } = barGeometry(buckets, "24h");
-    expect(bars[2]!.partial).toBe(true);
-    expect(bars[2]!.title).toContain("so far");
-    expect(bars[0]!.partial).toBe(false);
+    const { series } = runsLineGeometry(buckets, "24h");
+    const runs = series[0]!;
+    expect(runs.points[2]!.partial).toBe(true);
+    expect(runs.points[2]!.title).toContain("so far");
+    expect(runs.points[0]!.partial).toBe(false);
   });
 
   it("scales to a whole-numbered axis", () => {
-    // A runs axis whose middle gridline reads 1.5 is labelling something that
-    // cannot happen.
+    expect(runsLineGeometry(buckets, "24h").top).toBe(4);
     expect(barGeometry(buckets, "24h").top).toBe(4);
     expect(niceMax(3, { integerHalves: true })).toBe(4);
     expect(niceMax(10, { integerHalves: true })).toBe(10);
@@ -223,27 +224,36 @@ describe("the job duration chart", () => {
 
 describe("cost", () => {
   const buckets = [
-    bucket({ bucket: "2026-08-24T10:00:00Z", runs: 2, cost_usd: 1.7 }),
+    bucket({
+      bucket: "2026-08-24T10:00:00Z",
+      runs: 2,
+      cost_usd: 1.7,
+      cost_percentiles: { p50: 0.8, p95: 1.7 },
+    }),
     bucket({ bucket: "2026-08-24T11:00:00Z", runs: 0, cost_usd: 0 }),
-    bucket({ bucket: "2026-08-24T12:00:00Z", runs: 1, cost_usd: 0.81 }),
+    bucket({
+      bucket: "2026-08-24T12:00:00Z",
+      runs: 1,
+      cost_usd: 0.81,
+      cost_percentiles: { p50: 0.81, p95: 0.81 },
+    }),
   ];
 
   it("gives spend an axis of its own, in dollars", () => {
-    // Never a second y-scale: runs and cost share no unit, so they share no
-    // axis. Two quantities wanted together is two charts.
-    const runsAxis = barGeometry(buckets, "24h");
-    const costAxis = costGeometry(buckets, "24h");
+    const runsAxis = runsLineGeometry(buckets, "24h");
+    const costAxis = costLineGeometry(buckets, "24h");
     expect(runsAxis.top).toBe(2);
     expect(costAxis.top).toBeGreaterThan(1.7);
     expect(costAxis.grid.map((line) => line.label)).toContain("$0.00");
     expect(runsAxis.grid.map((line) => line.label)).toContain("0");
   });
 
-  it("says a bucket spent nothing rather than drawing nothing", () => {
-    const { bars } = costGeometry(buckets, "24h");
-    expect(bars[1]!.empty).toBe(true);
-    expect(bars[1]!.title).toContain("nothing spent");
-    expect(bars[0]!.title).toContain("$1.70");
+  it("breaks the p50 and p95 lines at a bucket that measured nothing", () => {
+    const { series } = costLineGeometry(buckets, "24h");
+    const p95 = series.find((entry) => entry.key === "p95")!;
+    expect(p95.points).toHaveLength(2);
+    expect(p95.segments).toHaveLength(0);
+    expect(p95.points[0]!.title).toContain("p95 $1.70");
   });
 
   it("reads the tail as a ratio, so the tripwire survives a corpus change", () => {

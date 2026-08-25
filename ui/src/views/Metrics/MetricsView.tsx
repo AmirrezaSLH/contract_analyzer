@@ -75,11 +75,11 @@ export function MetricsView() {
 
       <section className={styles.band}>
         <div className={styles.bandHead}>
-          <span className={styles.bandTitle}>Trend</span>
+          <span className={styles.bandTitle}>Time series</span>
           <span className={styles.bandNote}>
-            runs, job duration and spend, one axis each · the last bucket is the one in progress and is
-            drawn lighter · a bucket that measured nothing breaks the line rather than falling to
-            zero
+            runs initiated, job duration and spend, one axis each · p50 and p95 are separate lines ·
+            the last bucket is the one in progress and is drawn lighter · a bucket that measured
+            nothing breaks the percentile lines rather than falling to zero
           </span>
         </div>
         {timeseries.error ? (

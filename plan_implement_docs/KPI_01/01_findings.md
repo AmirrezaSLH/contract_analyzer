@@ -145,7 +145,7 @@ uploads never become a row. **No** `elapsed` / cost column.
 | Brainstorm item | Column / fact |
 |---|---|
 | How many analyses | row count |
-| Time per job | `latency_s` |
+| Time per job | `job_duration_s` |
 | Cost per job | `cost_usd` |
 | Tokens per job | `input_tokens`, `output_tokens` |
 | “API calls” (search/tools) | `tool_calls` — **tool executions**, not Anthropic HTTP round-trips |

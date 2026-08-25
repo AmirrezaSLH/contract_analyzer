@@ -11,7 +11,7 @@ from ..schemas import MonitorHost, MonitorStages, MonitorUpstream
 
 router = APIRouter(prefix="/monitor", tags=["monitor"], dependencies=[Protected])
 
-_SPEC = r"^(30m|1h)$"
+_SPEC = r"^(30m|1h|24h|7d|30d)$"
 
 
 @router.get("/stages", summary="Worst pipeline stage, and its trend")
@@ -38,7 +38,8 @@ def host(
     """How much RAM this process is using, and how full the disk is.
 
     Tiles are the latest sample. Charts are one point per sampler tick
-    (`monitor_sample_seconds`). No pager: the chips say plenty / filling / tight.
+    (`monitor_sample_seconds`) on 30m/1h, and follow the window pairing on
+    24h / 7d / 30d. No pager: the chips say plenty / filling / tight.
     """
     return MonitorHost.model_validate(store.host(conn, window=window))
 

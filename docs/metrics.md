@@ -28,23 +28,27 @@ would be a telemetry system with the priorities backwards.
 
 The dashboard's whole first cut is already in `analyses` (see
 [storage.md](storage.md#analyses)). `analyses.py` fills the derived columns on
-completion — `latency_s`, `cost_usd`, the token counts, `tool_calls`,
+completion — `job_duration_s`, `cost_usd`, the token counts, `tool_calls`,
 `needs_review`, `capped`, `mean_confidence`, `quotes_total`,
-`quotes_verified`, `surface` — so the eight first-class KPIs are a `SELECT`
-and a `COUNT(*)` on `documents`, with no schema change and no second source of
+`quotes_verified`, `surface` — so the first-class KPIs are a `SELECT` and a
+`COUNT(*)` on `documents`, with no schema change and no second source of
 truth.
 
 | KPI | Where it comes from |
 |---|---|
+| Runs | `count(*)` on `analyses` in the window |
 | Failure rate | `status IN ('failed','interrupted')` over the settled runs |
-| p50 / p95 latency | `latency_s`, percentiles in SQL |
-| Cost per run, window spend | `cost_usd`: total, mean, p50, p95, and per bucket |
+| p50 / p95 job duration | `job_duration_s`, percentiles in SQL |
+| Total spend | `SUM(cost_usd)` on analysis rows in the window |
+| p50 / p95 job cost | `cost_usd` percentiles in SQL |
 | Quote verification rate | `quotes_verified / quotes_total` |
 | Needs-review rate | `needs_review / criteria_completed` |
-| Mean confidence | `avg(mean_confidence)` |
-| Cap rate | `capped / criteria_completed` |
-| Runs count, `surface` split | `count(*)`, `GROUP BY surface` |
-| Active now | `JobRunner`, **not** a table |
+
+`GET /metrics/summary` still carries `live` from `JobRunner` (workers busy and
+queued) and a `GROUP BY surface` split. The KPI page does not tile either:
+busy/queued is a fact about this process, not the window, and surface (`api` /
+`cli`) is who submitted an analysis, not analysis vs chat. Chat cost is
+`spans WHERE name = 'chat'` and is drawn as its own share of billed spend.
 
 ### Three decisions worth defending
 
@@ -54,7 +58,7 @@ two are reliability and the third is quality; a failure rate that absorbs the
 third under-counts exactly what a compliance reviewer cares about.
 
 **Percentiles in SQL, not in Python.** SQLite 3.51 has window functions, so
-p95 is `row_number() OVER (ORDER BY latency_s)` against `count(*) OVER ()` —
+p95 is `row_number() OVER (ORDER BY job_duration_s)` against `count(*) OVER ()` —
 nearest rank, `ceil(n·p/100)` written as `(n*p + 99) / 100` because `ceil()`
 is a compile-time option in SQLite and the interpreter here is whichever one
 Python was built against. Nothing is fetched into the API to be sorted. At
@@ -65,39 +69,42 @@ the upper.
 rate of zero and no quotes at all mean opposite things, and every rate ships
 with the counts it was computed from.
 
-### The evaluator slot is honest
-
-`analyses.evaluator_accepted / _revised / _fallback` are declared and `NULL`
-until the evaluator lands. `summary` therefore reports **cap rate** in that
-slot, inside an object that says so:
-
-```json
-"evaluator": {"available": false, "accept_rate": null,
-              "showing": "cap_rate", "value": 0.1, "note": "..."}
-```
-
-A UI renders the note. When the evaluator lands, `available` flips and the
-tile keeps its place.
-
 ### Windows and buckets move together
 
-The window selector drives both: **24 h → `1h`, 7 d → `6h`, 30 d → `1d`**.
-`timeseries` applies that pairing when the caller sends only a window.
+The window selector drives both. KPI and Monitor share the same pairing:
+
+| Window | Bucket | About how many points |
+|---|---|---|
+| 30 m | `1m` | 30 |
+| 1 h | `1m` | 60 |
+| 24 h | `1h` | 24 |
+| 7 d | `6h` | 28 |
+| 30 d | `1d` | 30 |
+
+`timeseries` applies that pairing when the caller sends only a window. Host
+charts are the exception: 30 m / 1 h stay one point per `monitor_sample_seconds`
+tick so the sampler's grain is visible; 24 h / 7 d / 30 d follow the table
+above so a week is not tens of thousands of 30-second points.
+
 Buckets are floored on the unix epoch, not on the request time, so the same
-run lands in the same bar on every refresh — and **empty buckets are still
+run lands in the same mark on every refresh — and **empty buckets are still
 returned**, because a chart that closes its gaps draws a busy night out of a
-quiet one.
+quiet one. **The last bucket is the current one and is partial.**
+
+`/metrics/*` accepts any `window` matching `\d+[mhd]` (`30m`, `1h`, `24h`,
+`7d`, `30d`). `/monitor/*` accepts exactly those five. Anything else is a
+`422` in the API's error envelope.
 
 ## The endpoints
 
 | Route | Answers |
 |---|---|
-| `GET /api/metrics/summary?window=` | The tiles and meters, plus `live` from the runner |
-| `GET /api/metrics/timeseries?window=&bucket=` | One entry per bucket, oldest first |
+| `GET /api/metrics/summary?window=` | The tiles and meters. `live` is merged from `JobRunner`; it is not a table read. |
+| `GET /api/metrics/timeseries?window=&bucket=` | One entry per bucket, oldest first. Each carries `runs`, `job_duration_s` p50/p95, `cost_usd` (sum) and `cost_percentiles`. |
 | `GET /api/metrics/runs?limit=` | The global runs table, each row with its `trace_id` |
 | `GET /api/metrics/runs/{id}/spans` | One run's span tree, for the waterfall |
 | `GET /api/monitor/stages?window=` | Worst `span` name over five minutes, its error rate, and the error-count trend across named stages |
-| `GET /api/monitor/host?window=` | Latest process memory and disk used %, one point per `monitor_sample_seconds` |
+| `GET /api/monitor/host?window=` | Latest process memory and disk used %, one point per sampler tick (short windows) or the paired bucket (long windows) |
 | `GET /api/monitor/upstream?window=` | Retries per 100 outbound calls, exhausted rate, and the top retry reason |
 
 Monitor upstream is a query over `spans` named `upstream.call`,
@@ -106,8 +113,6 @@ the same site as `http.retry` / `http.failed`. Tiles use the last five minutes
 when anything was called; otherwise the chart window. `top_reason_share` is
 that reason's share of retry + exhausted events, not of all calls.
 
-A window on `/metrics/*` is `\d+[hd]`; on `/monitor/*` it is `30m` or `1h`.
-Anything else is a `422` in the API's error envelope.
 `503 metrics_unavailable` now means one thing only — the process could not
 build a store. **An empty database is a `200` with zeroes and nulls on it**,
 because "nothing has run yet" is a fact about the system and not a failure of
@@ -118,14 +123,15 @@ Monitor host is not a span query. A daemon sampler in the API process writes
 share of `MemTotal`, and `shutil.disk_usage` of the database directory. HTTP
 columns on that table stay NULL until the request ring lands. Tiles are the
 latest row; charts take the last sample in each `monitor_sample_seconds`
-bucket. `make analyze` does not start the sampler — "is the box healthy" is
-not a laptop question.
+bucket on 30m/1h, and in each paired bucket on 24h / 7d / 30d. `make analyze`
+does not start the sampler — "is the box healthy" is not a laptop question.
 
-The payloads are JSON objects rather than pydantic models on purpose: which
-numbers the dashboard shows is the KPI plan's business, and pinning the shape
-in `docs/openapi.json` would make every addition to the metric set a spec
-change. The routes are declared, the failure envelope is declared, and the
-body is documented here.
+The payloads are pydantic models, so they appear in `docs/openapi.json` and
+the front end's types are generated from that. The KPI page draws three line
+charts from `timeseries` — runs initiated (a quiet hour is zero, not a gap),
+job-duration p50 and p95, job-cost p50 and p95 — each on its own axis. A
+null percentile **breaks the line**; coercing it to zero would draw a cliff
+on every empty bucket.
 
 ## Phase 2: `spans`
 
@@ -200,8 +206,11 @@ SELECT model, SUM(cost_usd) FROM spans WHERE name = 'agent.call' GROUP BY model;
 ```
 
 Cost per model waited for this instead of mining `report_json` precisely
-because one query covers both surfaces. `summary` gains `chat` and
-`cost_by_model`; `timeseries` gains chat turns and cost per bucket; and
+because one query covers both analysis and chat. `summary` gains `chat` and
+`cost_by_model`; `timeseries` gains chat turns and cost per bucket, plus
+`cost_percentiles` (p50/p95 of analysis `cost_usd` in that bucket). The KPI
+cost band splits billed spend into **Chat** (`spans` named `chat`) and
+**Analysis** (`SUM(analyses.cost_usd)`), not into `api`/`cli` surfaces.
 `GET /metrics/runs/{id}/spans` returns the tree:
 
 ```
@@ -248,7 +257,7 @@ and `spans` (one row per step). `finish_analysis` writes it from the report it
 is already holding, so there is no second pass and no second source of truth;
 the columns are `state`, `confidence`, `raw_confidence`, `needs_review`,
 `ended_by`, `structure_rounds`, `tool_calls`, `cost_usd`, `quotes_total`,
-`quotes_verified`, `latency_s`, and an `evaluator_verdict` that is `NULL` until
+`quotes_verified`, `duration_s`, and an `evaluator_verdict` that is `NULL` until
 the evaluator lands.
 
 It answers the two questions `report_json` answers badly:

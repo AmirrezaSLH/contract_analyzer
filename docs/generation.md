@@ -244,7 +244,7 @@ confidence and `needs_review`; a correction round an
 `analysis.structure_errors` line with the error codes.
 
 Around all of that, the Router's own frames: `router.criterion` (verdict,
-rounds, latency, evaluator cost), `router.decision` (verdict, mode, reason
+rounds, duration, evaluator cost), `router.decision` (verdict, mode, reason
 codes), `evaluator.precheck` and `evaluator.critic`, and `analysis.revise`
 when a draft goes back. All under one `trace_id`, in `.run/app.jsonl` --
 see [agents/](agents/README.md#what-you-can-see-in-the-log).

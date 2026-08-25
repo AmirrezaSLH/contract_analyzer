@@ -60,6 +60,9 @@ def test_windows_accept_five_minutes():
     assert windows.seconds("30s") == 30
     assert windows.bucket_for("30m") == "1m"
     assert windows.bucket_for("1h") == "1m"
+    assert windows.bucket_for("24h") == "1h"
+    assert windows.bucket_for("7d") == "6h"
+    assert windows.bucket_for("30d") == "1d"
 
 
 def test_empty_spans_are_nulls_not_a_failure(conn, store: MetricsStore):

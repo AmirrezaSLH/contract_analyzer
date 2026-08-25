@@ -17,7 +17,7 @@ history at `plan_implement_docs/Front_End_02/06_build_and_ship.md`.*
 Four facts this plan builds on rather than re-creates:
 
 1. **`analyses` is already the analysis fact table**, in `schema.sql`, with
-   the derived KPI columns populated on completion: `latency_s`, `cost_usd`,
+   the derived KPI columns populated on completion: `job_duration_s`, `cost_usd`,
    `input_tokens`, `output_tokens`, `tool_calls`, `needs_review`, `capped`,
    `mean_confidence`, `quotes_total`, `quotes_verified`, `surface`, `status`,
    and the nullable `evaluator_*` trio. `reconcile()` and the restart-safe
@@ -41,7 +41,7 @@ cleanly:
 
 | Phase | Unlocks | Needs |
 |---|---|---|
-| **1 — queries over `analyses`** | The entire initial KPI set (`00_README.md` § the initial set): failure rate, p50/p95 latency, cost totals and trend, quote verification, needs-review, mean confidence, cap rate, runs count, `surface` split | No schema change. A query layer and four route handlers |
+| **1 — queries over `analyses`** | The entire initial KPI set (`00_README.md` § the initial set): failure rate, p50/p95 job duration, cost totals and trend, quote verification, needs-review, mean confidence, cap rate, runs count, `surface` split | No schema change. A query layer and four route handlers |
 | **2 — `spans`** | Chat cost/latency, cost per model, cost share by agent, retrieval health, ingest timing, the per-run waterfall, embedding cost once captured (`02_costs.md` tier 3) | `metrics.sql`, a logging handler, `run_id` in the trace context |
 | **3 — `criterion_results`** | State mix per criterion over time — the drift signal (same file hash, different state) — and "which criterion drags confidence" without mining `report_json` | One table written by `finish_analysis`, backfillable from `report_json` |
 
@@ -58,7 +58,7 @@ the global list that `GET /analyses` deliberately does not serve.
 * **Windows and buckets** move together, driven by the UI selector:
   24 h → `1h`, 7 d → `6h`, 30 d → `1d`.
 * **Percentiles in SQL, not Python.** SQLite 3.51 ships with this project
-  and has window functions: p95 is `row_number() over (order by latency_s)`
+  and has window functions: p95 is `row_number() over (order by job_duration_s)`
   against `count(*) over ()`. No numpy, no fetching rows to sort in the API.
 * **Live tiles are not table reads.** Active/queued come from `JobRunner`
   and `/health`, worth stating because they are the two a reader assumes
@@ -158,7 +158,7 @@ instead of mining `report_json` (`02_costs.md` §2).
 One row per criterion per run, in `metrics.sql`: `run_id` + `criterion_id`
 (PK together), `state`, `confidence`, `raw_confidence`, `needs_review`,
 `ended_by`, `structure_rounds`, `tool_calls`, `cost_usd`, `quotes_total`,
-`quotes_verified`, `latency_s`, `evaluator_verdict` (nullable). Written by
+`quotes_verified`, `duration_s`, `evaluator_verdict` (nullable). Written by
 `finish_analysis` from the report it already holds; backfillable from
 `report_json` with `json_each`, so it can land late without losing history.
 
@@ -228,7 +228,7 @@ records prove every claim:
 - [ ] `make test` green; `metrics/` imports nothing above it.
 - [ ] `make analyze F="data/samples/Sample Contract.pdf"` populates `spans`
       **from the CLI**, no API involved.
-- [ ] `GET /metrics/summary` reports latency, cost, quote-verification and
+- [ ] `GET /metrics/summary` reports job duration, cost, quote-verification and
       mean confidence for that run, matching the report; no `/api/metrics/*`
       operation answers `metrics_unavailable`.
 - [ ] Chat one question; `spans` holds a `chat` row with its `cost_usd`, and

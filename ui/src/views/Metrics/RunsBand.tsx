@@ -30,7 +30,7 @@ export function RunsBand({ runs }: { runs: RunRow[] | undefined }) {
         <Label>Started</Label>
         <Label>Document</Label>
         <Label>Outcome</Label>
-        <Label className={styles.rowWide}>Latency</Label>
+        <Label className={styles.rowWide}>Job duration</Label>
         <Label className={styles.rowWide}>Cost</Label>
         <Label className={styles.rowWide}>Trace</Label>
       </div>
@@ -59,7 +59,7 @@ function Row({ run }: { run: RunRow }) {
       <span>
         <StateChip state={outcome.tone} label={outcome.words} size="sm" />
       </span>
-      <span className={`${styles.cell} ${styles.rowWide}`}>{seconds(run.latency_s)}</span>
+      <span className={`${styles.cell} ${styles.rowWide}`}>{seconds(run.job_duration_s)}</span>
       <span className={`${styles.cell} ${styles.rowWide}`}>{usd(run.cost_usd)}</span>
       <TraceId value={run.trace_id} />
     </div>

@@ -51,7 +51,7 @@ so the number and the bar it must clear are never separated:
 | Active now | workers busy · queued |
 | Runs | documents · criteria |
 | Failure rate | target ≤ 2% |
-| p95 latency | target ≤ 120 s · p50 beside it |
+| p95 job duration | target ≤ 120 s · p50 beside it |
 | Spend | per-run cost · daily budget |
 
 **2 · Answer quality** — three meters, each with a bar, a **black tick at the
@@ -65,7 +65,7 @@ means. These are the three that decide whether the output can be trusted:
 | Needs review | ≤ 10% | Results flagged for a human |
 
 **3 · Trend** — two charts over the selected window: runs per hour (bars) and
-p50/p95 latency (line). This is the historical half assignment §3.4 asks for.
+p50/p95 job duration (line). This is the historical half assignment §3.4 asks for.
 
 **4 · Recent runs** — a table, each row carrying **the trace id its run was
 made under**, so any number on this page can be followed into
@@ -83,7 +83,7 @@ action:
 | Needs-review rate | ≤ 10% | A human looks at the flagged runs; a rising trend means harder contracts or degrading retrieval |
 | Mean calibrated confidence | trend only | Watched, not alerted — the seed of the calibration story |
 | Failure rate (`failed` + `interrupted`) | ≤ 2% | Never absorbs done-but-`needs_review`, which is a quality error |
-| p50/p95 latency | p95 ≤ 120 s | Percentiles, never the mean; ~60 s parallel measured, headroom on top |
+| p50/p95 job duration | p95 ≤ 120 s | Percentiles, never the mean; ~60 s parallel measured, headroom on top |
 | Cost per run + window spend | ~$0.96/run measured · $50/day budget | Budget breach pauses new runs (`02_costs.md`) |
 | Active now | — | Live from `JobRunner`/`/health`, not the table |
 | Runs count | — | Denominator and context for every rate above |
@@ -154,13 +154,13 @@ hallucination detection by name). Four already exist in the data:
 * `structure_rounds` and `ended_by` — how often a correction round was needed,
   and how often the tool-call cap was hit. Both free, both quality proxies.
 
-One more, not a metric: **percentiles, not averages**, for latency and cost.
+One more, not a metric: **percentiles, not averages**, for job duration and cost.
 The tail is what breaks a demo and the mean hides it.
 
 ## Open
 
 1. **Some thresholds still need a measured basis.** Cost is grounded
-   (~$0.96 measured per run, `02_costs.md`), latency is anchored (~60 s
+   (~$0.96 measured per run, `02_costs.md`), job duration is anchored (~60 s
    parallel measured), and the price table behind `cost_usd` was verified
    against published rates on 2026-08-24. The quote-verification 99% and
    needs-review 10% targets are still judgement calls — defensible ones,

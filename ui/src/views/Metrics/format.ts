@@ -1,7 +1,7 @@
 /**
  * Units, formatted once, at the edge.
  *
- * `03_data_contract.md` trap 6: `latency_s` is **seconds** and
+ * `03_data_contract.md` trap 6: `job_duration_s` is **seconds** and
  * `chat.latency_ms` is **milliseconds**, and they sit in the same payload.
  * Dividing by 1000 at three call sites is how one of them ends up wrong, so
  * the conversion happens here and nowhere else.

@@ -292,13 +292,7 @@ function RunCard({
 
       <div className={styles.runFoot}>
         <span>elapsed {elapsed(run.started_at ?? run.created_at)}</span>
-        {/* Cost is not known until the report exists: the runner totals a run
-            when it finishes, and inventing a partial figure would be worse
-            than saying so. */}
-        <span>cost so far —</span>
-        <span>
-          {workers} workers · {total} criteria in parallel
-        </span>
+        <span>{total} criteria in parallel</span>
         {run.trace_id ? <span className={styles.trace}>trace {run.trace_id}</span> : null}
       </div>
     </Card>
@@ -331,7 +325,7 @@ function ProgressRow({
         {done ? row.state ?? "done" : active ? "retrieving…" : skipped ? "skipped" : "waiting"}
       </span>
       <span className={styles.rowNum}>{row.confidence != null ? row.confidence.toFixed(2) : "—"}</span>
-      <span className={styles.rowLat}>{row.latency_s != null ? `${row.latency_s.toFixed(1)} s` : "—"}</span>
+      <span className={styles.rowLat}>{row.duration_s != null ? `${row.duration_s.toFixed(1)} s` : "—"}</span>
     </div>
   );
 }
@@ -344,7 +338,7 @@ function subtitleFor(run: Analysis | null, pages: number | null, chunks: number)
   if (!run) return `${pages ?? "—"} pages · ${chunks} passages · not analysed yet`;
   if (run.status === "done" && run.report) {
     const totals = run.report.totals;
-    return `Analysed ${when(run.completed_at)} · ${totals?.criteria ?? 0} criteria · ${(totals?.latency_s ?? 0).toFixed(1)} s · $${(totals?.cost_usd ?? 0).toFixed(2)}`;
+    return `Analysed ${when(run.completed_at)} · ${totals?.criteria ?? 0} criteria · ${(totals?.job_duration_s ?? 0).toFixed(1)} s job duration · $${(totals?.cost_usd ?? 0).toFixed(2)}`;
   }
   if (run.status === "queued") return `Analysis ${run.analysis_id.slice(0, 8)} · queued · ${pages ?? "—"} pages`;
   if (run.status === "running")

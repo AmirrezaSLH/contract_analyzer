@@ -72,7 +72,7 @@
 
 .meters {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
 }
 
@@ -282,6 +282,10 @@
   stroke-width: 2;
 }
 
+.dotPartial {
+  opacity: 0.45;
+}
+
 .seriesLabel1 {
   font-size: 10px;
   font-weight: 600;
@@ -400,7 +404,7 @@
 /* -- the cost breakdown --------------------------------------------------- */
 .costGrid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
 }
 
@@ -445,13 +449,17 @@
 .shares {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 18px;
 }
 
 .share {
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+
+.share .split {
+  margin-top: 6px;
 }
 
 .shareHead {
@@ -487,7 +495,7 @@
   background: var(--chart-1);
 }
 
-/* Three charts across, at the width there is room for. Runs, latency and cost
+/* Three charts across, at the width there is room for. Runs, job duration and cost
  * each keep an axis of their own -- there is no second y-scale on this page. */
 .charts3 {
   display: grid;

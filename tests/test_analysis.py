@@ -334,7 +334,7 @@ def test_a_clean_draft_needs_no_correction_and_the_finisher_request_is_structure
     # The Analyzer does not announce a verdict. The layer that owns the whole
     # criterion timeline does -- today the harness, and the Router once it sits
     # in front -- because a result event carrying the verdict now and the
-    # latency later would be two events for one fact. `test_report.py` asserts
+    # duration later would be two events for one fact. `test_report.py` asserts
     # the event still reaches a caller.
     assert [e["type"] for e in events] == ["tool_call", "text"]
 

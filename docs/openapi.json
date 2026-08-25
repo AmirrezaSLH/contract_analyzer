@@ -351,9 +351,9 @@
             "title": "Input Tokens",
             "type": "integer"
           },
-          "latency_s": {
+          "job_duration_s": {
             "default": 0.0,
-            "title": "Latency S",
+            "title": "Job Duration S",
             "type": "number"
           },
           "mean_confidence": {
@@ -589,7 +589,7 @@
         "type": "object"
       },
       "ChatSummary": {
-        "description": "Chat is stateless and writes no run row, so this is `spans WHERE name =\n'chat'`. **`latency_ms` is milliseconds** while `latency_s` in the same\npayload is seconds.",
+        "description": "Chat is stateless and writes no run row, so this is `spans WHERE name =\n'chat'`. **`latency_ms` is milliseconds** while `job_duration_s` in the same\npayload is seconds.",
         "properties": {
           "cost_per_turn": {
             "anyOf": [
@@ -720,6 +720,11 @@
             "title": "Criterion Id",
             "type": "string"
           },
+          "duration_s": {
+            "default": 0.0,
+            "title": "Duration S",
+            "type": "number"
+          },
           "ended_by": {
             "title": "Ended By",
             "type": "string"
@@ -738,11 +743,6 @@
                 "type": "null"
               }
             ]
-          },
-          "latency_s": {
-            "default": 0.0,
-            "title": "Latency S",
-            "type": "number"
           },
           "model": {
             "title": "Model",
@@ -930,11 +930,7 @@
             ],
             "title": "Confidence"
           },
-          "id": {
-            "title": "Id",
-            "type": "string"
-          },
-          "latency_s": {
+          "duration_s": {
             "anyOf": [
               {
                 "type": "number"
@@ -943,7 +939,11 @@
                 "type": "null"
               }
             ],
-            "title": "Latency S"
+            "title": "Duration S"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
           },
           "needs_review": {
             "anyOf": [
@@ -1417,6 +1417,45 @@
         "title": "HostBucket",
         "type": "object"
       },
+      "JobDurationPercentiles": {
+        "properties": {
+          "mean": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mean"
+          },
+          "p50": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P50"
+          },
+          "p95": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P95"
+          }
+        },
+        "title": "JobDurationPercentiles",
+        "type": "object"
+      },
       "LastAnalysisOut": {
         "description": "The newest analysis of a document, as a list row needs it.\n\n`states` is a count per compliance state rather than a summary sentence:\na library composes \"5 of 5 compliant\" or \"2 gaps found\" in its own words,\nand the next consumer will want different ones.",
         "properties": {
@@ -1465,45 +1504,6 @@
           "status"
         ],
         "title": "LastAnalysisOut",
-        "type": "object"
-      },
-      "LatencyPercentiles": {
-        "properties": {
-          "mean": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Mean"
-          },
-          "p50": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "P50"
-          },
-          "p95": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "P95"
-          }
-        },
-        "title": "LatencyPercentiles",
         "type": "object"
       },
       "LiveCounts": {
@@ -1578,7 +1578,7 @@
             "title": "Failed",
             "type": "integer"
           },
-          "latency_s": {
+          "job_duration_s": {
             "$ref": "#/components/schemas/Percentiles"
           },
           "mean_confidence": {
@@ -1629,7 +1629,7 @@
         },
         "required": [
           "bucket",
-          "latency_s",
+          "job_duration_s",
           "cost_percentiles",
           "states",
           "chat"
@@ -1662,8 +1662,8 @@
             "title": "Generated At",
             "type": "string"
           },
-          "latency_s": {
-            "$ref": "#/components/schemas/LatencyPercentiles"
+          "job_duration_s": {
+            "$ref": "#/components/schemas/JobDurationPercentiles"
           },
           "live": {
             "$ref": "#/components/schemas/LiveCounts"
@@ -1706,7 +1706,7 @@
           "live",
           "runs",
           "reliability",
-          "latency_s",
+          "job_duration_s",
           "cost_usd",
           "tokens",
           "quality",
@@ -1757,7 +1757,7 @@
         "type": "object"
       },
       "MonitorHost": {
-        "description": "`GET /monitor/host`: latest RAM and disk, and their trend.\n\nTiles are the newest `system_samples` row. Charts use one bar per\n`monitor_sample_seconds` tick. HTTP columns on that table are not part of\nthis payload.",
+        "description": "`GET /monitor/host`: latest RAM and disk, and their trend.\n\nTiles are the newest `system_samples` row. Charts use one bar per\n`monitor_sample_seconds` tick on 30m/1h, and the window pairing (hourly,\nsix-hour, daily) on 24h / 7d / 30d. HTTP columns on that table are not\npart of this payload.",
         "properties": {
           "bucket": {
             "title": "Bucket",
@@ -2476,7 +2476,7 @@
             ],
             "title": "Input Tokens"
           },
-          "latency_s": {
+          "job_duration_s": {
             "anyOf": [
               {
                 "type": "number"
@@ -2485,7 +2485,7 @@
                 "type": "null"
               }
             ],
-            "title": "Latency S"
+            "title": "Job Duration S"
           },
           "mean_confidence": {
             "anyOf": [
@@ -5544,7 +5544,7 @@
             "required": false,
             "schema": {
               "default": "24h",
-              "pattern": "^\\d+[hd]$",
+              "pattern": "^\\d+[mhd]$",
               "title": "Window",
               "type": "string"
             }
@@ -5684,7 +5684,7 @@
             "required": false,
             "schema": {
               "default": "7d",
-              "pattern": "^\\d+[hd]$",
+              "pattern": "^\\d+[mhd]$",
               "title": "Window",
               "type": "string"
             }
@@ -5696,7 +5696,7 @@
             "schema": {
               "anyOf": [
                 {
-                  "pattern": "^\\d+[hd]$",
+                  "pattern": "^\\d+[mhd]$",
                   "type": "string"
                 },
                 {
@@ -5836,7 +5836,7 @@
     },
     "/api/monitor/host": {
       "get": {
-        "description": "How much RAM this process is using, and how full the disk is.\n\nTiles are the latest sample. Charts are one point per sampler tick\n(`monitor_sample_seconds`). No pager: the chips say plenty / filling / tight.",
+        "description": "How much RAM this process is using, and how full the disk is.\n\nTiles are the latest sample. Charts are one point per sampler tick\n(`monitor_sample_seconds`) on 30m/1h, and follow the window pairing on\n24h / 7d / 30d. No pager: the chips say plenty / filling / tight.",
         "operationId": "host_api_monitor_host_get",
         "parameters": [
           {
@@ -5845,7 +5845,7 @@
             "required": false,
             "schema": {
               "default": "30m",
-              "pattern": "^(30m|1h)$",
+              "pattern": "^(30m|1h|24h|7d|30d)$",
               "title": "Window",
               "type": "string"
             }
@@ -5985,7 +5985,7 @@
             "required": false,
             "schema": {
               "default": "30m",
-              "pattern": "^(30m|1h)$",
+              "pattern": "^(30m|1h|24h|7d|30d)$",
               "title": "Window",
               "type": "string"
             }
@@ -6125,7 +6125,7 @@
             "required": false,
             "schema": {
               "default": "30m",
-              "pattern": "^(30m|1h)$",
+              "pattern": "^(30m|1h|24h|7d|30d)$",
               "title": "Window",
               "type": "string"
             }

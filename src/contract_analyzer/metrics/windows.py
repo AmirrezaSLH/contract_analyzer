@@ -1,10 +1,10 @@
 """Windows, buckets, and the arithmetic that keeps a chart's axis continuous.
 
-The UI has one control -- 24 hours / 7 days / 30 days -- and it drives both
-query parameters, because they are not independent: 30 days of one-hour bars
-is 720 marks on an axis 900 pixels wide. `DEFAULT_BUCKETS` is that pairing,
-and it is here rather than in the front end so that the API and the design
-cannot drift.
+The UI has one control -- 30 minutes / 1 hour / 24 hours / 7 days / 30 days --
+and it drives both query parameters, because they are not independent: 30 days
+of one-hour bars is 720 marks on an axis 900 pixels wide. `DEFAULT_BUCKETS` is
+that pairing, and it is here rather than in the front end so the API and the
+design cannot drift.
 
 Two things a caller would otherwise get wrong:
 
@@ -23,12 +23,27 @@ from __future__ import annotations
 import re
 from datetime import UTC, datetime, timedelta
 
-#: The window selector's pairs. 24 h -> 24 bars, 7 d -> 28, 30 d -> 30.
-DEFAULT_BUCKETS: dict[str, str] = {"24h": "1h", "7d": "6h", "30d": "1d"}
+#: The window selector's pairs. Short windows share Monitor's 1-minute grain.
+#: 30 m -> 30 bars, 1 h -> 60, 24 h -> 24, 7 d -> 28, 30 d -> 30.
+DEFAULT_BUCKETS: dict[str, str] = {
+    "30m": "1m",
+    "1h": "1m",
+    "24h": "1h",
+    "7d": "6h",
+    "30d": "1d",
+}
 
-#: Monitor's shorter windows. Stages charts are 1-minute bars; host charts
-#: use `monitor_sample_seconds` and never this map.
-MONITOR_BUCKETS: dict[str, str] = {"30m": "1m", "1h": "1m"}
+#: Monitor's windows, same pairing as KPI. Stages and upstream charts follow
+#: this map. Host charts keep `monitor_sample_seconds` on 30m/1h and this
+#: pairing on the longer windows, so a week is not tens of thousands of 30s
+#: points.
+MONITOR_BUCKETS: dict[str, str] = {
+    "30m": "1m",
+    "1h": "1m",
+    "24h": "1h",
+    "7d": "6h",
+    "30d": "1d",
+}
 MONITOR_WINDOWS = frozenset(MONITOR_BUCKETS)
 
 _UNITS = {"s": 1, "m": 60, "h": 3600, "d": 86400}

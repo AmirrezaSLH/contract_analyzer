@@ -106,6 +106,21 @@ def test_host_bars_match_the_sampler_interval(conn):
     assert len(got["series"]) == len(windows.bucket_starts("30m", "30s", now=NOW))
 
 
+def test_a_day_of_host_charts_is_hourly_not_thousands_of_ticks(conn):
+    got = host_mod.host_map(conn, window="24h", interval=30, now=NOW)
+    assert got["bucket"] == "1h"
+    assert len(got["series"]) == len(windows.bucket_starts("24h", "1h", now=NOW))
+
+
+def test_a_week_and_a_month_follow_the_window_pairing(conn):
+    week = host_mod.host_map(conn, window="7d", interval=30, now=NOW)
+    month = host_mod.host_map(conn, window="30d", interval=30, now=NOW)
+    assert week["bucket"] == "6h"
+    assert month["bucket"] == "1d"
+    assert len(week["series"]) == len(windows.bucket_starts("7d", "6h", now=NOW))
+    assert len(month["series"]) == len(windows.bucket_starts("30d", "1d", now=NOW))
+
+
 def test_tick_writes_a_row(conn, store: MetricsStore):
     store.sampler.tick()
     n = conn.execute("SELECT count(*) FROM system_samples").fetchone()[0]

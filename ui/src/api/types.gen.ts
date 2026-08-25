@@ -364,6 +364,77 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/monitor/host": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Host memory and disk headroom
+         * @description How much RAM this process is using, and how full the disk is.
+         *
+         *     Tiles are the latest sample. Charts are one point per sampler tick
+         *     (`monitor_sample_seconds`) on 30m/1h, and follow the window pairing on
+         *     24h / 7d / 30d. No pager: the chips say plenty / filling / tight.
+         */
+        get: operations["host_api_monitor_host_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/monitor/stages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Worst pipeline stage, and its trend
+         * @description Where it broke, not whether a run failed.
+         *
+         *     Tiles are the last five minutes; the series follows `window`. `errors_total`
+         *     counts every named stage, not only the worst. A stage with fewer than
+         *     `min_samples` hits is reported with its n so 1-of-1 is not a 100% error rate.
+         */
+        get: operations["stages_api_monitor_stages_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/monitor/upstream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Upstream retries and exhausted calls
+         * @description Is it us, or Anthropic/OpenAI.
+         *
+         *     Tiles are the last five minutes. Charts follow `window`. `top_reason` is
+         *     the most common retry/exhausted reason, with its share of those events.
+         */
+        get: operations["upstream_api_monitor_upstream_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -535,10 +606,10 @@ export interface components {
              */
             input_tokens: number;
             /**
-             * Latency S
+             * Job Duration S
              * @default 0
              */
-            latency_s: number;
+            job_duration_s: number;
             /**
              * Mean Confidence
              * @default 0
@@ -687,7 +758,7 @@ export interface components {
         /**
          * ChatSummary
          * @description Chat is stateless and writes no run row, so this is `spans WHERE name =
-         *     'chat'`. **`latency_ms` is milliseconds** while `latency_s` in the same
+         *     'chat'`. **`latency_ms` is milliseconds** while `job_duration_s` in the same
          *     payload is seconds.
          */
         ChatSummary: {
@@ -771,6 +842,11 @@ export interface components {
             cost_usd: number;
             /** Criterion Id */
             criterion_id: string;
+            /**
+             * Duration S
+             * @default 0
+             */
+            duration_s: number;
             /** Ended By */
             ended_by: string;
             /**
@@ -779,11 +855,6 @@ export interface components {
              */
             evaluator_cost_usd: number;
             evaluator_findings?: components["schemas"]["EvaluatorFindings"] | null;
-            /**
-             * Latency S
-             * @default 0
-             */
-            latency_s: number;
             /** Model */
             model: string;
             /** Needs Review */
@@ -860,10 +931,10 @@ export interface components {
         CriterionProgress: {
             /** Confidence */
             confidence?: number | null;
+            /** Duration S */
+            duration_s?: number | null;
             /** Id */
             id: string;
-            /** Latency S */
-            latency_s?: number | null;
             /** Needs Review */
             needs_review?: boolean | null;
             /** Rounds */
@@ -1086,6 +1157,27 @@ export interface components {
             version: string;
         };
         /**
+         * HostBucket
+         * @description One chart bucket. Percents are null when nothing was sampled then.
+         */
+        HostBucket: {
+            /** Bucket */
+            bucket: string;
+            /** Disk Used Pct */
+            disk_used_pct?: number | null;
+            /** Rss Pct */
+            rss_pct?: number | null;
+        };
+        /** JobDurationPercentiles */
+        JobDurationPercentiles: {
+            /** Mean */
+            mean?: number | null;
+            /** P50 */
+            p50?: number | null;
+            /** P95 */
+            p95?: number | null;
+        };
+        /**
          * LastAnalysisOut
          * @description The newest analysis of a document, as a list row needs it.
          *
@@ -1112,15 +1204,6 @@ export interface components {
              * @enum {string}
              */
             status: "queued" | "running" | "done" | "failed" | "cancelled" | "interrupted";
-        };
-        /** LatencyPercentiles */
-        LatencyPercentiles: {
-            /** Mean */
-            mean?: number | null;
-            /** P50 */
-            p50?: number | null;
-            /** P95 */
-            p95?: number | null;
         };
         /**
          * LiveCounts
@@ -1184,7 +1267,7 @@ export interface components {
              * @default 0
              */
             failed: number;
-            latency_s: components["schemas"]["Percentiles"];
+            job_duration_s: components["schemas"]["Percentiles"];
             /** Mean Confidence */
             mean_confidence?: number | null;
             /** Needs Review Rate */
@@ -1217,7 +1300,7 @@ export interface components {
             documents: number;
             /** Generated At */
             generated_at: string;
-            latency_s: components["schemas"]["LatencyPercentiles"];
+            job_duration_s: components["schemas"]["JobDurationPercentiles"];
             live: components["schemas"]["LiveCounts"];
             quality: components["schemas"]["Quality"];
             reliability: components["schemas"]["Reliability"];
@@ -1260,6 +1343,120 @@ export interface components {
              * @default 0
              */
             output_tokens: number;
+        };
+        /**
+         * MonitorHost
+         * @description `GET /monitor/host`: latest RAM and disk, and their trend.
+         *
+         *     Tiles are the newest `system_samples` row. Charts use one bar per
+         *     `monitor_sample_seconds` tick on 30m/1h, and the window pairing (hourly,
+         *     six-hour, daily) on 24h / 7d / 30d. HTTP columns on that table are not
+         *     part of this payload.
+         */
+        MonitorHost: {
+            /** Bucket */
+            bucket: string;
+            /** Disk Total Gb */
+            disk_total_gb?: number | null;
+            /** Disk Used Gb */
+            disk_used_gb?: number | null;
+            /** Disk Used Pct */
+            disk_used_pct?: number | null;
+            /** Generated At */
+            generated_at: string;
+            /** Rss Mb */
+            rss_mb?: number | null;
+            /** Rss Pct */
+            rss_pct?: number | null;
+            /** Series */
+            series: components["schemas"]["HostBucket"][];
+            /** Since */
+            since: string;
+            /** Ts */
+            ts?: string | null;
+            /** Window */
+            window: string;
+        };
+        /**
+         * MonitorStages
+         * @description `GET /monitor/stages`: the worst pipeline stage, and its trend.
+         *
+         *     Tiles are the last five minutes when anything ran; otherwise the chart
+         *     window. `n` under `min_samples` is not a rate worth paging on.
+         *     `errors_total` is every named stage in that tile window, not just `name`.
+         */
+        MonitorStages: {
+            /** Error Rate */
+            error_rate?: number | null;
+            /**
+             * Errors
+             * @default 0
+             */
+            errors: number;
+            /** Errors Total */
+            errors_total?: number | null;
+            /** Generated At */
+            generated_at: string;
+            /** Live Window */
+            live_window: string;
+            /** Min Samples */
+            min_samples: number;
+            /**
+             * N
+             * @default 0
+             */
+            n: number;
+            /** Name */
+            name?: string | null;
+            /** Series */
+            series: components["schemas"]["StageBucket"][];
+            /** Since */
+            since: string;
+            /** Window */
+            window: string;
+        };
+        /**
+         * MonitorUpstream
+         * @description `GET /monitor/upstream`: retries through http_client, not spend.
+         *
+         *     Tiles are the last five minutes when anything was called; otherwise the
+         *     chart window. `top_reason_share` is that reason's share of retry +
+         *     exhausted events, not of all calls.
+         */
+        MonitorUpstream: {
+            /**
+             * Calls
+             * @default 0
+             */
+            calls: number;
+            /** Exhausted Rate */
+            exhausted_rate?: number | null;
+            /**
+             * Failed
+             * @default 0
+             */
+            failed: number;
+            /** Generated At */
+            generated_at: string;
+            /** Live Window */
+            live_window: string;
+            /**
+             * Retries
+             * @default 0
+             */
+            retries: number;
+            /** Retries Per 100 */
+            retries_per_100?: number | null;
+            /** Series */
+            series: components["schemas"]["UpstreamBucket"][];
+            /** Since */
+            since: string;
+            /** Top Reason */
+            top_reason?: string | null;
+            /** Top Reason Share */
+            top_reason_share?: number | null;
+            /** Window */
+            window: string;
         };
         /**
          * PassageOut
@@ -1525,8 +1722,8 @@ export interface components {
             filename: string;
             /** Input Tokens */
             input_tokens?: number | null;
-            /** Latency S */
-            latency_s?: number | null;
+            /** Job Duration S */
+            job_duration_s?: number | null;
             /** Mean Confidence */
             mean_confidence?: number | null;
             /** Needs Review */
@@ -1680,6 +1877,25 @@ export interface components {
             ts: string;
         };
         /**
+         * StageBucket
+         * @description One bucket: worst-stage error rate, and error count across all named stages.
+         *
+         *     Rates and totals are null when that bucket had no spans, not zero.
+         */
+        StageBucket: {
+            /** Bucket */
+            bucket: string;
+            /** Error Rate */
+            error_rate?: number | null;
+            /** Errors Total */
+            errors_total?: number | null;
+            /**
+             * N
+             * @default 0
+             */
+            n: number;
+        };
+        /**
          * StatusAgreement
          * @description Whether the analyst's status for one sub-requirement follows from its quotes.
          */
@@ -1789,6 +2005,33 @@ export interface components {
              * @default none
              */
             spine_source: string;
+        };
+        /**
+         * UpstreamBucket
+         * @description One minute of outbound calls. Rates are null when no call landed.
+         */
+        UpstreamBucket: {
+            /** Bucket */
+            bucket: string;
+            /**
+             * Calls
+             * @default 0
+             */
+            calls: number;
+            /** Exhausted Rate */
+            exhausted_rate?: number | null;
+            /**
+             * Failed
+             * @default 0
+             */
+            failed: number;
+            /**
+             * Retries
+             * @default 0
+             */
+            retries: number;
+            /** Retries Per 100 */
+            retries_per_100?: number | null;
         };
     };
     responses: never;
@@ -3840,6 +4083,342 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MetricsBucket"][];
+                };
+            };
+            /** @description Malformed request. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Missing or wrong X-API-Key. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No such document or analysis. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The resource is busy, or already in the requested state. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The upload is over api_max_upload_mb. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Only PDF uploads are supported. */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The request body did not validate. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unhandled server error; the X-Trace-Id is on every log line. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description An upstream call failed after its retries. */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description A key or a dependency the operation needs is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    host_api_monitor_host_get: {
+        parameters: {
+            query?: {
+                window?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MonitorHost"];
+                };
+            };
+            /** @description Malformed request. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Missing or wrong X-API-Key. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No such document or analysis. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The resource is busy, or already in the requested state. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The upload is over api_max_upload_mb. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Only PDF uploads are supported. */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The request body did not validate. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unhandled server error; the X-Trace-Id is on every log line. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description An upstream call failed after its retries. */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description A key or a dependency the operation needs is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    stages_api_monitor_stages_get: {
+        parameters: {
+            query?: {
+                window?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MonitorStages"];
+                };
+            };
+            /** @description Malformed request. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Missing or wrong X-API-Key. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No such document or analysis. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The resource is busy, or already in the requested state. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The upload is over api_max_upload_mb. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Only PDF uploads are supported. */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The request body did not validate. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unhandled server error; the X-Trace-Id is on every log line. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description An upstream call failed after its retries. */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description A key or a dependency the operation needs is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    upstream_api_monitor_upstream_get: {
+        parameters: {
+            query?: {
+                window?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MonitorUpstream"];
                 };
             };
             /** @description Malformed request. */

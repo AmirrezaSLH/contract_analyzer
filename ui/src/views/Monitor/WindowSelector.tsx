@@ -1,10 +1,13 @@
 import kpi from "../Metrics/MetricsView.module.css";
 import type { MonitorWindow } from "./types";
 
-/** Monitor's windows. KPI keeps 24h / 7d / 30d; this page is the live box. */
+/** The five windows, same pairing as KPI. The server chooses the bucket. */
 export const WINDOWS: { value: MonitorWindow; label: string; bucket: string }[] = [
   { value: "30m", label: "30 minutes", bucket: "1-minute buckets" },
   { value: "1h", label: "1 hour", bucket: "1-minute buckets" },
+  { value: "24h", label: "24 hours", bucket: "hourly buckets" },
+  { value: "7d", label: "7 days", bucket: "6-hour buckets" },
+  { value: "30d", label: "30 days", bucket: "daily buckets" },
 ];
 
 interface Props {

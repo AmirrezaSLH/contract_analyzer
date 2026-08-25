@@ -11,9 +11,9 @@ wrong grain, and session state under-counts after a refresh.
 * `runs` -- the global runs table, each row carrying its trace id.
 * `runs/{id}/spans` -- one run's span tree, for the waterfall.
 
-**The window drives the bucket.** 24 h -> `1h`, 7 d -> `6h`, 30 d -> `1d`, and
-`timeseries` applies that pairing when a caller sends only a window. Thirty
-days of one-hour bars is 720 marks on a 900-pixel axis.
+**The window drives the bucket.** 30 m / 1 h -> `1m`, 24 h -> `1h`, 7 d -> `6h`,
+30 d -> `1d`, and `timeseries` applies that pairing when a caller sends only a
+window. Thirty days of one-hour bars is 720 marks on a 900-pixel axis.
 
 **Live counts are not table reads.** Active and queued come from `JobRunner`;
 they are facts about this process and a table would be describing the last one.
@@ -38,9 +38,9 @@ from ..schemas import MetricsBucket, MetricsSummary, RunRow, SpanNode
 
 router = APIRouter(prefix="/metrics", tags=["metrics"], dependencies=[Protected])
 
-#: `24h`, `7d`, `1h`. Validated by the router so a typo is a 422 in this API's
-#: error envelope rather than a ValueError from the query layer.
-_SPEC = r"^\d+[hd]$"
+#: `30m`, `1h`, `24h`, `7d`. Validated by the router so a typo is a 422 in this
+#: API's error envelope rather than a ValueError from the query layer.
+_SPEC = r"^\d+[mhd]$"
 
 
 @router.get("/summary", summary="Real-time tiles for the KPI page")

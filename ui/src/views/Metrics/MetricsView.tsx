@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import type { MetricsWindow } from "../../api/client";
 import { ErrorSurface } from "../../components/ErrorSurface";
 import { PageHead } from "../../components/PageHead";
-import { useHealth } from "../../hooks/useHealth";
 import { useMetricsRuns, useMetricsSummary, useMetricsTimeseries } from "../../hooks/useMetrics";
 import { CostBand } from "./CostBand";
 import { ago } from "./format";
@@ -43,7 +42,6 @@ export function MetricsView() {
   const summary = useMetricsSummary(window);
   const timeseries = useMetricsTimeseries(window);
   const runs = useMetricsRuns(50);
-  const health = useHealth();
 
   const empty = summary.data?.runs.total === 0;
 
@@ -63,7 +61,7 @@ export function MetricsView() {
       {summary.error ? (
         <ErrorSurface error={summary.error} onRetry={() => void summary.refetch()} as="inline" />
       ) : (
-        <NowBand summary={summary.data} health={health.data} />
+        <NowBand summary={summary.data} />
       )}
 
       {empty ? (
@@ -77,12 +75,7 @@ export function MetricsView() {
 
       <section className={styles.band}>
         <div className={styles.bandHead}>
-          <span className={styles.bandTitle}>Trend</span>
-          <span className={styles.bandNote}>
-            runs, latency and spend, one axis each · the last bucket is the one in progress and is
-            drawn lighter · a bucket that measured nothing breaks the line rather than falling to
-            zero
-          </span>
+          <span className={styles.bandTitle}>Time series</span>
         </div>
         {timeseries.error ? (
           <ErrorSurface

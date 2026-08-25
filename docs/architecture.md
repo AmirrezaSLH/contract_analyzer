@@ -211,6 +211,11 @@ inside it. See [docker.md](docker.md).
 
 ## Change log of this document
 
+* 2026-08-24 -- KPI and Monitor share five windows (`30m`, `1h`, `24h`, `7d`,
+  `30d`). The KPI page tiles total spend and p95 job cost separately, draws
+  time series as lines (runs, duration p50/p95, cost p50/p95), and splits
+  billed spend into Chat vs Analysis. Monitor adds the same long windows; host
+  charts on 30m/1h stay at the sampler tick. See [metrics.md](metrics.md).
 * 2026-08-24 -- The metric store, in `metrics/`. Three phases from
   `plan_implement_docs/KPI_01/Metric_Store.md`: `/metrics/summary`,
   `/timeseries` and `/runs` answer from `analyses` with no schema change and

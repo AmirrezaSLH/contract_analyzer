@@ -2,25 +2,22 @@ import type { MetricsBucket } from "../../api/client";
 import { bucketLabel, plural, seconds, usd } from "./format";
 
 /**
- * The geometry behind the two trend charts, as arithmetic with no React in it.
+ * The geometry behind the time-series charts, as arithmetic with no React in it.
  *
- * Both charts are hand-drawn SVG. Two forms -- a bar chart and a two-series
- * line -- are less code than configuring a library, and the bundle stays as it
- * is. Keeping the arithmetic here is what makes the three traps below testable
- * rather than eyeballed.
+ * Three line charts, one axis each. Keeping the arithmetic here is what makes
+ * the traps below testable rather than eyeballed.
  *
- * **Trap 1: an empty bucket has `runs: 0` but `latency_s.p50: null`.** They
+ * **Trap 1: an empty bucket has `runs: 0` but `job_duration_s.p50: null`.** They
  * are not the same absence. A zero run count is a fact -- the axis must show
- * the quiet hours -- so an empty bucket draws a 2px baseline stub rather than
- * nothing. A null percentile is *no measurement*, and a line chart that
- * coerces it to `0` draws a cliff to the axis on every quiet hour and makes
- * p95 look catastrophic. So: bars zero, lines break.
+ * the quiet hours -- so the runs line goes to zero rather than breaking. A
+ * null percentile is *no measurement*, and a line that coerces it to `0`
+ * draws a cliff to the axis on every quiet hour and makes p95 look
+ * catastrophic. So: runs through zero, percentile lines break.
  *
  * **Trap 2: the last bucket is the current one and is partial.** A 24 h window
- * ends with the hour in progress, so its bar is always short and its
- * percentiles are computed over a fraction of an hour. It is marked -- a
- * lighter fill and `so far` in its tooltip -- rather than dropped, because
- * dropping it would hide the present.
+ * ends with the hour in progress. It is marked -- a lighter mark and `so far`
+ * in its tooltip -- rather than dropped, because dropping it would hide the
+ * present.
  *
  * **Trap 3: one axis per chart, always.** p50 and p95 share a scale because
  * they share a unit. There is no second y-scale here and there is not going to
@@ -71,10 +68,12 @@ export interface Point {
   y: number;
   key: string;
   title: string;
+  /** The current, incomplete bucket. Lighter mark, and its tooltip says so. */
+  partial: boolean;
 }
 
 export interface Series {
-  key: "p50" | "p95";
+  key: "runs" | "p50" | "p95";
   label: string;
   /** One `d` per unbroken stretch. **A gap is a new segment, never a straight
    *  line across the missing points.** */
@@ -155,30 +154,74 @@ export function costGeometry(buckets: MetricsBucket[], window: string) {
   });
 }
 
-/** p50 and p95 latency: two steps of one hue, one axis, lines broken at every
- *  bucket that measured nothing. */
-export function lineGeometry(buckets: MetricsBucket[], window: string) {
-  const values = buckets.flatMap((b) => [b.latency_s.p50, b.latency_s.p95]);
-  const measured = values.filter((v): v is number => v !== null && v !== undefined);
+/** Runs initiated per bucket. Zero is a point on the line, not a gap. */
+export function runsLineGeometry(buckets: MetricsBucket[], window: string) {
+  const top = niceMax(Math.max(0, ...buckets.map((bucket) => bucket.runs)), { integerHalves: true });
+  const slot = buckets.length ? (RIGHT - LEFT) / buckets.length : 0;
+  const width = Math.min(slot * 0.64, 20);
+
+  const points: Point[] = buckets.map((bucket, index) => {
+    const value = bucket.runs;
+    const partial = index === buckets.length - 1;
+    return {
+      x: LEFT + index * slot + slot / 2,
+      y: BASE - ((BASE - TOP) * value) / top,
+      key: bucket.bucket,
+      title: `${bucketLabel(bucket.bucket, window)} — ${
+        value === 0 ? "no runs" : plural(value, "run")
+      }${partial ? " so far" : ""}`,
+      partial,
+    };
+  });
+
+  return {
+    series: [
+      {
+        key: "runs" as const,
+        label: "runs",
+        segments: segmentsOf(points),
+        points,
+        label_at: points[points.length - 1] ?? null,
+      },
+    ],
+    grid: grid(top, (value) => String(value)),
+    ticks: ticks(buckets, slot, width, window),
+    top,
+  };
+}
+
+interface PairOptions {
+  pair: (bucket: MetricsBucket) => { p50?: number | null; p95?: number | null };
+  words: (key: "p50" | "p95", value: number) => string;
+  axis: (value: number) => string;
+}
+
+function pairLineGeometry(buckets: MetricsBucket[], window: string, options: PairOptions) {
+  const values = buckets.flatMap((bucket) => {
+    const pair = options.pair(bucket);
+    return [pair.p50, pair.p95];
+  });
+  const measured = values.filter((value): value is number => value !== null && value !== undefined);
   const top = niceMax(Math.max(0, ...measured));
   const slot = buckets.length ? (RIGHT - LEFT) / buckets.length : 0;
   const width = Math.min(slot * 0.64, 20);
 
   const series: Series[] = (["p50", "p95"] as const).map((key) => {
     const points: (Point | null)[] = buckets.map((bucket, index) => {
-      const value = bucket.latency_s[key];
+      const value = options.pair(bucket)[key];
       if (value === null || value === undefined) return null;
       const partial = index === buckets.length - 1;
       return {
         x: LEFT + index * slot + slot / 2,
         y: BASE - ((BASE - TOP) * value) / top,
         key: bucket.bucket,
-        title: `${bucketLabel(bucket.bucket, window)} — ${key} ${seconds(value)}${
+        title: `${bucketLabel(bucket.bucket, window)} — ${options.words(key, value)}${
           partial ? " so far" : ""
         }`,
+        partial,
       };
     });
-    const drawn = points.filter((p): p is Point => p !== null);
+    const drawn = points.filter((point): point is Point => point !== null);
     return {
       key,
       label: key,
@@ -188,7 +231,26 @@ export function lineGeometry(buckets: MetricsBucket[], window: string) {
     };
   });
 
-  return { series, grid: grid(top, (v) => String(v)), ticks: ticks(buckets, slot, width, window), top };
+  return { series, grid: grid(top, options.axis), ticks: ticks(buckets, slot, width, window), top };
+}
+
+/** p50 and p95 job duration: two lines, one axis, broken at every bucket that
+ *  measured nothing. */
+export function lineGeometry(buckets: MetricsBucket[], window: string) {
+  return pairLineGeometry(buckets, window, {
+    pair: (bucket) => bucket.job_duration_s,
+    words: (key, value) => `${key} ${seconds(value)}`,
+    axis: (value) => String(value),
+  });
+}
+
+/** p50 and p95 job cost per bucket. Same geometry as duration: nulls break. */
+export function costLineGeometry(buckets: MetricsBucket[], window: string) {
+  return pairLineGeometry(buckets, window, {
+    pair: (bucket) => bucket.cost_percentiles,
+    words: (key, value) => `${key} ${usd(value)}`,
+    axis: (value) => usd(value),
+  });
 }
 
 /**

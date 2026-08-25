@@ -55,11 +55,11 @@ clicks later.
 | `GET` | `/analyses/{id}/events` | SSE: `status`, `criterion`, `tool_call`, `correction`, then `done` or `error`. `409` for an analysis this process is not running. |
 | `POST` | `/analyses/{id}/cancel` | Skip what has not started. `409` for an analysis this process is not running. |
 | `POST` | `/chat` | A cited answer over one contract, streamed or not. Model, retrieval mode and passage count are per-question. |
-| `GET` | `/metrics/summary` | KPI tiles and meters for one window. |
-| `GET` | `/metrics/timeseries` | The same numbers per bucket, for the trend charts. |
+| `GET` | `/metrics/summary` | KPI tiles and meters for one window (`30m`, `1h`, `24h`, `7d`, `30d`). |
+| `GET` | `/metrics/timeseries` | The same numbers per bucket, for the time-series charts. The server picks the bucket from the window unless `bucket=` is sent. |
 | `GET` | `/metrics/runs` | The global runs table -- what `GET /analyses` deliberately does not serve. |
 | `GET` | `/metrics/runs/{id}/spans` | One run's span tree, for the waterfall. |
-| `GET` | `/monitor/stages` | Worst pipeline stage over the last five minutes, its error rate, and total error count. |
+| `GET` | `/monitor/stages` | Worst pipeline stage over the last five minutes, its error rate, and total error count. Same five windows as KPI. |
 | `GET` | `/monitor/host` | This process's memory and the disk under the database. |
 | `GET` | `/monitor/upstream` | Retries and exhausted calls through `http_client`, plus the top reason. |
 | `GET` | `/logs/events` | Live console as SSE. Same compact lines as stderr. Does not close. |
@@ -76,6 +76,15 @@ state, which is what lets the UI start a job and an MCP tool watch it.
 
 Polling is the contract; `/events` is an upgrade. If the SSE stream has to be
 cut for time, the UI's two-second poll still works.
+
+### Metrics and Monitor share one window pairing
+
+KPI (`/metrics/*`) and Monitor (`/monitor/*`) both take `window`. The server
+pairs it with a bucket so the browser does not pick a grain that cannot be
+drawn: 30 m and 1 h are one-minute marks, 24 h hourly, 7 d six-hour, 30 d
+daily. Host charts on 30 m / 1 h stay at `monitor_sample_seconds` instead.
+A typo is `422`; an empty store is `200` with zeroes. See
+[metrics.md](metrics.md).
 
 ### Upload mints an id, and the bytes are never trusted
 

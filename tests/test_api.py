@@ -1180,6 +1180,13 @@ def test_every_metrics_operation_answers_over_an_empty_database(client):
     assert response.json() == []
 
 
+def test_monitor_windows_match_kpi_and_refuse_the_rest(client):
+    for path in ("/api/monitor/stages", "/api/monitor/host", "/api/monitor/upstream"):
+        for window in ("30m", "1h", "24h", "7d", "30d"):
+            assert client.get(f"{path}?window={window}").status_code == 200, (path, window)
+        assert client.get(f"{path}?window=14d").status_code == 422, path
+
+
 # --------------------------------------------------------------------------
 # The serving model: one origin, one prefix, the front end underneath
 # --------------------------------------------------------------------------

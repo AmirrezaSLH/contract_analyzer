@@ -202,7 +202,7 @@
       },
       "cost_usd": 0.18218,
       "model": "claude-opus-5",
-      "latency_s": 28.6
+      "duration_s": 28.6
     },
     {
       "criterion_id": "it_asset_management",
@@ -340,7 +340,7 @@
       },
       "cost_usd": 0.13225,
       "model": "claude-opus-5",
-      "latency_s": 33.4
+      "duration_s": 33.4
     },
     {
       "criterion_id": "training_background_checks",
@@ -407,7 +407,7 @@
       },
       "cost_usd": 0.350845,
       "model": "claude-opus-5",
-      "latency_s": 29.3
+      "duration_s": 29.3
     },
     {
       "criterion_id": "data_in_transit",
@@ -526,7 +526,7 @@
       },
       "cost_usd": 0.124495,
       "model": "claude-opus-5",
-      "latency_s": 59.5
+      "duration_s": 59.5
     },
     {
       "criterion_id": "network_auth",
@@ -677,12 +677,12 @@
       },
       "cost_usd": 0.135825,
       "model": "claude-opus-5",
-      "latency_s": 36.7
+      "duration_s": 36.7
     }
   ],
   "totals": {
     "criteria": 5,
-    "latency_s": 31.234,
+    "job_duration_s": 31.234,
     "cost_usd": 0.925595,
     "input_tokens": 119794,
     "output_tokens": 13065,

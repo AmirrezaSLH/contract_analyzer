@@ -78,7 +78,7 @@ def summarise(report: AnalysisReport) -> None:
         print(f"{skipped:26} {'(skipped)':{STATE_WIDTH}}", flush=True)
     totals = report.totals
     print(
-        f"\n{totals.criteria} criteria in {totals.latency_s:.1f}s for ${totals.cost_usd:.4f} "
+        f"\n{totals.criteria} criteria in {totals.job_duration_s:.1f}s for ${totals.cost_usd:.4f} "
         f"({totals.input_tokens + totals.output_tokens} tokens, {totals.tool_calls} tool calls); "
         f"mean confidence {totals.mean_confidence:.2f}, {totals.needs_review} need review",
         flush=True,

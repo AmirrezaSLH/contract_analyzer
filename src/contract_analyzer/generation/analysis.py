@@ -267,7 +267,7 @@ def _finish(
     run.messages = messages + [{"role": "assistant", "content": content_params(message)}]
     # The `result` event is *not* emitted here. The Router emits it, because
     # only the Router knows how long the criterion took and how it ended -- and
-    # a progress row told the verdict now and the latency later is two events
+    # a progress row told the verdict now and the duration later is two events
     # for one fact.
     return build_result(draft, errors, run, criterion=criterion, structure_rounds=rounds)
 

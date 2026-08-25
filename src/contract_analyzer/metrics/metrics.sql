@@ -100,7 +100,7 @@ CREATE TABLE IF NOT EXISTS criterion_results (
     cost_usd         REAL,
     quotes_total     INTEGER,
     quotes_verified  INTEGER,
-    latency_s        REAL,
+    duration_s       REAL,
     -- Declared now, NULL until the evaluator lands. The same argument as the
     -- evaluator_* trio on `analyses`: declaring a column costs nothing and
     -- removes an ALTER TABLE from the middle of a later step.

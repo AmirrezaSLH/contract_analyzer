@@ -1,9 +1,9 @@
 """Host headroom: the latest sample, and the percent series over a window.
 
 Tiles are the most recent `system_samples` row — current RAM and disk, not a
-five-minute average. Charts take the last sample in each
-`monitor_sample_seconds` bucket so a disk cliff is not smoothed into a coarser
-bar.
+five-minute average. Charts take the last sample in each bucket: the sampler
+tick on 30m/1h so a disk cliff is not smoothed away, and the window pairing
+on 24h / 7d / 30d so the axis is not thousands of 30s points.
 """
 
 from __future__ import annotations
@@ -45,7 +45,7 @@ def host_map(
 ) -> dict[str, Any]:
     now = now or datetime.now(UTC)
     since = windows.since(window, now=now)
-    bucket = _sample_bucket(interval)
+    bucket = _chart_bucket(window, interval)
     latest = conn.execute(_LATEST).fetchone()
     series = _series(conn, window, bucket, since, now)
     return {
@@ -61,6 +61,14 @@ def host_map(
         "disk_total_gb": None if latest is None else latest["disk_total_gb"],
         "series": series,
     }
+
+
+def _chart_bucket(window: str, interval: float) -> str:
+    """Sampler grain on short windows; the window pairing when that grain explodes."""
+    sample = _sample_bucket(interval)
+    if windows.seconds(window) / windows.seconds(sample) > 180:
+        return windows.bucket_for(window)
+    return sample
 
 
 def _sample_bucket(interval: float) -> str:

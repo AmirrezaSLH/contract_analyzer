@@ -41,23 +41,24 @@ host.
 | **Everything is scoped to one contract** | Not a UI convention: `retrieve()`, `chat()` and `analyze_document()` all take a `document_id`, and nothing on screen may come from another. |
 | **The server is the state** | The ids are. A reload loses none of the work. Chat's transcript is the exception: the API is stateless, so the list in memory *is* the conversation. |
 
-The KPI dashboard and the live log sit behind the **App / KPI / Log** toggle
-at the top of the sidebar. Both are application-level -- they span every
-document -- so in those modes the sidebar drops the document scope.
+The KPI dashboard, the Monitor tab and the live log sit behind the **App /
+KPI / Monitor / Log** toggle at the top of the sidebar. Those three are
+application-level -- they span every document -- so in those modes the
+sidebar drops the document scope.
 
 Routes: `/upload`, `/library`, `/documents/:id/analysis`,
-`/documents/:id/chat`, `/metrics`, `/logs`. `/_gaps` exists in development
-only, so every analysis state in the spec can be looked at against a sample
-that is otherwise all-green.
+`/documents/:id/chat`, `/metrics`, `/monitor`, `/logs`. `/_gaps` exists in
+development only, so every analysis state in the spec can be looked at against
+a sample that is otherwise all-green.
 
 ## Module layout
 
 ```
 ui/
   src/api/         client.ts, errors.ts, sse.ts, types.gen.ts
-  src/hooks/       TanStack Query: documents, analysis (poll), chat, health, metrics, logs
+  src/hooks/       TanStack Query: documents, analysis (poll), chat, health, metrics, monitor, logs
   src/components/  chips, quote cards, error surfaces, the shell pieces
-  src/views/       Upload, Library, Analysis, Chat, Metrics, Logs
+  src/views/       Upload, Library, Analysis, Chat, Metrics, Monitor, Logs
   src/styles/      tokens.css, global.css
 ```
 
@@ -103,6 +104,16 @@ rather than clickable and refused.
 the code. There is no generic toast. Two codes are minted client-side:
 `unreachable` and `bad_response`. An unknown code falls back to an inline
 error rather than a white screen.
+
+### KPI draws; it does not aggregate
+
+`/metrics` is five bands: tiles (runs, failure rate, p95 job duration, total
+spend, p95 job cost), quote-verification and needs-review meters, three line
+charts (runs initiated, duration p50/p95, spend p50/p95), a cost split (by
+model, then Chat vs Analysis), and the global runs table. `/monitor` is
+upstream retries, worst stage, and host RAM/disk — is the box healthy, not is
+the model good. Both share the five-window selector. Every number is computed
+server-side; the browser formats and draws.
 
 ### One request per list, not one per row
 

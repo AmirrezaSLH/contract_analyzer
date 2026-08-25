@@ -1,9 +1,11 @@
 import type { MetricsWindow } from "../../api/client";
 import styles from "./MetricsView.module.css";
 
-/** The three windows, and the bucket the server pairs with each. The pairing
+/** The five windows, and the bucket the server pairs with each. The pairing
  *  itself lives in `windows.DEFAULT_BUCKETS`; these are the words for it. */
 export const WINDOWS: { value: MetricsWindow; label: string; bucket: string }[] = [
+  { value: "30m", label: "30 minutes", bucket: "1-minute buckets" },
+  { value: "1h", label: "1 hour", bucket: "1-minute buckets" },
   { value: "24h", label: "24 hours", bucket: "hourly buckets" },
   { value: "7d", label: "7 days", bucket: "6-hour buckets" },
   { value: "30d", label: "30 days", bucket: "daily buckets" },
@@ -15,7 +17,7 @@ interface Props {
 }
 
 /**
- * One control, three options, and it drives **both** query parameters.
+ * One control, five options, and it drives **both** query parameters.
  *
  * The page sends only `window`; the server chooses the bucket. That pairing
  * lives in one place so the API and the design cannot drift, and because

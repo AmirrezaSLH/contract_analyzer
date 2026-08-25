@@ -1,5 +1,4 @@
 import type { MetricsSummary } from "../../api/client";
-import type { Health } from "../../api/client";
 import { MetricTile } from "../../components/MetricTile";
 import { StateChip } from "../../components/StateChip";
 import { percent, plural, ratio, seconds, usd } from "./format";
@@ -8,7 +7,6 @@ import styles from "./MetricsView.module.css";
 
 interface Props {
   summary: MetricsSummary | undefined;
-  health: Health | undefined;
 }
 
 /**
@@ -18,33 +16,21 @@ interface Props {
  * it has to clear are never separated, and a tile that crosses one takes a
  * chip that carries the words. Colour says nothing on its own here.
  *
- * `Active now` is the one tile that is not a table read: `live.running` comes
- * from `JobRunner` and is a fact about *this process*. It is why the summary
- * is the query that polls.
+ * Spend is two tiles, not one: the window total against the budget, and the
+ * p95 per job against the tail tripwire. Combining them hid which number was
+ * which, and which alert belonged to which.
  */
-export function NowBand({ summary, health }: Props) {
+export function NowBand({ summary }: Props) {
   if (!summary) return <SkeletonTiles />;
 
-  const { live, runs, reliability, latency_s, cost_usd } = summary;
-  const workers = health?.api_workers;
+  const { runs, reliability, job_duration_s, cost_usd } = summary;
   const failure = statusOf(reliability.failure_rate, THRESHOLDS.failureRate);
-  const latency = statusOf(latency_s.p95, THRESHOLDS.latencyP95);
-  // Two things can be wrong with spend, and they are different alerts. The
-  // window total against the budget is the one that pauses new runs; the p95
-  // against the p50 is the "one run went wild" tripwire, which fires long
-  // before the budget does and is the one an average would hide. The budget
-  // wins the chip when both are lit -- it is the one with an action behind it.
+  const duration = statusOf(job_duration_s.p95, THRESHOLDS.jobDurationP95);
   const spend = statusOf(cost_usd.total, THRESHOLDS.dailyBudget);
   const tail = statusOf(costTailRatio(cost_usd.p50, cost_usd.p95), THRESHOLDS.costTail);
-  const spendChip = spend.tone === "warn" ? spend : tail.tone === "warn" ? { ...tail, words: "tail" } : spend;
 
   return (
     <div className={styles.tiles}>
-      <MetricTile
-        label="Active now"
-        value={workers ? `${live.running} / ${workers}` : String(live.running)}
-        sub={`workers busy · ${live.queued} queued`}
-      />
       <MetricTile
         label="Runs"
         value={String(runs.total)}
@@ -60,24 +46,22 @@ export function NowBand({ summary, health }: Props) {
         )} settled`}
       />
       <MetricTile
-        label="p95 latency"
-        value={seconds(latency_s.p95)}
-        chip={<Chip tone={latency.tone} words={latency.words} />}
-        sub={`${THRESHOLDS.latencyP95.label} · p50 ${seconds(latency_s.p50)}`}
+        label="p95 job duration"
+        value={seconds(job_duration_s.p95)}
+        chip={<Chip tone={duration.tone} words={duration.words} />}
+        sub={`${THRESHOLDS.jobDurationP95.label} · p50 ${seconds(job_duration_s.p50)}`}
       />
-      {/*
-        Dollars on the tile, tokens and calls behind it: cost is the only
-        family where three numbers describe the same event, and promoting all
-        three says the same thing thrice. The sub-line is **p50 per run**, not
-        the mean -- `02_costs.md` §1 -- because the mean is the number that
-        hides the run that went wild, and the tail is the whole reason this
-        tile has a tripwire.
-      */}
       <MetricTile
-        label="Spend"
+        label="Total spend"
         value={usd(cost_usd.total)}
-        chip={<Chip tone={spendChip.tone} words={spendChip.words} />}
-        sub={`${usd(cost_usd.p50)} per run (p50) · ${THRESHOLDS.dailyBudget.label}`}
+        chip={<Chip tone={spend.tone} words={spend.words} />}
+        sub={`${summary.window} window · ${THRESHOLDS.dailyBudget.label}`}
+      />
+      <MetricTile
+        label="p95 job cost"
+        value={usd(cost_usd.p95)}
+        chip={<Chip tone={tail.tone} words={tail.words} />}
+        sub={`${THRESHOLDS.costTail.label} · p50 ${usd(cost_usd.p50)}`}
       />
     </div>
   );

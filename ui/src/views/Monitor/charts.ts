@@ -41,6 +41,7 @@ export function lineSeries(
       y: BASE - ((BASE - TOP) * value) / top,
       key: sample.bucket,
       title: `${bucketLabel(sample.bucket, window)} — ${words(value)}${partial ? " so far" : ""}`,
+      partial,
     };
   });
   const drawn = points.filter((point): point is Point => point !== null);

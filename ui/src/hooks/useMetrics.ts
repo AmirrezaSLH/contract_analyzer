@@ -36,10 +36,10 @@ export function useMetricsTimeseries(window: MetricsWindow) {
   return useQuery({
     queryKey: keys.metricsTimeseries(window),
     queryFn: () => api.metricsTimeseries(window),
-    // A bucket is an hour at the finest. Polling it every five seconds would
-    // redraw the same chart 720 times to move one bar.
-    refetchInterval: 60_000,
-    staleTime: 30_000,
+    // A bucket is a minute on the short windows and an hour on 24h. Poll the
+    // minute grain often enough that the in-progress bucket can move.
+    refetchInterval: window === "30m" || window === "1h" ? 15_000 : 60_000,
+    staleTime: window === "30m" || window === "1h" ? 5_000 : 30_000,
     placeholderData: keepPreviousData,
   });
 }

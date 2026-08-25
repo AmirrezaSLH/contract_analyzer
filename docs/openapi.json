@@ -5544,7 +5544,7 @@
             "required": false,
             "schema": {
               "default": "24h",
-              "pattern": "^\\d+[hd]$",
+              "pattern": "^\\d+[mhd]$",
               "title": "Window",
               "type": "string"
             }
@@ -5684,7 +5684,7 @@
             "required": false,
             "schema": {
               "default": "7d",
-              "pattern": "^\\d+[hd]$",
+              "pattern": "^\\d+[mhd]$",
               "title": "Window",
               "type": "string"
             }
@@ -5696,7 +5696,7 @@
             "schema": {
               "anyOf": [
                 {
-                  "pattern": "^\\d+[hd]$",
+                  "pattern": "^\\d+[mhd]$",
                   "type": "string"
                 },
                 {

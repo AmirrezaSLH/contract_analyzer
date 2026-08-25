@@ -48,10 +48,10 @@ export type EvaluatorSlot = Schemas["EvaluatorSlot"];
 
 /** The window selector's three options, and the only windows this UI asks for.
  *  The **bucket is deliberately not a parameter here**: the server pairs them
- *  (`windows.DEFAULT_BUCKETS` -- 24h/1h, 7d/6h, 30d/1d) so the API and the
+ *  (`windows.DEFAULT_BUCKETS` -- 30m/1m, 1h/1m, 24h/1h, 7d/6h, 30d/1d) so the API and the
  *  design cannot drift, and thirty days of one-hour bars is 720 marks on a
  *  900-pixel axis. */
-export type MetricsWindow = "24h" | "7d" | "30d";
+export type MetricsWindow = "30m" | "1h" | "24h" | "7d" | "30d";
 
 export type MonitorWindow = "30m" | "1h";
 

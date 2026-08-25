@@ -1,7 +1,7 @@
 import kpi from "../Metrics/MetricsView.module.css";
 import type { MonitorWindow } from "./types";
 
-/** Monitor's windows. KPI keeps 24h / 7d / 30d; this page is the live box. */
+/** Monitor's windows. KPI also offers these two, plus 24h / 7d / 30d. */
 export const WINDOWS: { value: MonitorWindow; label: string; bucket: string }[] = [
   { value: "30m", label: "30 minutes", bucket: "1-minute buckets" },
   { value: "1h", label: "1 hour", bucket: "1-minute buckets" },

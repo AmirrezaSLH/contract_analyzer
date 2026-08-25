@@ -11,14 +11,14 @@ from ..schemas import MonitorHost, MonitorStages
 
 router = APIRouter(prefix="/monitor", tags=["monitor"], dependencies=[Protected])
 
-_SPEC = r"^\d+[hd]$"
+_SPEC = r"^(30m|1h)$"
 
 
 @router.get("/stages", summary="Worst pipeline stage, and its trend")
 def stages(
     conn: ConnDep,
     store: MetricsDep,
-    window: Annotated[str, Query(pattern=_SPEC)] = "24h",
+    window: Annotated[str, Query(pattern=_SPEC)] = "30m",
 ) -> MonitorStages:
     """Where it broke, not whether a run failed.
 
@@ -33,11 +33,11 @@ def stages(
 def host(
     conn: ConnDep,
     store: MetricsDep,
-    window: Annotated[str, Query(pattern=_SPEC)] = "24h",
+    window: Annotated[str, Query(pattern=_SPEC)] = "30m",
 ) -> MonitorHost:
     """How much RAM this process is using, and how full the disk is.
 
-    Tiles are the latest sample. The series follows `window`. No pager: the
-    chips say plenty / filling / tight.
+    Tiles are the latest sample. Charts are one point per sampler tick
+    (`monitor_sample_seconds`). No pager: the chips say plenty / filling / tight.
     """
     return MonitorHost.model_validate(store.host(conn, window=window))

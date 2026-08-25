@@ -728,11 +728,13 @@ class HostBucket(BaseModel):
 class MonitorHost(BaseModel):
     """`GET /monitor/host`: latest RAM and disk, and their trend.
 
-    Tiles are the newest `system_samples` row. Charts take the last sample in
-    each bucket. HTTP columns on that table are not part of this payload.
+    Tiles are the newest `system_samples` row. Charts use one bar per
+    `monitor_sample_seconds` tick. HTTP columns on that table are not part of
+    this payload.
     """
 
     window: str
+    bucket: str
     since: str
     generated_at: str
     ts: str | None = None

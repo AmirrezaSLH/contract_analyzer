@@ -143,13 +143,15 @@ class MetricsStore:
         """One run's spans as a tree, for the waterfall."""
         return queries.spans(conn, run_id)
 
-    def stages(self, conn: sqlite3.Connection, *, window: str = "24h") -> dict[str, Any]:
+    def stages(self, conn: sqlite3.Connection, *, window: str = "30m") -> dict[str, Any]:
         """Worst pipeline stage over the last five minutes, and its trend."""
         return stages.stage_map(conn, window=window)
 
-    def host(self, conn: sqlite3.Connection, *, window: str = "24h") -> dict[str, Any]:
+    def host(self, conn: sqlite3.Connection, *, window: str = "30m") -> dict[str, Any]:
         """Latest RAM and disk, and their percent series over `window`."""
-        return host.host_map(conn, window=window)
+        return host.host_map(
+            conn, window=window, interval=self._settings.monitor_sample_seconds
+        )
 
     def criterion_mix(
         self, conn: sqlite3.Connection, *, window: str = "30d"

@@ -97,9 +97,10 @@ quiet one.
 | `GET /api/metrics/runs?limit=` | The global runs table, each row with its `trace_id` |
 | `GET /api/metrics/runs/{id}/spans` | One run's span tree, for the waterfall |
 | `GET /api/monitor/stages?window=` | Worst `span` name over five minutes, its error rate, and the error-count trend across named stages |
-| `GET /api/monitor/host?window=` | Latest process memory and disk used %, and those percents per bucket |
+| `GET /api/monitor/host?window=` | Latest process memory and disk used %, one point per `monitor_sample_seconds` |
 
-A window is `\d+[hd]`; anything else is a `422` in the API's error envelope.
+A window on `/metrics/*` is `\d+[hd]`; on `/monitor/*` it is `30m` or `1h`.
+Anything else is a `422` in the API's error envelope.
 `503 metrics_unavailable` now means one thing only — the process could not
 build a store. **An empty database is a `200` with zeroes and nulls on it**,
 because "nothing has run yet" is a fact about the system and not a failure of
@@ -109,8 +110,9 @@ Monitor host is not a span query. A daemon sampler in the API process writes
 `system_samples` every `monitor_sample_seconds` (30 by default): `VmRSS` as a
 share of `MemTotal`, and `shutil.disk_usage` of the database directory. HTTP
 columns on that table stay NULL until the request ring lands. Tiles are the
-latest row; charts take the last sample in each bucket. `make analyze` does
-not start the sampler — "is the box healthy" is not a laptop question.
+latest row; charts take the last sample in each `monitor_sample_seconds`
+bucket. `make analyze` does not start the sampler — "is the box healthy" is
+not a laptop question.
 
 The payloads are JSON objects rather than pydantic models on purpose: which
 numbers the dashboard shows is the KPI plan's business, and pinning the shape

@@ -72,7 +72,7 @@ SELECT {bucket} AS bucket,
 
 
 def stage_map(
-    conn: sqlite3.Connection, *, window: str = "24h", now: datetime | None = None
+    conn: sqlite3.Connection, *, window: str = "30m", now: datetime | None = None
 ) -> dict[str, Any]:
     """Live tiles over 5 minutes, charts over `window`, one worst name.
 

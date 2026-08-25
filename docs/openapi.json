@@ -1619,8 +1619,12 @@
         "type": "object"
       },
       "MonitorHost": {
-        "description": "`GET /monitor/host`: latest RAM and disk, and their trend.\n\nTiles are the newest `system_samples` row. Charts take the last sample in\neach bucket. HTTP columns on that table are not part of this payload.",
+        "description": "`GET /monitor/host`: latest RAM and disk, and their trend.\n\nTiles are the newest `system_samples` row. Charts use one bar per\n`monitor_sample_seconds` tick. HTTP columns on that table are not part of\nthis payload.",
         "properties": {
+          "bucket": {
+            "title": "Bucket",
+            "type": "string"
+          },
           "disk_total_gb": {
             "anyOf": [
               {
@@ -1709,6 +1713,7 @@
         },
         "required": [
           "window",
+          "bucket",
           "since",
           "generated_at",
           "series"
@@ -5475,7 +5480,7 @@
     },
     "/api/monitor/host": {
       "get": {
-        "description": "How much RAM this process is using, and how full the disk is.\n\nTiles are the latest sample. The series follows `window`. No pager: the\nchips say plenty / filling / tight.",
+        "description": "How much RAM this process is using, and how full the disk is.\n\nTiles are the latest sample. Charts are one point per sampler tick\n(`monitor_sample_seconds`). No pager: the chips say plenty / filling / tight.",
         "operationId": "host_api_monitor_host_get",
         "parameters": [
           {
@@ -5483,8 +5488,8 @@
             "name": "window",
             "required": false,
             "schema": {
-              "default": "24h",
-              "pattern": "^\\d+[hd]$",
+              "default": "30m",
+              "pattern": "^(30m|1h)$",
               "title": "Window",
               "type": "string"
             }
@@ -5623,8 +5628,8 @@
             "name": "window",
             "required": false,
             "schema": {
-              "default": "24h",
-              "pattern": "^\\d+[hd]$",
+              "default": "30m",
+              "pattern": "^(30m|1h)$",
               "title": "Window",
               "type": "string"
             }

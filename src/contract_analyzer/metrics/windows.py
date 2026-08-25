@@ -26,8 +26,13 @@ from datetime import UTC, datetime, timedelta
 #: The window selector's pairs. 24 h -> 24 bars, 7 d -> 28, 30 d -> 30.
 DEFAULT_BUCKETS: dict[str, str] = {"24h": "1h", "7d": "6h", "30d": "1d"}
 
-_UNITS = {"m": 60, "h": 3600, "d": 86400}
-_SPEC = re.compile(r"^(\d+)([mhd])$")
+#: Monitor's shorter windows. Stages charts are 1-minute bars; host charts
+#: use `monitor_sample_seconds` and never this map.
+MONITOR_BUCKETS: dict[str, str] = {"30m": "1m", "1h": "1m"}
+MONITOR_WINDOWS = frozenset(MONITOR_BUCKETS)
+
+_UNITS = {"s": 1, "m": 60, "h": 3600, "d": 86400}
+_SPEC = re.compile(r"^(\d+)([smhd])$")
 
 #: How a bucket start is spelled on the wire. `Z` rather than `+00:00` because
 #: it is a label a chart prints, not a value SQLite has to parse back.
@@ -35,16 +40,17 @@ _LABEL = "%Y-%m-%dT%H:%M:%SZ"
 
 
 def seconds(spec: str) -> int:
-    """`24h` -> 86400, `5m` -> 300. Raises ValueError on anything else."""
+    """`24h` -> 86400, `5m` -> 300, `30s` -> 30. Raises ValueError on anything else."""
     match = _SPEC.match(spec.strip().lower())
     if match is None or int(match.group(1)) < 1:
-        raise ValueError(f"expected a window like 24h, 7d, 1h or 5m, got {spec!r}")
+        raise ValueError(f"expected a window like 24h, 7d, 1h, 5m or 30s, got {spec!r}")
     return int(match.group(1)) * _UNITS[match.group(2)]
 
 
 def bucket_for(window: str) -> str:
     """The bucket this window is drawn with. Unknown windows get `1h`."""
-    return DEFAULT_BUCKETS.get(window.strip().lower(), "1h")
+    key = window.strip().lower()
+    return MONITOR_BUCKETS.get(key) or DEFAULT_BUCKETS.get(key, "1h")
 
 
 def since(window: str, *, now: datetime | None = None) -> str:
@@ -88,6 +94,8 @@ def bucket_expression(column: str, bucket: str) -> str:
 
 __all__ = [
     "DEFAULT_BUCKETS",
+    "MONITOR_BUCKETS",
+    "MONITOR_WINDOWS",
     "bucket_expression",
     "bucket_for",
     "bucket_starts",

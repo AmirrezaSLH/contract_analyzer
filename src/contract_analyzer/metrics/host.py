@@ -1,8 +1,9 @@
 """Host headroom: the latest sample, and the percent series over a window.
 
 Tiles are the most recent `system_samples` row — current RAM and disk, not a
-five-minute average. Charts take the last sample in each bucket so a disk
-cliff is not smoothed into the hour it happened in.
+five-minute average. Charts take the last sample in each
+`monitor_sample_seconds` bucket so a disk cliff is not smoothed into a coarser
+bar.
 """
 
 from __future__ import annotations
@@ -36,14 +37,20 @@ SELECT k, rss_pct, disk_used_pct
 
 
 def host_map(
-    conn: sqlite3.Connection, *, window: str = "24h", now: datetime | None = None
+    conn: sqlite3.Connection,
+    *,
+    window: str = "30m",
+    interval: float = 30.0,
+    now: datetime | None = None,
 ) -> dict[str, Any]:
     now = now or datetime.now(UTC)
     since = windows.since(window, now=now)
+    bucket = _sample_bucket(interval)
     latest = conn.execute(_LATEST).fetchone()
-    series = _series(conn, window, since, now)
+    series = _series(conn, window, bucket, since, now)
     return {
         "window": window,
+        "bucket": bucket,
         "since": since,
         "generated_at": now.isoformat(timespec="seconds"),
         "ts": None if latest is None else latest["ts"],
@@ -56,10 +63,14 @@ def host_map(
     }
 
 
+def _sample_bucket(interval: float) -> str:
+    """One bar per sampler tick. Floor at 1s so a test interval cannot explode."""
+    return f"{max(1, int(round(interval)))}s"
+
+
 def _series(
-    conn: sqlite3.Connection, window: str, since: str, now: datetime
+    conn: sqlite3.Connection, window: str, bucket: str, since: str, now: datetime
 ) -> list[dict[str, Any]]:
-    bucket = windows.bucket_for(window)
     expression = windows.bucket_expression("ts", bucket)
     found = {
         row["k"]: row

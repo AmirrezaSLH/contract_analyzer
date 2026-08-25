@@ -1,0 +1,140 @@
+{
+  "vocabulary": {
+    "compliance_state": {
+      "options": ["Fully Compliant", "Partially Compliant", "Non-Compliant"],
+      "explain": "Analyzer's overall verdict for the criterion. The critic answers state_agreement against this value; it never overwrites it."
+    },
+    "sub_requirement.status": {
+      "options": ["met", "partial", "missing", "not_determined"],
+      "explain": "Analyzer's status per sub-requirement. missing with no overlapping search becomes unsearched / missing_searches and forces research. not_determined cuts confidence (share of the criterion with no language)."
+    },
+    "quote_support.support": {
+      "options": ["supports", "partial", "irrelevant", "contradicts"],
+      "explain": "Critic: does this quote carry the sub-requirement it was cited for? supports = it obliges what was asked. partial = related, but a gap/carve-out/hedge. irrelevant = verbatim but about something else. contradicts = says the opposite. Only irrelevant and contradicts are disputed_quotes and become reason quote_irrelevant / quote_contradicts."
+    },
+    "status_agreement.agreement": {
+      "options": ["agree", "too_strong", "too_weak"],
+      "explain": "Critic: does the Analyzer's met/partial/missing follow from the quotes? agree = it does. too_strong = claimed more than the quotes carry (e.g. met on a hedge). too_weak = claimed less than they carry. Anything but agree is a disputed status → reason status_too_strong / status_too_weak."
+    },
+    "state_agreement": {
+      "options": ["agree", "disagree"],
+      "explain": "Critic: would a second reader keep the Analyzer's compliance_state? agree = yes. disagree → reason state_disagreement, and confidence is multiplied by 0.6. The critic does not pick a replacement state."
+    },
+    "missing_searches": {
+      "options": ["<sub-requirement id>", "(empty list)"],
+      "explain": "Sub-requirement ids marked missing that nobody searched for. E1 precheck always unions these in; the critic cannot erase them. Any id here → Router mode research (outranks redraft). Reason code: unsearched_requirement."
+    },
+    "hedge_terms": {
+      "options": [
+        "commercially reasonable", "reasonable efforts", "reasonable endeavours",
+        "best efforts", "where feasible", "where practicable", "as appropriate",
+        "industry standard", "may", "should", "from time to time",
+        "substantially", "materially", "endeavour", "endeavor", "…"
+      ],
+      "explain": "E1 lexicon flags on quotes cited under met/partial. A flag for the critic to read, not a Router reason by itself. Empty list means no hedge words found."
+    },
+    "router.verdict": {
+      "options": ["accept", "revise", "fallback", "unevaluated"],
+      "explain": "Deterministic table in decide(). No reasons → accept. Reasons and rounds left → revise. Reasons and rounds exhausted → fallback (ships flagged). Critic unusable → unevaluated (ships flagged). Anything but accept sets needs_review."
+    },
+    "revision.mode": {
+      "options": ["redraft", "research"],
+      "explain": "How the Analyzer comes back. research if missing_searches is non-empty (search again, extra tool budget). Else redraft (same evidence, draft again, tools off). research outranks redraft when both apply."
+    },
+    "reason_codes": {
+      "options": [
+        "quote_irrelevant",
+        "quote_contradicts",
+        "status_too_strong",
+        "status_too_weak",
+        "state_disagreement",
+        "unsearched_requirement",
+        "evaluator_failed"
+      ],
+      "explain": "What decide() writes onto RevisionRequest / the log. Built as quote_{support} for disputed quotes, status_{agreement} for disputed statuses, then the two literals. Empty reasons → accept. evaluator_failed is the Router's own code when the critic never answers, not a critic field."
+    }
+  },
+  "analyzer_to_router": {
+    "compliance_state": "Partially Compliant",
+    "sub_requirements": [
+      {"id": "rotation", "status": "met", "quote_indexes": [0]},
+      {"id": "vaulting", "status": "missing", "quote_indexes": []}
+    ],
+    "relevant_quotes": [
+      {"text": "Passwords shall be rotated every ninety (90) days.", "evidence_id": "E1"}
+    ],
+    "rationale": "Rotation is obliged; no vaulting language found.",
+    "raw_confidence": 0.72
+  },
+  "router_to_evaluator": {
+    "criterion_id": "password_mgmt",
+    "compliance_state": "Partially Compliant",
+    "sub_requirements": [
+      {
+        "id": "rotation",
+        "requirement": "Rotated at least every 90 days",
+        "status": "met",
+        "quote_indexes": [0]
+      },
+      {
+        "id": "vaulting",
+        "requirement": "Privileged credentials in a vault",
+        "status": "missing",
+        "quote_indexes": []
+      }
+    ],
+    "quotes": [
+      {
+        "index": 0,
+        "text": "Passwords shall be rotated every ninety (90) days.",
+        "evidence_id": "E1",
+        "hedge_terms": []
+      }
+    ],
+    "passages": [
+      {
+        "evidence_id": "E1",
+        "section_path": "6.6 Passwords",
+        "page": "9",
+        "text": "Passwords shall be rotated every ninety (90) days. Privileged accounts may use a shared password."
+      }
+    ],
+    "searched_queries": ["password rotation schedule"],
+    "unsearched": ["vaulting"],
+    "round": 0
+  },
+  "evaluator_to_router": {
+    "quote_support": [
+      {
+        "quote_index": 0,
+        "sub_requirement_id": "rotation",
+        "support": "supports",
+        "note": "Obliges 90-day rotation."
+      }
+    ],
+    "status_agreement": [
+      {
+        "sub_requirement_id": "rotation",
+        "agreement": "agree",
+        "note": "Status follows the quote."
+      },
+      {
+        "sub_requirement_id": "vaulting",
+        "agreement": "agree",
+        "note": "Nothing cited; missing is fair."
+      }
+    ],
+    "state_agreement": "agree",
+    "missing_searches": ["vaulting"],
+    "critic_confidence": 0.55,
+    "notes": ""
+  },
+  "router_to_analyzer": {
+    "mode": "research",
+    "round": 1,
+    "reason_codes": ["unsearched_requirement"],
+    "instructions": [
+      "sub-requirement vaulting was marked missing, but no search in this run went looking for it; search for it before concluding it is absent"
+    ]
+  }
+}

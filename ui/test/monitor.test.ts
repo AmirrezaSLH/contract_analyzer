@@ -19,6 +19,7 @@ describe("reliability chips", () => {
 
   it("does not call 1-of-1 a 100% stage failure", () => {
     expect(stageChip(1, 1)).toEqual({ state: "neutral", words: "not enough" });
+    expect(stageChip(null, 0)).toBeNull();
     expect(stageChip(0.02, 40)).toBeNull();
     expect(stageChip(0.08, 40)).toEqual({ state: "Non-Compliant", words: "failing" });
   });

@@ -31,9 +31,12 @@ export function exhaustedChip(rate: number): Chip | null {
   return null;
 }
 
-/** Stage error rate, only with enough samples. 1-of-1 is not 100%. */
-export function stageChip(rate: number, n: number): Chip | null {
+/** Stage error rate, only with enough samples. 1-of-1 is not 100%.
+ *  No data is not a chip — the tile says null. */
+export function stageChip(rate: number | null | undefined, n: number): Chip | null {
+  if (n === 0) return null;
   if (n < 10) return { state: "neutral", words: "not enough" };
+  if (rate === null || rate === undefined) return null;
   if (rate > 0.05) return { state: "Non-Compliant", words: "failing" };
   return null;
 }

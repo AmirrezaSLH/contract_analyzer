@@ -53,6 +53,27 @@ export type EvaluatorSlot = Schemas["EvaluatorSlot"];
  *  900-pixel axis. */
 export type MetricsWindow = "24h" | "7d" | "30d";
 
+export interface StageBucket {
+  bucket: string;
+  n: number;
+  error_rate: number | null;
+  errors_total: number | null;
+}
+
+export interface MonitorStages {
+  window: string;
+  live_window: string;
+  since: string;
+  generated_at: string;
+  name: string | null;
+  n: number;
+  errors: number;
+  error_rate: number | null;
+  errors_total: number | null;
+  min_samples: number;
+  series: StageBucket[];
+}
+
 /** `AnalysisReport` types `results` as `ComplianceResult[] | undefined`, and
  *  `relevant_quotes` likewise. These narrow the optionality away once, here,
  *  rather than in every component that reads a report. */
@@ -187,6 +208,9 @@ export const api = {
     request<MetricsBucket[]>(`/metrics/timeseries?window=${window}`),
 
   metricsRuns: (limit = 50) => request<RunRow[]>(`/metrics/runs?limit=${limit}`),
+
+  monitorStages: (window: MetricsWindow) =>
+    request<MonitorStages>(`/monitor/stages?window=${window}`),
 };
 
 // --------------------------------------------------------------------------

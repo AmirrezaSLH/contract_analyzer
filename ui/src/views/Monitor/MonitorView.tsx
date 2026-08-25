@@ -1,7 +1,9 @@
 import { useMemo, useState } from "react";
+import { ErrorSurface } from "../../components/ErrorSurface";
 import { MetricTile } from "../../components/MetricTile";
 import { PageHead } from "../../components/PageHead";
 import { StateChip } from "../../components/StateChip";
+import { useMonitorStages } from "../../hooks/useMonitor";
 import { WindowSelector, bucketWords } from "../Metrics/WindowSelector";
 import { millis, percent } from "../Metrics/format";
 import kpi from "../Metrics/MetricsView.module.css";
@@ -14,31 +16,36 @@ import type { MonitorWindow } from "./types";
 /**
  * The Monitor tab: is the box healthy, not is the model good.
  *
- * Route `/monitor`. No `:id`, no document scope. Four sections, each a row of
- * tiles and the line charts of those numbers. Data is a fixture until
- * `GET /monitor/summary` and `/timeseries` exist — the layout is the step.
+ * Route `/monitor`. Stages are live from `GET /monitor/stages`. HTTP, upstream
+ * and host are still a fixture until those endpoints exist.
  */
 export function MonitorView() {
   const [window, setWindow] = useState<MonitorWindow>("24h");
   const data = useMemo(() => monitorFixture(window), [window]);
+  const stages = useMonitorStages(window);
   const buckets = bucketWords(window);
 
   const httpChip = fiveXxChip(data.http.fiveXx);
   const upChip = exhaustedChip(data.upstream.exhaustedRate);
-  const stage = stageChip(data.stages.errorRate, data.stages.n);
+  const live = stages.data;
+  const stage = live ? stageChip(live.error_rate, live.n) : null;
   const rss = usedChip(data.host.rssPct);
   const disk = usedChip(data.host.diskPct);
+  const hasStage = Boolean(live?.name);
+  const stageValue = hasStage
+    ? `${live!.name} · ${live!.errors} failed`
+    : "Null";
 
   return (
     <div className={kpi.view}>
       <PageHead
         title="Monitor"
-        subtitle="This process · HTTP, upstream, pipeline stages, host · numbers are a fixture until the API lands"
+        subtitle="This process · stages are live · HTTP, upstream and host are a fixture until the API lands"
       />
 
       <div className={kpi.controls}>
         <WindowSelector value={window} onChange={setWindow} />
-        <span className={kpi.refreshed}>fixture · window {window}</span>
+        <span className={kpi.refreshed}>window {window}</span>
       </div>
 
       <section className={kpi.band}>
@@ -132,38 +139,54 @@ export function MonitorView() {
             where it broke, not whether · worst span name over the last 5 min
           </span>
         </div>
-        <div className={styles.tiles}>
-          <MetricTile
-            label="Worst stage"
-            value={data.stages.name}
-            chip={stage ? <StateChip state={stage.state} label={stage.words} size="sm" /> : null}
-            sub={`${data.stages.n} samples`}
-          />
-          <MetricTile
-            label="Error rate"
-            value={percent(data.stages.errorRate)}
-            sub="target ≤ 5% · n ≥ 10"
-          />
-          <MetricTile label="p95 latency" value={`${data.stages.p95S.toFixed(2)} s`} sub={data.stages.name} />
-        </div>
-        <div className={styles.charts}>
-          <LineChart
-            title="Stage error rate"
-            sub={`${data.stages.name} · ${buckets}`}
-            samples={data.series.stageError}
-            window={window}
-            words={(v) => percent(v)}
-            label={`Error rate for ${data.stages.name}`}
-          />
-          <LineChart
-            title="Stage p95"
-            sub={`${data.stages.name} · seconds`}
-            samples={data.series.stageP95}
-            window={window}
-            words={(v) => `${v.toFixed(2)} s`}
-            label={`p95 latency for ${data.stages.name}`}
-          />
-        </div>
+        {stages.error ? (
+          <ErrorSurface error={stages.error} onRetry={() => void stages.refetch()} as="inline" />
+        ) : (
+          <>
+            <div className={styles.tiles}>
+              <MetricTile
+                label="Worst stage"
+                value={stageValue}
+                chip={stage ? <StateChip state={stage.state} label={stage.words} size="sm" /> : null}
+                sub={hasStage ? `${live!.n} samples` : "no spans in this window"}
+              />
+              <MetricTile
+                label="Error rate"
+                value={hasStage ? percent(live!.error_rate) : "Null"}
+                sub="target ≤ 5% · n ≥ 10"
+              />
+              <MetricTile
+                label="Total errors"
+                value={live?.errors_total == null ? "Null" : String(live.errors_total)}
+                sub="all named stages in this window"
+              />
+            </div>
+            <div className={styles.charts}>
+              <LineChart
+                title="Stage error rate"
+                sub={`${hasStage ? live!.name : "Null"} · ${buckets}`}
+                samples={(live?.series ?? []).map((row) => ({
+                  bucket: row.bucket,
+                  value: row.error_rate,
+                }))}
+                window={window}
+                words={(v) => percent(v)}
+                label={`Error rate for ${hasStage ? live!.name : "Null"}`}
+              />
+              <LineChart
+                title="Total errors"
+                sub={`all named stages · ${buckets}`}
+                samples={(live?.series ?? []).map((row) => ({
+                  bucket: row.bucket,
+                  value: row.errors_total,
+                }))}
+                window={window}
+                words={(v) => String(Math.round(v))}
+                label="Error count across named pipeline stages"
+              />
+            </div>
+          </>
+        )}
       </section>
 
       <section className={kpi.band}>

@@ -1,6 +1,6 @@
 # Step 14 — the Monitor tab: is the box healthy, not just is the model good
 
-**Status: draft for review, 2026-08-24. Plan only — nothing here is built.**
+**Status: host and stages are built; HTTP and upstream still fixture.**
 related to `06_metrics_plan.md`
 
 **The one-sentence version.** The KPI tab (`/metrics`) answers *"is the

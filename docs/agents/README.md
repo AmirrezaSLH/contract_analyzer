@@ -144,14 +144,15 @@ events, so a progress view shows the loop happening instead of a longer pause.
 |---|---|---|
 | `evaluator_model` | `""` → `analysis_model` | The critic's model. Empty means the analyst's -- the check that matters is that the critic sees only quotes and claims, not that it is a different vendor. |
 | `evaluator_effort` | `medium` | The critic reads a page and answers a schema. Reading, not deduction. |
-| `evaluator_max_tokens` | `2000` | The findings are a bounded structure; a truncated critic is retried. |
+| `evaluator_max_tokens` | `4000` | The findings are a bounded structure, but a judgement per (quote, sub-requirement) pair plus thinking outgrew 2000 on a live run -- and a truncation does not clear on retry the way load does. Half the analyst's budget. |
 | `router_max_rounds` | `1` | Revision rounds after the first analysis. One demonstrates the mechanism; the KPI revise rate is what would justify raising it. |
 | `research_extra_tool_calls` | `3` | Tool calls a `research` revision may add *on top of what was already spent*. A delta, never a fresh allowance. |
 
 ## What it costs
 
-Per contract: five critic calls at roughly 2k tokens each -- about one extra
-analysis run -- plus one more finisher call per criterion that gets revised,
+Per contract: five critic calls, each bounded by `evaluator_max_tokens`
+(4000) -- about one extra analysis run in total -- plus one more finisher
+call per criterion that gets revised,
 bounded by `router_max_rounds`. Each criterion holds its worker slot slightly
 longer, so wall clock moves from ~60 s toward ~75--90 s; the concurrency
 ceiling (`api_workers × analysis_workers`) does not widen, because the critic

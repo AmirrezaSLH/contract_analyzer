@@ -37,6 +37,7 @@ below, and `settings.json` only ever needs the fields in the second table.
 |---|---|---|---|
 | Generation | `answer_model` | `claude-sonnet-5` | chat/citation model |
 | | `analysis_model` | `claude-sonnet-5` | compliance analysis (five criterion runs); independent of chat |
+| | `chat_models` | `["claude-opus-5", "claude-sonnet-5"]` | the allowlist `POST /chat` validates `model` against, published by `/health`; the configured `answer_model` is prepended if absent |
 | | `answer_max_tokens` | 8000 | streaming, so generous |
 | | `chat_effort` | `low` | `output_config.effort` for the chat loop and finisher |
 | | `analysis_effort` | `medium` | the same for the compliance analysis; where to spend |
@@ -48,8 +49,14 @@ below, and `settings.json` only ever needs the fields in the second table.
 | | `prompts_path` | `src/…/generation/prompts.json` | the prompt library, validated on load |
 | Agents ([agents/](agents/README.md)) | `evaluator_model` | `""` → `analysis_model` | the critic's model; empty means the analyst's |
 | | `evaluator_effort` | `medium` | the critic reads a page and answers a schema |
-| | `evaluator_max_tokens` | 2000 | the findings are a bounded structure; a truncated critic is retried |
+| | `evaluator_max_tokens` | 4000 | half the analyst's budget; 2000 truncated the critic on a live run, and a truncation does not clear on retry the way load does |
 | | `router_max_rounds` | 1 | revision rounds after the first analysis; 0 still evaluates, it just never asks for a redo |
+| | `analysis_workers` | 5 | criteria analysed in parallel inside one document run; with `api_workers`, the outbound concurrent-request ceiling |
+| HTTP API | `api_workers` | 2 | analysis jobs in flight; a third submission sees `queued` |
+| | `api_max_upload_mb` | 25 | `413` above this, enforced while the body streams |
+| | `api_cors_origins` | `[]` | empty on purpose: the UI is served from the same origin |
+| | `api_keepalive_seconds` | 15 | SSE comment cadence, so a proxy does not close a thinking stream |
+| | `api_event_buffer` | 256 | per-subscriber queue depth and replay length |
 | HTTP | `http_timeout_seconds` | 60 | see http-client.md |
 | | `http_retries` | 3 | retries after the first attempt |
 | Logging | `log_level` | `INFO` | |

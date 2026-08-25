@@ -257,8 +257,11 @@ and `spans` (one row per step). `finish_analysis` writes it from the report it
 is already holding, so there is no second pass and no second source of truth;
 the columns are `state`, `confidence`, `raw_confidence`, `needs_review`,
 `ended_by`, `structure_rounds`, `tool_calls`, `cost_usd`, `quotes_total`,
-`quotes_verified`, `duration_s`, and an `evaluator_verdict` that is `NULL` until
-the evaluator lands.
+`quotes_verified`, `duration_s`, and an `evaluator_verdict` column that is
+declared but not yet written -- `record_criteria` does not carry the Router's
+per-criterion verdict down, so today it is `NULL` on every row and the verdict
+counts live as aggregates on the `analyses` row (`evaluator_accepted` and its
+siblings).
 
 It answers the two questions `report_json` answers badly:
 

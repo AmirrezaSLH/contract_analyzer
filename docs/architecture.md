@@ -89,7 +89,6 @@ Two modules cut across everything and were built first:
 | `report.py` | the harness: five criteria over one contract, in parallel, as one `AnalysisReport`. Not an agent -- threads, connections and the analyses row | [compliance.md](compliance.md#the-document-runner-reportpy-at-the-package-root) | done, tested |
 | `api/` | the HTTP surface: upload, analyses as jobs, streamed cited chat, the KPI data | [api.md](api.md) | done, tested |
 | `metrics/` | the KPI query layer over `analyses`, the `spans` table filled by a logging handler, and `criterion_results` | [metrics.md](metrics.md) | done, tested |
-| `evaluator` | the critic pass over each result | [agents/](agents/README.md) | done, tested |
 | `ui/` | the React front end (repo-root Vite app): upload, library, analysis, chat -- a client of `/api` like any other | [ui.md](ui.md) | done, tested |
 | `MCP-Connector/` | the fourth surface: seven MCP tools over the HTTP API, importing nothing from this package | [mcp.md](mcp.md) | done, tested |
 | `Dockerfile`, `docker-compose.yml`, `docker/` | build and run the whole thing in a container | [docker.md](docker.md) | `api` (UI at `/`) and `mcp`; `tools` for the suite |
@@ -211,6 +210,12 @@ inside it. See [docker.md](docker.md).
 
 ## Change log of this document
 
+* 2026-08-25 -- Docs pass against the code. `chat_models` trimmed to
+  `claude-opus-5` / `claude-sonnet-5` (the price table follows);
+  `evaluator_max_tokens` is 4000 after a live run truncated the critic at
+  2000; the `evaluator_*` columns on `analyses` are filled, and
+  [configuration.md](configuration.md) now lists the HTTP API group,
+  `chat_models` and `analysis_workers`.
 * 2026-08-24 -- Docker copies only the packages that run (`src/`,
   `MCP-Connector/`, `scripts/`, `settings.json`), mounts that tuning file,
   and bind-mounts `MCP-Connector/` into `tools` so connector tests match the

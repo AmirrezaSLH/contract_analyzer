@@ -1,38 +1,35 @@
+import type { ReactNode } from "react";
 import type { MetricsSummary } from "../../api/client";
 import { Card } from "../../components/Card";
 import { Label } from "../../components/Label";
-import { DASH, millis, percent, plural, usd } from "./format";
+import { DASH, percent, plural, usd } from "./format";
 import styles from "./MetricsView.module.css";
 
 /**
  * The cost breakdown -- after the spend tiles and the cost time series.
  *
- * **Not eight tiles.** The rule is §1: *dollars on the tile, tokens and calls
- * behind it*. Per-run p50/p95 live on the tiles and the spend chart, so this
- * band only splits the window total: which model, and who asked.
+ * **Not eight tiles.** Per-run p50/p95 live on the tiles and the spend chart,
+ * so this band only splits the window: which model, and analysis vs chat.
  *
- * Two slices:
- *
- *   * **By model** -- from `agent.call` spans, so it covers analysis *and*
- *     chat in one pass.
- *   * **By surface** -- who asked. `ui`, `cli`, `mcp`, `api`. Every row in it
- *     is an analysis. Chat is counted separately because it writes no run row.
+ * Chat is a share of billed spend, not a surface. Surfaces (`api`/`cli`) are
+ * who asked for an analysis; mixing them with chat was the old card's lie.
  */
 export function CostBand({ summary }: { summary: MetricsSummary | undefined }) {
   if (!summary) return null;
 
-  const { cost_usd, tokens, surfaces, cost_by_model, chat, runs } = summary;
+  const { cost_usd, tokens, cost_by_model, chat, runs } = summary;
   // A model id the price table has not learned prices at $0.00 and logs
   // `pricing.unknown_model` once. So a zero here has a known meaning, and it
   // is not "the run was free" -- which is worth the footnote below.
   const unpriced = cost_by_model.filter((row) => row.cost_usd === 0 && row.calls > 0);
+  const billed = cost_usd.total + chat.cost_usd;
 
   return (
     <section className={styles.band}>
       <div className={styles.bandHead}>
         <span className={styles.bandTitle}>Where the money went</span>
         <span className={styles.bandNote}>
-          which model billed, and who asked · per-run dollars are on the tiles and in the runs table
+          which model billed, and analysis vs chat · per-run dollars are on the tiles
         </span>
       </div>
 
@@ -72,28 +69,35 @@ export function CostBand({ summary }: { summary: MetricsSummary | undefined }) {
         </Card>
 
         <Card className={styles.costCard}>
-          <Label>By surface, and chat</Label>
+          <Label>Analysis and chat</Label>
           <div className={styles.shares}>
-            {surfaces.map((row) => (
-              <Share
-                key={row.surface ?? "unknown"}
-                name={row.surface ?? "unknown"}
-                value={row.cost_usd}
-                total={cost_usd.total}
-                sub={plural(row.runs, "run")}
+            <Share
+              name="Chat"
+              value={chat.cost_usd}
+              total={billed}
+              sub={chat.turns === 0 ? "no turns" : plural(chat.turns, "turn")}
+            >
+              <Split
+                rows={[
+                  ["turns", chat.turns === 0 ? DASH : String(chat.turns)],
+                  ["per turn", usd(chat.cost_per_turn)],
+                ]}
               />
-            ))}
+            </Share>
+            <Share
+              name="Analysis"
+              value={cost_usd.total}
+              total={billed}
+              sub={plural(runs.total, "run")}
+            >
+              <Split
+                rows={[
+                  ["runs", String(runs.total)],
+                  ["per run (p50)", usd(cost_usd.p50)],
+                ]}
+              />
+            </Share>
           </div>
-          <Split rows={[
-            ["chat turns", chat.turns === 0 ? DASH : String(chat.turns)],
-            ["chat cost", chat.turns === 0 ? DASH : usd(chat.cost_usd)],
-            ["per turn", usd(chat.cost_per_turn)],
-            ["chat p95 duration", millis(chat.latency_ms.p95)],
-          ]} />
-          <span className={styles.meterNote}>
-            Every surface above is an analysis — chat is counted separately because it writes no run
-            row, which is what keeps every analysis KPI from needing to exclude it.
-          </span>
         </Card>
       </div>
 
@@ -145,11 +149,13 @@ function Share({
   value,
   total,
   sub,
+  children,
 }: {
   name: string;
   value: number;
   total: number;
   sub: string;
+  children?: ReactNode;
 }) {
   const share = total > 0 ? value / total : 0;
   return (
@@ -166,6 +172,7 @@ function Share({
       <span className={styles.shareSub}>
         {sub} · {total > 0 ? percent(share, 0) : DASH} of spend
       </span>
+      {children}
     </div>
   );
 }

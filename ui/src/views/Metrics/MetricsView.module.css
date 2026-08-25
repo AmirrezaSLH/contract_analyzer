@@ -449,13 +449,17 @@
 .shares {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 18px;
 }
 
 .share {
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+
+.share .split {
+  margin-top: 6px;
 }
 
 .shareHead {

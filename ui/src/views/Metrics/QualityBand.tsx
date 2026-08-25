@@ -25,9 +25,6 @@ export function QualityBand({ summary }: { summary: MetricsSummary | undefined }
     <section className={styles.band}>
       <div className={styles.bandHead}>
         <span className={styles.bandTitle}>Answer quality</span>
-        <span className={styles.bandNote}>
-          quotes found verbatim, results flagged for a human · the black tick is the threshold
-        </span>
       </div>
       <div className={styles.meters}>
         {summary ? <Meters summary={summary} /> : <SkeletonMeters />}

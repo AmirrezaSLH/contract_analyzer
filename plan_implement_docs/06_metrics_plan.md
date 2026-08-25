@@ -136,7 +136,7 @@ right direction.
    legitimately contains an upload *and* an analysis; without `run_id` the
    parse would sit inside the analysis waterfall.
 7. **Percentiles in SQL, not in Python.** Nearest rank:
-   `row_number() OVER (ORDER BY latency_s)` against `count(*) OVER ()`, with
+   `row_number() OVER (ORDER BY job_duration_s)` against `count(*) OVER ()`, with
    `ceil(n·p/100)` written as `(n * p + 99) / 100` because SQLite's `ceil()`
    is a compile-time option. At n=1 both percentiles are the one value; at
    n=2, p50 is the lower and p95 the upper. Reads run on the **caller's
@@ -169,7 +169,7 @@ right direction.
 Not in this step's DDL. Primary key `analysis_id`. Columns the query layer
 reads: `trace_id`, `document_id`, `filename`, `surface`, `status` (`queued` →
 `running` → `done` | `failed` | `cancelled` | `interrupted`),
-`criteria_requested/completed/skipped`, `latency_s`, `cost_usd`,
+`criteria_requested/completed/skipped`, `job_duration_s`, `cost_usd`,
 `input_tokens`, `output_tokens`, `tool_calls`, `needs_review`, `capped`,
 `mean_confidence`, `quotes_total`, `quotes_verified`,
 `evaluator_accepted/revised/fallback` (nullable), `error`, `report_json`,
@@ -194,7 +194,7 @@ an empty list, not a 404.
 
 `(run_id, criterion_id)` primary key. `state`, `confidence`,
 `raw_confidence`, `needs_review`, `ended_by`, `structure_rounds`,
-`tool_calls`, `cost_usd`, `quotes_total`, `quotes_verified`, `latency_s`,
+`tool_calls`, `cost_usd`, `quotes_total`, `quotes_verified`, `duration_s`,
 `evaluator_verdict` (nullable). No `input_tokens` / `output_tokens` /
 `created_at` — those live on the analysis row and on `agent.call` spans.
 
@@ -242,7 +242,7 @@ and not replaced with a `$1.00` / `$1.50` pair. The settled set is
 | needs-review rate | ≤ 10% | `needs_review / criteria_completed` |
 | mean confidence | trend only | `avg(mean_confidence)` |
 | failure rate | ≤ 2% | `failed + interrupted` over settled runs — never absorbs needs-review |
-| latency p95 | ≤ 120 s | `runs.latency_s`; ~60 s parallel measured, headroom on top |
+| job duration p95 | ≤ 120 s | `runs.job_duration_s`; ~60 s parallel measured, headroom on top |
 | cost per run | ~$0.96 measured | `cost_usd` mean / p50 / p95; no `$0.40` target |
 | window spend | $50/day budget | sum of `cost_usd`; a breach pauses new runs (`02_costs.md`) |
 | cost tail | p95 ≤ 2× p50 | a ratio, not a dollar cap |

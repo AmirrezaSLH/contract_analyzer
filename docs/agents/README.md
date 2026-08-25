@@ -125,7 +125,7 @@ criterion end to end:
 
 | Span | Carries |
 |---|---|
-| `router.criterion` | criterion, verdict, rounds, latency, evaluator cost, total cost |
+| `router.criterion` | criterion, verdict, rounds, duration, evaluator cost, total cost |
 | `analysis.criterion` | state, confidence, structure rounds, `ended_by` |
 | `agent.run` / `agent.call` / `agent.tool` | the loop, each request, each search |
 | `analysis.revise` | mode, round, extra tool calls granted and used |

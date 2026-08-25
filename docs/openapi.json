@@ -351,9 +351,9 @@
             "title": "Input Tokens",
             "type": "integer"
           },
-          "latency_s": {
+          "job_duration_s": {
             "default": 0.0,
-            "title": "Latency S",
+            "title": "Job Duration S",
             "type": "number"
           },
           "mean_confidence": {
@@ -589,7 +589,7 @@
         "type": "object"
       },
       "ChatSummary": {
-        "description": "Chat is stateless and writes no run row, so this is `spans WHERE name =\n'chat'`. **`latency_ms` is milliseconds** while `latency_s` in the same\npayload is seconds.",
+        "description": "Chat is stateless and writes no run row, so this is `spans WHERE name =\n'chat'`. **`latency_ms` is milliseconds** while `job_duration_s` in the same\npayload is seconds.",
         "properties": {
           "cost_per_turn": {
             "anyOf": [
@@ -720,6 +720,11 @@
             "title": "Criterion Id",
             "type": "string"
           },
+          "duration_s": {
+            "default": 0.0,
+            "title": "Duration S",
+            "type": "number"
+          },
           "ended_by": {
             "title": "Ended By",
             "type": "string"
@@ -738,11 +743,6 @@
                 "type": "null"
               }
             ]
-          },
-          "latency_s": {
-            "default": 0.0,
-            "title": "Latency S",
-            "type": "number"
           },
           "model": {
             "title": "Model",
@@ -930,11 +930,7 @@
             ],
             "title": "Confidence"
           },
-          "id": {
-            "title": "Id",
-            "type": "string"
-          },
-          "latency_s": {
+          "duration_s": {
             "anyOf": [
               {
                 "type": "number"
@@ -943,7 +939,11 @@
                 "type": "null"
               }
             ],
-            "title": "Latency S"
+            "title": "Duration S"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
           },
           "needs_review": {
             "anyOf": [
@@ -1417,6 +1417,45 @@
         "title": "HostBucket",
         "type": "object"
       },
+      "JobDurationPercentiles": {
+        "properties": {
+          "mean": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mean"
+          },
+          "p50": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P50"
+          },
+          "p95": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P95"
+          }
+        },
+        "title": "JobDurationPercentiles",
+        "type": "object"
+      },
       "LastAnalysisOut": {
         "description": "The newest analysis of a document, as a list row needs it.\n\n`states` is a count per compliance state rather than a summary sentence:\na library composes \"5 of 5 compliant\" or \"2 gaps found\" in its own words,\nand the next consumer will want different ones.",
         "properties": {
@@ -1465,45 +1504,6 @@
           "status"
         ],
         "title": "LastAnalysisOut",
-        "type": "object"
-      },
-      "LatencyPercentiles": {
-        "properties": {
-          "mean": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Mean"
-          },
-          "p50": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "P50"
-          },
-          "p95": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "P95"
-          }
-        },
-        "title": "LatencyPercentiles",
         "type": "object"
       },
       "LiveCounts": {
@@ -1578,7 +1578,7 @@
             "title": "Failed",
             "type": "integer"
           },
-          "latency_s": {
+          "job_duration_s": {
             "$ref": "#/components/schemas/Percentiles"
           },
           "mean_confidence": {
@@ -1629,7 +1629,7 @@
         },
         "required": [
           "bucket",
-          "latency_s",
+          "job_duration_s",
           "cost_percentiles",
           "states",
           "chat"
@@ -1662,8 +1662,8 @@
             "title": "Generated At",
             "type": "string"
           },
-          "latency_s": {
-            "$ref": "#/components/schemas/LatencyPercentiles"
+          "job_duration_s": {
+            "$ref": "#/components/schemas/JobDurationPercentiles"
           },
           "live": {
             "$ref": "#/components/schemas/LiveCounts"
@@ -1706,7 +1706,7 @@
           "live",
           "runs",
           "reliability",
-          "latency_s",
+          "job_duration_s",
           "cost_usd",
           "tokens",
           "quality",
@@ -2476,7 +2476,7 @@
             ],
             "title": "Input Tokens"
           },
-          "latency_s": {
+          "job_duration_s": {
             "anyOf": [
               {
                 "type": "number"
@@ -2485,7 +2485,7 @@
                 "type": "null"
               }
             ],
-            "title": "Latency S"
+            "title": "Job Duration S"
           },
           "mean_confidence": {
             "anyOf": [

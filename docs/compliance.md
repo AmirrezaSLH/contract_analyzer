@@ -146,7 +146,7 @@ a change to `generation/`, not to this file.
 over the wire** -- no second schema between `scripts/analyze.py --out` and the
 API's `GET /analyses/{id}`. `results` are in criteria order rather than
 finishing order, so two runs of the same contract diff line by line.
-`AnalysisTotals` sums the run: latency, cost, tokens, tool calls, how many
+`AnalysisTotals` sums the run: job duration, cost, tokens, tool calls, how many
 results need review, how many were stopped by a counter, the mean confidence,
 and how the Router closed each criterion out (`accepted`, `revised`,
 `fallback`, `unevaluated`, `evaluator_cost_usd`) -- the KPI page's row for this

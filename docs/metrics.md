@@ -28,7 +28,7 @@ would be a telemetry system with the priorities backwards.
 
 The dashboard's whole first cut is already in `analyses` (see
 [storage.md](storage.md#analyses)). `analyses.py` fills the derived columns on
-completion — `latency_s`, `cost_usd`, the token counts, `tool_calls`,
+completion — `job_duration_s`, `cost_usd`, the token counts, `tool_calls`,
 `needs_review`, `capped`, `mean_confidence`, `quotes_total`,
 `quotes_verified`, `surface` — so the eight first-class KPIs are a `SELECT`
 and a `COUNT(*)` on `documents`, with no schema change and no second source of
@@ -37,7 +37,7 @@ truth.
 | KPI | Where it comes from |
 |---|---|
 | Failure rate | `status IN ('failed','interrupted')` over the settled runs |
-| p50 / p95 latency | `latency_s`, percentiles in SQL |
+| p50 / p95 job duration | `job_duration_s`, percentiles in SQL |
 | Cost per run, window spend | `cost_usd`: total, mean, p50, p95, and per bucket |
 | Quote verification rate | `quotes_verified / quotes_total` |
 | Needs-review rate | `needs_review / criteria_completed` |
@@ -54,7 +54,7 @@ two are reliability and the third is quality; a failure rate that absorbs the
 third under-counts exactly what a compliance reviewer cares about.
 
 **Percentiles in SQL, not in Python.** SQLite 3.51 has window functions, so
-p95 is `row_number() OVER (ORDER BY latency_s)` against `count(*) OVER ()` —
+p95 is `row_number() OVER (ORDER BY job_duration_s)` against `count(*) OVER ()` —
 nearest rank, `ceil(n·p/100)` written as `(n*p + 99) / 100` because `ceil()`
 is a compile-time option in SQLite and the interpreter here is whichever one
 Python was built against. Nothing is fetched into the API to be sorted. At
@@ -248,7 +248,7 @@ and `spans` (one row per step). `finish_analysis` writes it from the report it
 is already holding, so there is no second pass and no second source of truth;
 the columns are `state`, `confidence`, `raw_confidence`, `needs_review`,
 `ended_by`, `structure_rounds`, `tool_calls`, `cost_usd`, `quotes_total`,
-`quotes_verified`, `latency_s`, and an `evaluator_verdict` that is `NULL` until
+`quotes_verified`, `duration_s`, and an `evaluator_verdict` that is `NULL` until
 the evaluator lands.
 
 It answers the two questions `report_json` answers badly:

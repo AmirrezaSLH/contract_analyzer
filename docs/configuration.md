@@ -44,6 +44,7 @@ below, and `settings.json` only ever needs the fields in the second table.
 | | `chat_max_tool_calls` | 4 | tool executions per chat run |
 | | `analysis_max_tool_calls` | 8 | per criterion |
 | | `max_evidence_tokens` | 12000 | the evidence ledger's total per run |
+| | `send_figure_images` | `true` | attach a retrieved figure's image to the request so the model reads the diagram and not only the caption ([analyzer](agents/analyzer.md)); only what a run retrieved is encoded |
 | | `structure_fix_rounds` | 2 | structural self-correction rounds before `needs_review` |
 | | `research_extra_tool_calls` | 3 | tool calls a `research` revision adds *on top of what was spent* -- a delta, not a fresh allowance |
 | | `prompts_path` | `src/…/generation/prompts.json` | the prompt library, validated on load |

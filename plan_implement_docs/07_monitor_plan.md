@@ -115,12 +115,13 @@ from the dashboard, distinguishable only by opening the Logs tab and reading.
 
 * **Live tiles**: the worst-performing span name right now (highest error
   rate over the last 5 min, minimum sample size), plus its error rate and
-  p95, e.g. "`ingest.parse`" / `37%` / `1.2 s`. One extra tile for sample
-  count, so a 1-of-1 is visible as "not enough" rather than 100%.
-* **Historical**: line charts of error rate and p95 for that worst name
-  (or a fixed short list: `ingest.parse`, `ingest.embed`, `retrieve`,
-  `agent.call`, `chat`) over the window. Not a heatmap — the page is tiles
-  then lines, same as the other three sections.
+  the total error count across the named stages, e.g. "`ingest.parse`" /
+  `37%` / `12`. One extra tile for sample count, so a 1-of-1 is visible as
+  "not enough" rather than 100%.
+* **Historical**: line charts of error rate for that worst name, and of
+  total error count across the short list (`ingest.parse`, `ingest.embed`,
+  `retrieve`, `agent.tool`, `agent.call`, `chat`) over the window. Not a
+  heatmap — the page is tiles then lines, same as the other three sections.
 * **Capture**: **nothing new.** This is a pure query over the `spans` table
   step 13 already builds — `GROUP BY name` instead of `GROUP BY run_id`. It
   is the cheapest of the four and ships the same day the spans table exists,
@@ -210,7 +211,7 @@ second y-axis. The last bucket is the current partial one.
 |---|---|---|
 | HTTP | req/min, 5xx rate, p95 | those three series from `system_samples` |
 | Upstream | retries/100, exhausted rate, top reason | retry rate, exhausted rate from `spans` |
-| Stages | worst name, its error rate, its p95, n | error rate and p95 for that name (or the short list) from `spans` |
+| Stages | worst name, its error rate, total errors, n | error rate for that name, error count across the short list from `spans` |
 | Host | Memory %, disk % | those two series from `system_samples` |
 
 `GET /monitor/summary?window=` is the tiles (plus whatever live 5 min the

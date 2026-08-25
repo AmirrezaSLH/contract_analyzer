@@ -292,13 +292,7 @@ function RunCard({
 
       <div className={styles.runFoot}>
         <span>elapsed {elapsed(run.started_at ?? run.created_at)}</span>
-        {/* Cost is not known until the report exists: the runner totals a run
-            when it finishes, and inventing a partial figure would be worse
-            than saying so. */}
-        <span>cost so far —</span>
-        <span>
-          {workers} workers · {total} criteria in parallel
-        </span>
+        <span>{total} criteria in parallel</span>
         {run.trace_id ? <span className={styles.trace}>trace {run.trace_id}</span> : null}
       </div>
     </Card>

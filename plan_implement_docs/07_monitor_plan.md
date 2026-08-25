@@ -144,11 +144,13 @@ with no retention policy ("There is no retention policy and none is planned
 until asked for"). On this box, **disk fills up or the process gets OOM-killed
 long before any model-quality metric would tell you something is wrong.**
 
-* **Live tiles**: process RSS used % and disk used %, each with MB/GB in the
-  sub-line so a 90% on a 2 GB box is still a size.
-* **Historical**: RSS % and disk used % over the window — slope, not the
+* **Live tiles**: process **memory** used % and disk used %, each with MB/GB
+  in the sub-line so a 90% on a 2 GB box is still a size. The tile is
+  labelled Memory, not RSS — that is the `/proc` name, not the interview
+  name. "How much RAM this process is using" is the sentence.
+* **Historical**: memory % and disk used % over the window — slope, not the
   live snapshot. Two charts, one unit (percent) that they share, but still
-  two cards so a disk cliff is not scaled against a flat RSS line. No
+  two cards so a disk cliff is not scaled against a flat memory line. No
   uptime sawtooth on this pass.
 * **Capture**: **the one genuinely new piece.** A daemon sampler thread,
   started from the API's lifespan next to `reconcile()`, ticking every ~30s:
@@ -165,8 +167,9 @@ long before any model-quality metric would tell you something is wrong.**
   action that pauses runs. The tile is a **chip**, same rule as the KPI page
   (`thresholds.ts`: colour never carries a fact without words):
   **used &lt; 20% → green / "plenty"**, **used &gt; 90% → red / "tight"**,
-  the band in between → warn / "filling". Same scale for disk and for RSS
-  as a share of the host. 90% used is the number that matters on this box:
+  the band in between → warn / "filling". Same scale for disk and for
+  process memory as a share of the host. 90% used is the number that matters
+  on this box:
   a full disk fails writes to *both* the contracts DB and the log file at
   once.
 
@@ -208,7 +211,7 @@ second y-axis. The last bucket is the current partial one.
 | HTTP | req/min, 5xx rate, p95 | those three series from `system_samples` |
 | Upstream | retries/100, exhausted rate, top reason | retry rate, exhausted rate from `spans` |
 | Stages | worst name, its error rate, its p95, n | error rate and p95 for that name (or the short list) from `spans` |
-| Host | RSS %, disk % | those two series from `system_samples` |
+| Host | Memory %, disk % | those two series from `system_samples` |
 
 `GET /monitor/summary?window=` is the tiles (plus whatever live 5 min the
 ring still holds for HTTP). `GET /monitor/timeseries?window=` is the

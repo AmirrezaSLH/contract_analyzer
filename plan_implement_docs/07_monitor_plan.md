@@ -1,8 +1,7 @@
 # Step 14 — the Monitor tab: is the box healthy, not just is the model good
 
 **Status: draft for review, 2026-08-24. Plan only — nothing here is built.**
-Blocked by step 13 (`06_metrics_plan.md`, the metrics store) landing on
-`main` — it is on `origin/KPI`/`origin/LOGS` today, unmerged. Blocks nothing.
+related to `06_metrics_plan.md`
 
 **The one-sentence version.** The KPI tab (`/metrics`) answers *"is the
 analysis any good and what did it cost"* — model quality and spend, scoped to
@@ -30,11 +29,12 @@ discipline argues for a second page here, not scope creep on the first:
 * **User's instruction for this pass**: cost is out of scope here — it is
   §3.4's KPI tab's job. This tab is §3.5's "other signals," and the honest
   reading of §3.5 for a system that is one process on one VPS behind nginx is
-  RED (rate, errors, duration of the *whole* HTTP surface) and USE
-  (utilization/saturation/errors of the *host*) — not Kubernetes-shaped
-  metrics this deployment doesn't have.
+  RED (rate, errors, duration of the **API** surface this process actually
+  served) and USE (host RAM and disk) — not Kubernetes-shaped metrics this
+  deployment doesn't have. Nginx pointed at the wrong port never reaches this
+  process; that stays a Logs / external `/health` story.
 
-## The four metrics (a fifth, cut first if short on time)
+## The four metrics
 
 Each is scoped to the **API process only** — this tab has no CLI equivalent,
 unlike the KPI tab, because "is the deployment healthy" is not a question
@@ -43,37 +43,38 @@ narrower scope than step 13's, and is worth saying explicitly in the doc
 rather than leaving a reader to wonder why `spans.surface='cli'` never shows
 up here.
 
-### 1. API surface health — request rate, error rate, latency, *every* route
+### 1. API surface health — request rate, 5xx, p95, this process
 
-**What it is not**: the KPI tab's p95 latency and failure rate are scoped to
-`runs` — the LLM pipeline. A missing static bundle
-(`[[streamlit-obsolete]]`'s exact failure mode: `start.bash` reports success,
-`/health` is green, `/` serves nothing) never touches an analysis run and
-would never move a single KPI number. This metric is the whole HTTP surface —
-`/health`, `POST /documents`, `GET /documents`, `POST /analyses`, `POST
-/chat`, `POST /documents/{id}/search`, and `/` itself — broken out by route
-group.
+**What it is not**: the KPI tab's p95 and failure rate are scoped to analysis
+*runs*. This tile is whether **this API process** is answering HTTP. It is
+also not the static bundle, not nginx, and not a second copy of the job
+inside `spans`.
 
-* **Live tile**: requests/min, error rate (%4xx, %5xx) over the last 5
-  minutes, p95 latency, each split by route group (`ingest`, `analysis`,
-  `chat/search`, `static/ui`, `health`).
-* **Historical**: the same, bucketed over the page's window selector
-  (reuses `WindowSelector` — 1h/24h/7d), one line per route group so a
-  regression in one group doesn't hide inside an average.
-* **Capture**: a FastAPI middleware wrapping every request in the existing
-  `span("http.request", route=..., method=..., status_code=...)` — this is
-  the same seam `06_metrics_plan.md` used for the LLM pipeline
-  ("the span() seam is where the KPI store will subscribe; nothing in the
-  call sites will change"), applied one layer further out. **Zero new
-  tables** — it lands in `spans` exactly like `agent.call` does, and the
-  query is `WHERE name = 'http.request'` grouped by `route`.
-* **Threshold**: page on 5xx rate > 1% over 5 min (an app that answers 500s is
-  broken regardless of what the model thinks); watch, don't page, on 4xx —
-  most 4xx here is a client sending garbage, not the deployment failing.
-  p95 latency alert scoped to the *non-analysis* routes only (`health`,
-  `ingest`, `chat/search` list calls) at something like 2 s — `POST
-  /analyses` itself is fire-and-forget and its 60–180 s run time is the KPI
-  tab's problem, not this one's.
+The full version (every route, five groups, `span("http.request")` into the
+KPI table) is dropped. FastAPI's existing trace middleware already wraps
+every request for `X-Trace-Id`. After `call_next`, record
+`{status, elapsed_ms}` into an in-memory ring if the path is API traffic.
+
+* **Include**: `/api/*` that returns a normal response, and `/health`.
+  `POST /api/analyses` stays in — it is supposed to be fast (enqueue); the
+  60–180 s job is the KPI tab's problem.
+* **Skip**: the static mount (`/`, `/assets/…`); SSE
+  (`/api/logs/events`, `/analyses/{id}/events`) — duration is "tab left
+  open," not latency. Optional: `POST /api/chat` while it is streaming.
+* **Live tile**: last 5 minutes, **this process**: requests/min, 5xx rate,
+  p95 of the requests that were not skipped. One number each, not five
+  route groups. 4xx is omitted — most of it is a client sending garbage.
+* **Historical**: none. A restart zeros the tile, which is honest for "is
+  this box healthy."
+* **Capture**: `HttpStats` on `app.state`, a few dozen lines on the existing
+  `trace` middleware. **No spans, no table.** Polling
+  `GET /api/metrics/summary` every 5 s must not land in the same `spans`
+  table the waterfall reads.
+* **Threshold**: no pager. Chip only, same words-and-colour rule as #4:
+  5xx rate > 1% over 5 min → red / "failing"; otherwise green / "answering."
+* **What this still cannot see**: nginx upstream on the wrong port. The app
+  never saw the request. That remains Logs and an external probe of
+  `/health`.
 
 ### 2. Upstream dependency reliability — is it us or is it Anthropic/OpenAI
 
@@ -141,8 +142,10 @@ with no retention policy ("There is no retention policy and none is planned
 until asked for"). On this box, **disk fills up or the process gets OOM-killed
 long before any model-quality metric would tell you something is wrong.**
 
-* **Live tile**: process RSS memory, free disk % on the volume holding
-  `data/`, process uptime.
+* **Live tile**: process RSS and disk **used %** — RSS as a share of host
+  RAM (`VmRSS` / `MemTotal` from `/proc`), disk as
+  `shutil.disk_usage(DB_PATH.parent)` used/total. Absolute MB and GB sit
+  next to the percent so a 90% on a 2 GB box is still readable as a size.
 * **Historical**: RSS and disk-free % over the window — the two curves that
   matter are their *slope*, not their instantaneous value (a slow SQLite/log
   file creep is invisible on a live tile and obvious on a 7-day chart), plus
@@ -157,75 +160,42 @@ long before any model-quality metric would tell you something is wrong.**
   memory, `shutil.disk_usage(DB_PATH.parent)` for disk — both stdlib, no new
   dependency, matching this project's existing allergy to adding a library
   for something the standard library already does. Writes to one new table,
-  `system_samples(ts, rss_mb, disk_free_pct, uptime_s)`, in the same
+  `system_samples(ts, rss_mb, rss_pct, disk_used_pct, uptime_s)`, in the same
   metrics database (still "one file" — the argument `storage.md` already
   makes for `analyses` living beside `documents` applies again: this is
   operational telemetry, not a second datastore).
-* **Threshold**: alert disk free < 15%, and separately < 5% as a hard page
-  (a full disk fails writes to *both* the contracts DB and the log file at
-  once — a double failure, not two independent ones); memory threshold is a
-  config value (`MONITOR_RSS_ALERT_MB`, default left as an open question
-  below — it depends on the box's actual RAM, which this plan doesn't know)
-  rather than a hardcoded percentage, unlike the others.
-
-### 5. (bonus, cut first) Long-lived connection count
-
-The Logs tab (`origin/LOGS`) and the analysis progress view both hold open
-SSE connections (`/api/logs/events`, `/analyses/{id}/events`). A demo browser
-tab left open on the Logs view, or a client that reconnects without closing
-the old stream, accumulates open connections on a single-process server —
-a leak this app's own design can cause that generic infra monitoring
-wouldn't flag. Live tile: open SSE connections right now, by endpoint;
-historical: the same, on the sampler's 30s tick (same `system_samples` row,
-one more column — no third table). Threshold: watch-only, no clear number
-without a load test to anchor it. **Cut first** if the other four run over
-budget: it depends on the Logs tab's own connection-tracking already
-existing (it may not), and it is the one whose absence a panel is least
-likely to notice.
+* **Threshold**: none as an alert. No pager, no `MONITOR_RSS_ALERT_MB`, no
+  action that pauses runs. The tile is a **chip**, same rule as the KPI page
+  (`thresholds.ts`: colour never carries a fact without words):
+  **used &lt; 20% → green / "plenty"**, **used &gt; 90% → red / "tight"**,
+  the band in between → warn / "filling". Same scale for disk and for RSS
+  as a share of the host. 90% used is the number that matters on this box:
+  a full disk fails writes to *both* the contracts DB and the log file at
+  once.
 
 ## What ties this to the existing metrics infrastructure vs. what's new
 
 | Piece | Reused from step 13 | New |
 |---|---|---|
-| Storage | same SQLite file, same `spans` table for #1–#3 | one table, `system_samples`, for #4 (and #5's extra column) |
-| Capture mechanism | `span()` context manager — metrics #1–#3 are *more calls to a seam that already exists*, at the HTTP-middleware and http-client layers | a daemon sampler thread for #4/#5, the one piece with no existing seam to hook |
-| Query layer | `metrics/queries.py` conventions — percentiles in SQL, window parsing, `summary()`/`timeseries()` shape | new functions in the same module (or a sibling `monitor_queries.py` if `metrics/queries.py` gets unwieldy — decide at build time), `GROUP BY route`/`name` instead of `GROUP BY run_id` |
-| API | `routes/metrics.py` pattern | `routes/monitor.py`: `GET /monitor/summary`, `GET /monitor/timeseries` |
-| UI | `MetricsView`'s band layout, `WindowSelector`, `MetricTile`, `ErrorSurface`-per-band, 5s polling, `charts.ts` | `MonitorView` at route `/monitor`, tab placed next to `/metrics` in the same nav toggle (`ModeToggle`/`Segmented`, whichever `origin/KPI` lands with) |
+| Storage | same SQLite file, `spans` for #2–#3 | `system_samples` for #4. #1 is in-memory and dies with the process |
+| Capture | `span()` for #2 (promote `http.retry` / `http.failed`) and #3 (already emitted) | a few lines on the existing `trace` middleware for #1; a sampler thread for #4 |
+| Query layer | `metrics/queries.py` conventions — percentiles in SQL, window parsing | `GROUP BY name` for #3; ring-buffer percentiles in process for #1 |
+| API | `routes/metrics.py` pattern | `routes/monitor.py`: `GET /monitor/summary` (live tiles); `GET /monitor/timeseries` only for #2–#4 |
+| UI | `MetricsView`'s band layout, `WindowSelector`, `ErrorSurface`-per-band, 5s polling | `MonitorView` at `/monitor`, tab next to `/metrics` |
 
-The reuse is the point: three of the four metrics need no new instrumentation
-call sites beyond the one middleware and the one promoted log-to-span point —
-the same "eight modules change by zero lines" argument step 13 made for the
-KPI tab holds again here, one layer further from the model.
+The reuse is the point: #3 is a query over data that already exists, #2 is
+one promotion at a call site that already logs, #1 is a filter on middleware
+that already runs. Only #4 has no existing seam.
 
 ## Open questions
 
-1. **Sequencing.** This plan assumes `origin/KPI` (which includes
-   `origin/LOGS`) merges to `main` first — `MetricTile`, `WindowSelector`,
-   `charts.ts`, the `metrics` package and its `spans` table all come from
-   there and don't exist on `main` today. Building Monitor before that merges
-   means building on a branch that itself isn't reviewed yet.
-2. **Memory threshold.** `system_samples.rss_mb` is easy to capture; the
-   alert threshold depends on the VPS's actual RAM, which isn't recorded
-   anywhere in the repo or `[[demo-deployment]]`. Needs one number from
-   `free -h` on the host before `thresholds.ts` can carry it honestly, the
-   same way the cost target in step 13 needed one real measured run before
-   the threshold could be trusted.
-3. **Middleware placement.** FastAPI middleware wraps `/` (the static UI
-   bundle) too — hundreds of asset requests per page load would dominate the
-   `http.request` span volume and possibly the "requests/min" tile with
-   noise that isn't API traffic. Likely answer: route-group the static
-   mount separately and give it its own (probably ignored) bucket rather than
-   folding it into the same rate number as `POST /analyses` — decide at
-   build time, flag here so it isn't a surprise mid-implementation.
-4. **Does #5 ship at all.** Depends on whether the Logs tab already tracks
-   open-connection count anywhere (`useLogs.ts`/the SSE fan-out on the
-   backend) — if it does, #5 is nearly free; if not, it's a second new
-   piece of state to track and probably not worth it for a bonus tile.
+1. **Sequencing.** This plan assumes the KPI page, Logs tab, `metrics`
+   package and `spans` table are already on the branch — they are. Building
+   Monitor is not blocked on a merge that has already happened.
 
 ## Cut order if over budget
 
-`system_samples` sampler thread (#4) and #5 first — they're the only pieces
-with no existing seam, so they're the most expensive relative to what they
-add → pipeline stage map (#3) last, since it's a query over data that will
-already exist the moment step 13 lands, regardless of anything in this plan.
+`system_samples` sampler thread (#4) first — it is the only piece with no
+existing seam, so it is the most expensive relative to what it adds →
+pipeline stage map (#3) last, since it's a query over data that will already
+exist the moment step 13 lands, regardless of anything in this plan.

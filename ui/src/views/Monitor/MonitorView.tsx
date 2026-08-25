@@ -4,7 +4,7 @@ import { MetricTile } from "../../components/MetricTile";
 import { PageHead } from "../../components/PageHead";
 import { StateChip } from "../../components/StateChip";
 import { useMonitorHost, useMonitorStages } from "../../hooks/useMonitor";
-import { WindowSelector, bucketWords } from "../Metrics/WindowSelector";
+import { WindowSelector, bucketWords } from "./WindowSelector";
 import { millis, percent } from "../Metrics/format";
 import kpi from "../Metrics/MetricsView.module.css";
 import { LineChart } from "./LineChart";
@@ -20,7 +20,7 @@ import type { MonitorWindow } from "./types";
  * fixture until those endpoints exist.
  */
 export function MonitorView() {
-  const [window, setWindow] = useState<MonitorWindow>("24h");
+  const [window, setWindow] = useState<MonitorWindow>("30m");
   const data = useMemo(() => monitorFixture(window), [window]);
   const stages = useMonitorStages(window);
   const host = useMonitorHost(window);
@@ -34,6 +34,7 @@ export function MonitorView() {
   const rss = usedChip(snap?.rss_pct);
   const disk = usedChip(snap?.disk_used_pct);
   const hasStage = Boolean(live?.name);
+  const hostGrain = snap?.bucket ? `${snap.bucket} samples` : buckets;
   const stageValue = hasStage
     ? `${live!.name} · ${live!.errors} failed`
     : "Null";
@@ -227,7 +228,7 @@ export function MonitorView() {
             <div className={styles.charts}>
               <LineChart
                 title="Memory"
-                sub={buckets}
+                sub={hostGrain}
                 samples={(snap?.series ?? []).map((row) => ({
                   bucket: row.bucket,
                   value: row.rss_pct,
@@ -238,7 +239,7 @@ export function MonitorView() {
               />
               <LineChart
                 title="Disk"
-                sub={buckets}
+                sub={hostGrain}
                 samples={(snap?.series ?? []).map((row) => ({
                   bucket: row.bucket,
                   value: row.disk_used_pct,

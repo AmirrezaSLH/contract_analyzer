@@ -84,7 +84,7 @@ export function startedAt(iso: string, now = new Date()): string {
 export function bucketLabel(iso: string, window: string, opts: { short?: boolean } = {}): string {
   const at = new Date(iso);
   if (Number.isNaN(at.getTime())) return iso;
-  if (window === "24h") return time(at);
+  if (window === "24h" || window === "30m" || window === "1h") return time(at);
   if (window === "30d") return day(at);
   return opts.short ? day(at) : `${day(at)} ${time(at)}`;
 }

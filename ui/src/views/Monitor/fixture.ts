@@ -10,11 +10,10 @@ import type { MonitorSnapshot, MonitorWindow, Sample } from "./types";
 
 const ANCHOR = Date.parse("2026-08-24T18:00:00.000Z");
 
-const COUNTS: Record<MonitorWindow, number> = { "24h": 24, "7d": 28, "30d": 30 };
+const COUNTS: Record<MonitorWindow, number> = { "30m": 60, "1h": 120 };
 const STEPS_MS: Record<MonitorWindow, number> = {
-  "24h": 3_600_000,
-  "7d": 6 * 3_600_000,
-  "30d": 24 * 3_600_000,
+  "30m": 30_000,
+  "1h": 30_000,
 };
 
 export function monitorFixture(window: MonitorWindow): MonitorSnapshot {

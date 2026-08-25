@@ -1,8 +1,4 @@
-import type { MetricsWindow } from "../../api/client";
-
-/** Same three windows as the KPI page. The bucket pairing lives on the
- *  selector; this view does not invent a fourth. */
-export type MonitorWindow = MetricsWindow;
+export type MonitorWindow = "30m" | "1h";
 
 /** One chart point. `null` is a gap: the line breaks, it is not drawn as 0. */
 export interface Sample {

@@ -53,6 +53,8 @@ export type EvaluatorSlot = Schemas["EvaluatorSlot"];
  *  900-pixel axis. */
 export type MetricsWindow = "24h" | "7d" | "30d";
 
+export type MonitorWindow = "30m" | "1h";
+
 export interface StageBucket {
   bucket: string;
   n: number;
@@ -82,6 +84,7 @@ export interface HostBucket {
 
 export interface MonitorHost {
   window: string;
+  bucket: string;
   since: string;
   generated_at: string;
   ts: string | null;
@@ -228,10 +231,10 @@ export const api = {
 
   metricsRuns: (limit = 50) => request<RunRow[]>(`/metrics/runs?limit=${limit}`),
 
-  monitorStages: (window: MetricsWindow) =>
+  monitorStages: (window: MonitorWindow) =>
     request<MonitorStages>(`/monitor/stages?window=${window}`),
 
-  monitorHost: (window: MetricsWindow) =>
+  monitorHost: (window: MonitorWindow) =>
     request<MonitorHost>(`/monitor/host?window=${window}`),
 };
 

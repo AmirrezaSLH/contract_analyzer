@@ -33,9 +33,8 @@ describe("reliability chips", () => {
 
 describe("fixture", () => {
   it("emits one bucket per window slot so a window change redraws the chart", () => {
-    expect(monitorFixture("24h").series.httpRpm).toHaveLength(24);
-    expect(monitorFixture("7d").series.httpRpm).toHaveLength(28);
-    expect(monitorFixture("30d").series.disk).toHaveLength(30);
+    expect(monitorFixture("30m").series.httpRpm).toHaveLength(60);
+    expect(monitorFixture("1h").series.httpRpm).toHaveLength(120);
   });
 });
 

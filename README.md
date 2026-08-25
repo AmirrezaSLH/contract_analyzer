@@ -28,13 +28,7 @@ Design documents and implementation reports live in `plan_implement_docs/`.
 
 ## Getting started
 
-```
-make venv                                    # .venv + the project, dev extras
-make ingest F="data/samples/Sample Contract.pdf"
-make analyze F="data/samples/Sample Contract.pdf"
-make api                                     # the API, and the UI it serves
-make test                                    # offline: no key, no network
-```
+refer to `GET_STARTED.md
 
 `ANTHROPIC_API_KEY` in `.env` at the project root is what generation needs;
 retrieval (`make search`) works without one.

@@ -192,7 +192,7 @@ Reuse, do not fork:
 |---|---|
 | Tiles | `MetricTile` — label, value, optional chip, sub-line |
 | Charts | `charts.ts` `lineGeometry` + the SVG in `TrendBand` (copy the card, do not import KPI types into Monitor) |
-| Window | `WindowSelector` — 1h / 24h / 7d, drives tiles' "last 5 min" vs the charts' window independently: tiles are always ~5 min live, charts follow the selector |
+| Window | Monitor's own selector — 30 min / 1 h. Host charts bucket at `monitor_sample_seconds`. Stages charts are 1-minute bars. HTTP live tiles stay ~5 min. KPI keeps 24h / 7d / 30d. |
 | Errors | `ErrorSurface` per section, so one failed query does not blank the page |
 | Poll | 5 s on `GET /monitor/summary`, same as KPI |
 

@@ -391,7 +391,7 @@ demo and is stated here rather than left to be assumed.
 | Setting | Default | |
 |---|---|---|
 | `API_KEY` (`.env`) | unset | `X-API-Key`; unset = open. A secret, so it is not in `settings.json`. |
-| `chat_models` | the three current ids | The allowlist `POST /chat` validates `model` against, published by `/health`. |
+| `chat_models` | the two current ids | The allowlist `POST /chat` validates `model` against, published by `/health`. |
 | `api_workers` | 2 | Analyses in flight. SQLite serialises writes; a third submission is `queued`. |
 | `analysis_workers` | 5 | Criteria in parallel inside one job. With `api_workers`, the concurrent-request ceiling. |
 | `api_max_upload_mb` | 25 | `413` above, enforced while streaming. |

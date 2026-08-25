@@ -1,5 +1,4 @@
 import type { MetricsSummary } from "../../api/client";
-import type { Health } from "../../api/client";
 import { MetricTile } from "../../components/MetricTile";
 import { StateChip } from "../../components/StateChip";
 import { percent, plural, ratio, seconds, usd } from "./format";
@@ -8,25 +7,19 @@ import styles from "./MetricsView.module.css";
 
 interface Props {
   summary: MetricsSummary | undefined;
-  health: Health | undefined;
 }
 
 /**
- * Band 1 -- what is happening now. Five tiles.
+ * Band 1 -- what is happening now. Four tiles.
  *
  * **Every threshold travels in its own sub-line**, so the number and the bar
  * it has to clear are never separated, and a tile that crosses one takes a
  * chip that carries the words. Colour says nothing on its own here.
- *
- * `Active now` is the one tile that is not a table read: `live.running` comes
- * from `JobRunner` and is a fact about *this process*. It is why the summary
- * is the query that polls.
  */
-export function NowBand({ summary, health }: Props) {
+export function NowBand({ summary }: Props) {
   if (!summary) return <SkeletonTiles />;
 
-  const { live, runs, reliability, latency_s, cost_usd } = summary;
-  const workers = health?.api_workers;
+  const { runs, reliability, latency_s, cost_usd } = summary;
   const failure = statusOf(reliability.failure_rate, THRESHOLDS.failureRate);
   const latency = statusOf(latency_s.p95, THRESHOLDS.latencyP95);
   // Two things can be wrong with spend, and they are different alerts. The
@@ -40,11 +33,6 @@ export function NowBand({ summary, health }: Props) {
 
   return (
     <div className={styles.tiles}>
-      <MetricTile
-        label="Active now"
-        value={workers ? `${live.running} / ${workers}` : String(live.running)}
-        sub={`workers busy · ${live.queued} queued`}
-      />
       <MetricTile
         label="Runs"
         value={String(runs.total)}
@@ -93,7 +81,7 @@ function Chip({ tone, words }: { tone: "good" | "warn" | "neutral"; words: strin
 function SkeletonTiles() {
   return (
     <div className={styles.tiles}>
-      {[0, 1, 2, 3, 4].map((index) => (
+      {[0, 1, 2, 3].map((index) => (
         <MetricTile
           key={index}
           label=""

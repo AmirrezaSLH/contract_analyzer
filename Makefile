@@ -14,13 +14,16 @@ BACKEND_PORT ?= $(or $(call dotenv,BACKEND_PORT),8100)
 FRONTEND_PORT ?= $(or $(call dotenv,FRONTEND_PORT),8101)
 export BACKEND_PORT FRONTEND_PORT
 
-.PHONY: help venv ingest reingest search chat analyze api mcp openapi test lint fmt logs \
+.PHONY: help setup venv ingest reingest search chat analyze api mcp openapi test lint fmt logs \
 	ui-install ui-types ui-dev ui-build ui-test \
 	docker-build docker-up docker-down docker-logs docker-shell docker-test
 
 help:  ## List the targets
 	@grep -hE '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) \
 		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
+
+setup:  ## Venv, Node modules, .env, UI bundle — then ./start.bash
+	./setup.bash
 
 venv:  ## Create .venv and install the project with dev extras
 	python3 -m venv .venv && $(PYTHON) -m pip install --quiet --upgrade pip && $(PYTHON) -m pip install -e ".[dev]"

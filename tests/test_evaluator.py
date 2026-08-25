@@ -215,8 +215,8 @@ def test_the_critic_is_never_shown_the_analyst_conversation():
 
 def test_the_evaluator_can_run_on_a_model_of_its_own():
     api = ScriptedAPI(sse_message([{"type": "text", "text": findings_json()}]))
-    evaluate(api, s=settings(analysis_model="claude-opus-5", evaluator_model="claude-haiku-4-5"))
-    assert api.requests[0]["model"] == "claude-haiku-4-5"
+    evaluate(api, s=settings(analysis_model="claude-opus-5", evaluator_model="claude-sonnet-5"))
+    assert api.requests[0]["model"] == "claude-sonnet-5"
 
 
 def test_an_unset_evaluator_model_is_the_analysts():

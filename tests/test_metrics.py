@@ -708,7 +708,7 @@ def test_cost_per_model_covers_analysis_and_chat_in_one_pass(installed, conn):
              cost_usd=0.004, input_tokens=1000, output_tokens=200)
     log_span(logger, "agent.call", surface="chat", model="claude-sonnet-5",
              cost_usd=0.001, input_tokens=300, output_tokens=50)
-    log_span(logger, "agent.call", surface="chat", model="claude-haiku-4-5",
+    log_span(logger, "agent.call", surface="chat", model="claude-opus-5",
              cost_usd=0.0002, input_tokens=300, output_tokens=50)
     assert store.flush()
 
@@ -716,7 +716,7 @@ def test_cost_per_model_covers_analysis_and_chat_in_one_pass(installed, conn):
     assert by_model["claude-sonnet-5"]["calls"] == 2
     assert by_model["claude-sonnet-5"]["cost_usd"] == 0.005
     assert by_model["claude-sonnet-5"]["input_tokens"] == 1300
-    assert by_model["claude-haiku-4-5"]["calls"] == 1
+    assert by_model["claude-opus-5"]["calls"] == 1
 
 
 def test_spans_of_a_deleted_documents_run_survive_the_delete(settings, conn, store):

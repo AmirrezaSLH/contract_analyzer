@@ -30,7 +30,6 @@ PRICES: dict[str, tuple[float, float]] = {
     # $3/$15 on 2026-09-01 was cancelled.
     "claude-sonnet-5": (2.0, 10.0),
     "claude-sonnet-4-6": (3.0, 15.0),
-    "claude-haiku-4-5": (1.0, 5.0),
 }
 
 #: USD per 1M tokens for embedding models. Separate from PRICES because an

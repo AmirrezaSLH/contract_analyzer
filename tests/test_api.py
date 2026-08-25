@@ -945,11 +945,11 @@ def test_chat_settings_reach_the_run_and_the_answer_reports_them(
     body = client.post(
         "/api/chat",
         json={"document_id": document_id, "question": "How often?", "stream": False,
-              "model": "claude-haiku-4-5", "retrieval_mode": "keyword", "top_k": 3},
+              "model": "claude-opus-5", "retrieval_mode": "keyword", "top_k": 3},
     ).json()
 
     assert seen == {"mode": "keyword", "top_k": 3}
-    assert body["model"] == "claude-haiku-4-5"
+    assert body["model"] == "claude-opus-5"
 
 
 def test_chat_refuses_a_model_this_deployment_does_not_offer(client, api, small_pdf):
@@ -968,7 +968,7 @@ def test_chat_refuses_a_model_this_deployment_does_not_offer(client, api, small_
     assert refused.json()["error"]["code"] == "validation"
     assert api.calls == 0
     # And the client can find out what it may ask for without guessing.
-    assert "claude-haiku-4-5" in client.get("/api/health").json()["chat_models"]
+    assert "claude-opus-5" in client.get("/api/health").json()["chat_models"]
 
 
 def test_chat_citations_use_the_same_field_names_as_a_report_quote(

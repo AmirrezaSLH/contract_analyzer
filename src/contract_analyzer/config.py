@@ -136,7 +136,7 @@ class Settings(BaseSettings):
     #: Published by `GET /health` so a UI renders its picker from the server
     #: rather than from a list of its own that can drift.
     chat_models: list[str] = Field(
-        default_factory=lambda: ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"]
+        default_factory=lambda: ["claude-opus-5", "claude-sonnet-5"]
     )
     #: Streaming, so this can be generous; an answer over five short passages
     #: never approaches it, and a truncated answer is worse than a slow one.

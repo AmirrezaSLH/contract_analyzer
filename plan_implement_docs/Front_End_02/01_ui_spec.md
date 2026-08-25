@@ -284,7 +284,7 @@ medium depth over Sample Contract.pdf"*.
 
 | Control | Options | Default |
 |---|---|---|
-| **Model** | `claude-opus-5`, `claude-sonnet-5`, `claude-haiku-4-5` | `answer_model` |
+| **Model** | `claude-opus-5`, `claude-sonnet-5` | `answer_model` |
 | **Retrieval** | `hybrid`, `vector`, `keyword` | `retrieval_mode` |
 | **Depth** | `shallow`, `medium`, `deep` | `medium` |
 

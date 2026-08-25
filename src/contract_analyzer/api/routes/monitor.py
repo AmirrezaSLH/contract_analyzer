@@ -1,4 +1,4 @@
-"""The Monitor tab's data. Stages from spans; host from the sampler."""
+"""The Monitor tab's data: stages, host, upstream."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from typing import Annotated
 from fastapi import APIRouter, Query
 
 from ..deps import ConnDep, MetricsDep, Protected
-from ..schemas import MonitorHost, MonitorStages
+from ..schemas import MonitorHost, MonitorStages, MonitorUpstream
 
 router = APIRouter(prefix="/monitor", tags=["monitor"], dependencies=[Protected])
 
@@ -41,3 +41,17 @@ def host(
     (`monitor_sample_seconds`). No pager: the chips say plenty / filling / tight.
     """
     return MonitorHost.model_validate(store.host(conn, window=window))
+
+
+@router.get("/upstream", summary="Upstream retries and exhausted calls")
+def upstream(
+    conn: ConnDep,
+    store: MetricsDep,
+    window: Annotated[str, Query(pattern=_SPEC)] = "30m",
+) -> MonitorUpstream:
+    """Is it us, or Anthropic/OpenAI.
+
+    Tiles are the last five minutes. Charts follow `window`. `top_reason` is
+    the most common retry/exhausted reason, with its share of those events.
+    """
+    return MonitorUpstream.model_validate(store.upstream(conn, window=window))

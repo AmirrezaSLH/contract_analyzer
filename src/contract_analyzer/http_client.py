@@ -34,7 +34,7 @@ from collections.abc import Iterable
 
 import httpx2 as httpx  # the SDKs run on httpx2; same API as httpx
 
-from .logger import get_logger
+from .logger import get_logger, span
 
 log = get_logger(__name__)
 
@@ -144,16 +144,23 @@ class RetryingTransport(httpx.BaseTransport):
 
     def handle_request(self, request: httpx.Request) -> httpx.Response:
         method, url = request.method, str(request.url)
+        with span("upstream.call", log, method=method, url=url) as bag:
+            return self._exchange(request, bag)
+
+    def _exchange(self, request: httpx.Request, bag: dict) -> httpx.Response:
+        method, url = request.method, str(request.url)
         started = time.perf_counter()
         last_status: int | None = None
         last_exc: Exception | None = None
+        reason = ""
 
         for attempt in range(self._retries + 1):
+            bag["attempts"] = attempt + 1
             try:
                 response = self._inner.handle_request(request)
             except RETRY_EXCEPTIONS as exc:
                 last_exc, last_status = exc, None
-                reason = f"{type(exc).__name__}: {exc}"
+                reason = type(exc).__name__
                 delay = None
             else:
                 if response.status_code not in self._statuses:
@@ -177,6 +184,8 @@ class RetryingTransport(httpx.BaseTransport):
                     "reason": reason,
                 },
             )
+            with span("upstream.retry", log, reason=reason, attempt=attempt + 1):
+                pass
             self._sleep(wait)
 
         elapsed = time.perf_counter() - started
@@ -189,6 +198,8 @@ class RetryingTransport(httpx.BaseTransport):
             cause=last_exc,
         )
         log.error("http.failed", extra={"method": method, "url": url, "error": str(failure)})
+        with span("upstream.failed", log, reason=reason):
+            pass
         raise failure
 
     def close(self) -> None:

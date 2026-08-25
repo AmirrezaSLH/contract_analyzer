@@ -61,6 +61,7 @@ clicks later.
 | `GET` | `/metrics/runs/{id}/spans` | One run's span tree, for the waterfall. |
 | `GET` | `/monitor/stages` | Worst pipeline stage over the last five minutes, its error rate, and total error count. |
 | `GET` | `/monitor/host` | This process's memory and the disk under the database. |
+| `GET` | `/monitor/upstream` | Retries and exhausted calls through `http_client`, plus the top reason. |
 | `GET` | `/logs/events` | Live console as SSE. Same compact lines as stderr. Does not close. |
 
 ## Decisions worth defending

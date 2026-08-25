@@ -1806,6 +1806,102 @@
         "title": "MonitorStages",
         "type": "object"
       },
+      "MonitorUpstream": {
+        "description": "`GET /monitor/upstream`: retries through http_client, not spend.\n\nTiles are the last five minutes when anything was called; otherwise the\nchart window. `top_reason_share` is that reason's share of retry +\nexhausted events, not of all calls.",
+        "properties": {
+          "calls": {
+            "default": 0,
+            "title": "Calls",
+            "type": "integer"
+          },
+          "exhausted_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exhausted Rate"
+          },
+          "failed": {
+            "default": 0,
+            "title": "Failed",
+            "type": "integer"
+          },
+          "generated_at": {
+            "title": "Generated At",
+            "type": "string"
+          },
+          "live_window": {
+            "title": "Live Window",
+            "type": "string"
+          },
+          "retries": {
+            "default": 0,
+            "title": "Retries",
+            "type": "integer"
+          },
+          "retries_per_100": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retries Per 100"
+          },
+          "series": {
+            "items": {
+              "$ref": "#/components/schemas/UpstreamBucket"
+            },
+            "title": "Series",
+            "type": "array"
+          },
+          "since": {
+            "title": "Since",
+            "type": "string"
+          },
+          "top_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Top Reason"
+          },
+          "top_reason_share": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Top Reason Share"
+          },
+          "window": {
+            "title": "Window",
+            "type": "string"
+          }
+        },
+        "required": [
+          "window",
+          "live_window",
+          "since",
+          "generated_at",
+          "series"
+        ],
+        "title": "MonitorUpstream",
+        "type": "object"
+      },
       "PassageOut": {
         "description": "One retrieved chunk, as something to read and to cite.\n\n`text`, not `quote`. A quote in this API is an extraction the model API\npulled out of a passage we sent, and `verified` says whether it survived\nthe check -- see `CitationOut`. This is the passage itself, unextracted and\nunchecked, and calling it a quote would promise a guarantee it does not\ncarry.",
         "properties": {
@@ -2804,6 +2900,57 @@
           "filename"
         ],
         "title": "UploadOut",
+        "type": "object"
+      },
+      "UpstreamBucket": {
+        "description": "One minute of outbound calls. Rates are null when no call landed.",
+        "properties": {
+          "bucket": {
+            "title": "Bucket",
+            "type": "string"
+          },
+          "calls": {
+            "default": 0,
+            "title": "Calls",
+            "type": "integer"
+          },
+          "exhausted_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exhausted Rate"
+          },
+          "failed": {
+            "default": 0,
+            "title": "Failed",
+            "type": "integer"
+          },
+          "retries": {
+            "default": 0,
+            "title": "Retries",
+            "type": "integer"
+          },
+          "retries_per_100": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retries Per 100"
+          }
+        },
+        "required": [
+          "bucket"
+        ],
+        "title": "UpstreamBucket",
         "type": "object"
       }
     },
@@ -5753,6 +5900,146 @@
           }
         ],
         "summary": "Worst pipeline stage, and its trend",
+        "tags": [
+          "monitor"
+        ]
+      }
+    },
+    "/api/monitor/upstream": {
+      "get": {
+        "description": "Is it us, or Anthropic/OpenAI.\n\nTiles are the last five minutes. Charts follow `window`. `top_reason` is\nthe most common retry/exhausted reason, with its share of those events.",
+        "operationId": "upstream_api_monitor_upstream_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "window",
+            "required": false,
+            "schema": {
+              "default": "30m",
+              "pattern": "^(30m|1h)$",
+              "title": "Window",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MonitorUpstream"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Malformed request."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or wrong X-API-Key."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "No such document or analysis."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The resource is busy, or already in the requested state."
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The upload is over api_max_upload_mb."
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Only PDF uploads are supported."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The request body did not validate."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unhandled server error; the X-Trace-Id is on every log line."
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "An upstream call failed after its retries."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "A key or a dependency the operation needs is not configured."
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Upstream retries and exhausted calls",
         "tags": [
           "monitor"
         ]

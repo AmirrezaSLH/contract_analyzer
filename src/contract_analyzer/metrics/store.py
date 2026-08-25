@@ -33,7 +33,7 @@ from typing import Any
 from ..config import Settings
 from ..db import connect
 from ..logger import attach_handler, detach_handler, get_logger
-from . import host, queries, stages
+from . import host, queries, stages, upstream
 from .handler import SpanHandler
 from .sampler import HostSampler
 
@@ -152,6 +152,10 @@ class MetricsStore:
         return host.host_map(
             conn, window=window, interval=self._settings.monitor_sample_seconds
         )
+
+    def upstream(self, conn: sqlite3.Connection, *, window: str = "30m") -> dict[str, Any]:
+        """Retries and exhausted calls through http_client, last five minutes."""
+        return upstream.upstream_map(conn, window=window)
 
     def criterion_mix(
         self, conn: sqlite3.Connection, *, window: str = "30d"

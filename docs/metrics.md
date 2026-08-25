@@ -98,6 +98,13 @@ quiet one.
 | `GET /api/metrics/runs/{id}/spans` | One run's span tree, for the waterfall |
 | `GET /api/monitor/stages?window=` | Worst `span` name over five minutes, its error rate, and the error-count trend across named stages |
 | `GET /api/monitor/host?window=` | Latest process memory and disk used %, one point per `monitor_sample_seconds` |
+| `GET /api/monitor/upstream?window=` | Retries per 100 outbound calls, exhausted rate, and the top retry reason |
+
+Monitor upstream is a query over `spans` named `upstream.call`,
+`upstream.retry`, and `upstream.failed`. `RetryingTransport` emits those at
+the same site as `http.retry` / `http.failed`. Tiles use the last five minutes
+when anything was called; otherwise the chart window. `top_reason_share` is
+that reason's share of retry + exhausted events, not of all calls.
 
 A window on `/metrics/*` is `\d+[hd]`; on `/monitor/*` it is `30m` or `1h`.
 Anything else is a `422` in the API's error envelope.

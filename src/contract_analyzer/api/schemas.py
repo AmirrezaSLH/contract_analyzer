@@ -746,6 +746,39 @@ class MonitorHost(BaseModel):
     series: list[HostBucket]
 
 
+class UpstreamBucket(BaseModel):
+    """One minute of outbound calls. Rates are null when no call landed."""
+
+    bucket: str
+    calls: int = 0
+    retries: int = 0
+    failed: int = 0
+    retries_per_100: float | None = None
+    exhausted_rate: float | None = None
+
+
+class MonitorUpstream(BaseModel):
+    """`GET /monitor/upstream`: retries through http_client, not spend.
+
+    Tiles are the last five minutes when anything was called; otherwise the
+    chart window. `top_reason_share` is that reason's share of retry +
+    exhausted events, not of all calls.
+    """
+
+    window: str
+    live_window: str
+    since: str
+    generated_at: str
+    calls: int = 0
+    retries: int = 0
+    failed: int = 0
+    retries_per_100: float | None = None
+    exhausted_rate: float | None = None
+    top_reason: str | None = None
+    top_reason_share: float | None = None
+    series: list[UpstreamBucket]
+
+
 Detail = Annotated[
     Literal["full", "summary"],
     Field(description="`summary` omits quotes and rationale from the report."),

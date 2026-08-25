@@ -32,7 +32,7 @@ same client and raises on non-2xx.
 | Never retry | any other 4xx (400 bad request, 401/403 auth, 404, 422 validation) -- they do not improve by repetition |
 | Delay | full-jitter exponential backoff: `uniform(c/2, c)` with `c = min(30, 1·2^attempt)` → ≈1 s, 2 s, 4 s. Jitter spreads simultaneous retries out, which is what a 429 is asking for |
 | `Retry-After` | when the server sends one in seconds, it replaces the computed delay |
-| Logging | each retry: `http.retry` (WARNING) with method, URL, attempt, max_attempts, wait_s, reason; exhaustion: `http.failed` (ERROR) |
+| Logging | each retry: `http.retry` (WARNING) with method, URL, attempt, max_attempts, wait_s, reason; exhaustion: `http.failed` (ERROR). The same call site also emits zero-duration `upstream.retry` / `upstream.failed` spans, and wraps the exchange in `upstream.call`, so the Monitor tab can query retries without parsing the log file |
 | Failure | `HttpFailure(method, url, attempts, elapsed, status, cause)` -- a one-line message such as `POST https://api.anthropic.com/v1/messages failed after 4 attempt(s) in 7.3s: HTTP 503`. Callers inspect `.status` (HTTP) or `.cause` (network) |
 | Timeout | `HTTP_TIMEOUT_SECONDS` (default 60) for connect/read/write/pool |
 

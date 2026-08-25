@@ -424,10 +424,11 @@ python scripts/export_openapi.py
 
 ## What is not here yet
 
-* **Per-criterion history.** `criterion_results` — the state mix per criterion
-  over time, which is the drift signal — is phase 3 of the metric store and is
-  not queryable yet. Everything else `/metrics/*` declares now answers; see
-  [metrics.md](metrics.md).
+* **Per-criterion history over HTTP.** `criterion_results` — the state mix per
+  criterion over time, which is the drift signal — fills on every run and
+  `MetricsStore.criterion_mix()` queries it, but there is no endpoint for it
+  yet: fifteen numbers are a drill-down, not a tile. Everything `/metrics/*`
+  declares answers; see [metrics.md](metrics.md).
 * **Streaming and cancellation are per-process.** The record is durable; the
   stream and the cancel flag are not. See *Durable is not distributed* above.
 * **`/v1` prefix.** One caller (MCP) would have to change; deferred until there

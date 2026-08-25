@@ -292,7 +292,11 @@ def _drive(
                     {
                         "type": "tool_result",
                         "tool_use_id": block.id,
-                        "content": outcome.text,
+                        # A string on every path but one: a result carrying a
+                        # retrieved figure is a block list, text then image,
+                        # and goes back unflattened so the model sees the
+                        # picture (`tools.py`, `figures.py`).
+                        "content": outcome.content,
                         "is_error": call.error is not None,
                     }
                 )

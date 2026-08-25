@@ -38,6 +38,7 @@ from ..embeddings.base import Embedder
 from ..logger import get_logger, span
 from ..retrieval import NEEDS_EMBEDDER, RetrievedChunk, retrieve, retrieve_by_section
 from ..tokens import count_tokens
+from .figures import figure_images
 
 log = get_logger(__name__)
 
@@ -49,6 +50,10 @@ SECTION_LIMIT = 12
 
 SEARCH_TOOL = "search_contract"
 SECTION_TOOL = "get_section"
+
+#: A tool result is a plain string, unless it carries figure images -- then it
+#: is the Anthropic block list the API takes in the same place.
+ToolContent = str | list[dict[str, Any]]
 
 
 @dataclass(frozen=True)
@@ -142,10 +147,25 @@ class ToolCall:
 
 @dataclass
 class ToolOutcome:
-    """The text handed back to the model, and the record kept of it."""
+    """What is handed back to the model, and the record kept of it.
 
-    text: str
+    `content` is the rendered passages as a string, which is what all but one
+    path produces. When the passages include a figure whose image is on disk,
+    it is instead a block list -- the same text, then the pictures -- so the
+    model reads the diagram it is about to cite. `text` is the string half
+    either way, which is what the log and the tests care about.
+    """
+
+    content: str | list[dict[str, Any]]
     call: ToolCall
+
+    @property
+    def text(self) -> str:
+        if isinstance(self.content, str):
+            return self.content
+        return "".join(
+            block.get("text", "") for block in self.content if block.get("type") == "text"
+        )
 
 
 class ContractTools:
@@ -259,12 +279,12 @@ class ContractTools:
         call = ToolCall(name=name, args=dict(args))
         with span("agent.tool", log, tool=name) as bag:
             if name == SEARCH_TOOL:
-                text = self._search(call)
+                content = self._search(call)
             elif name == SECTION_TOOL:
-                text = self._section(call)
+                content = self._section(call)
             else:
                 call.error = f"unknown tool {name!r}"
-                text = f"Error: {call.error}. Available: {SEARCH_TOOL}, {SECTION_TOOL}."
+                content = f"Error: {call.error}. Available: {SEARCH_TOOL}, {SECTION_TOOL}."
             bag.update(
                 mode=call.mode,
                 top_k=call.top_k,
@@ -277,10 +297,12 @@ class ContractTools:
                 bag["note"] = call.note
             if call.error:
                 bag["error"] = call.error
+            if not isinstance(content, str):
+                bag["images"] = sum(1 for b in content if b.get("type") == "image")
         self.calls.append(call)
-        return ToolOutcome(text=text, call=call)
+        return ToolOutcome(content=content, call=call)
 
-    def _search(self, call: ToolCall) -> str:
+    def _search(self, call: ToolCall) -> ToolContent:
         query = str(call.args.get("query", "")).strip()
         mode = call.args.get("mode") or self.default_mode
         top_k = call.args.get("top_k")
@@ -320,7 +342,7 @@ class ContractTools:
         )
         return list(result.chunks)
 
-    def _section(self, call: ToolCall) -> str:
+    def _section(self, call: ToolCall) -> ToolContent:
         prefix = str(call.args.get("prefix", "")).strip()
         if not prefix:
             call.error = "prefix is empty"
@@ -332,7 +354,7 @@ class ContractTools:
             ),
         )
 
-    def _deliver(self, call: ToolCall, fetch) -> str:
+    def _deliver(self, call: ToolCall, fetch) -> ToolContent:
         """The shared tail: dedupe, budget, retrieve, register, render."""
         key = (call.name, json.dumps(call.args, sort_keys=True, default=str))
         if key in self._seen:
@@ -364,7 +386,20 @@ class ContractTools:
                 f"Evidence budget reached ({self.evidence.tokens} tokens). "
                 "Do not search again; answer from the passages you have."
             )
-        return "\n\n".join(parts)
+        # A figure's caption is what was matched and what will be cited; the
+        # image is what says what the figure shows. Only the passages new to
+        # this result carry one -- an already-seen figure was pictured on the
+        # turn that first returned it, and is still in the conversation.
+        entries = [self.evidence.get(eid) for eid in new]
+        images = figure_images([entry.chunk for entry in entries], settings=self._settings)
+        if not images:
+            return "\n\n".join(parts)
+        # Which picture is which: with two figures in one result, "the image"
+        # is ambiguous and the model has no other way to tie one to an id.
+        pictured = [entry.id for entry in entries if entry.chunk.chunk_id in images]
+        parts.append(f"Figure images attached below, in order: {', '.join(pictured)}.")
+        blocks = [block for entry in entries for block in images.get(entry.chunk.chunk_id, [])]
+        return [{"type": "text", "text": "\n\n".join(parts)}, *blocks]
 
 
 __all__ = [
@@ -377,5 +412,6 @@ __all__ = [
     "Evidence",
     "EvidenceEntry",
     "ToolCall",
+    "ToolContent",
     "ToolOutcome",
 ]

@@ -27,8 +27,11 @@ An earlier draft put Upload and Library in the tab row. That was wrong: it
 made four peers out of two app-level pages and two document-level views, and
 left a tab bar showing "Analysis | Chat" on pages where neither applied.
 
-The KPI dashboard, when it lands, is a **third sidebar entry** and a fifth
-route — application-level, spanning every document. Not a tab.
+The KPI dashboard is application-level — it spans every document — so it sits
+outside this navigation entirely, behind an **App / KPI toggle at the top of
+the sidebar**, at `/metrics`. In KPI mode the sidebar drops the document scope
+for a System block and the two tabs disappear, because no document is in
+scope. Designed in `../KPI_01/`. Not a tab, and not a third nav entry.
 
 ## 2. Design tokens
 
@@ -409,7 +412,8 @@ Not a separate pass; these are part of "done".
 
 ## 8. Deliberately out of scope
 
-1. **KPI dashboard.** `KPI_plan.md`. Third sidebar entry, fifth route.
+1. **KPI dashboard.** Designed in `../KPI_01/`; metric selection is
+   `KPI_plan.md`'s. Reached by the sidebar toggle, at `/metrics`.
 2. **Citation → source.** A quote card should open the passage it names;
    `GET /documents/{id}/sections` exists for it. Today the card is inert.
    The highest-value thing to add after this plan ships.

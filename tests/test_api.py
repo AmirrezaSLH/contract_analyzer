@@ -160,6 +160,20 @@ def upload(client, body, name="Sample Contract.pdf"):
     return client.post("/api/documents", files={"file": (name, body, "application/pdf")})
 
 
+def escaped(tmp_path, settings) -> list[str]:
+    """Anything the upload wrote outside `raw_dir`.
+
+    The database and its `-wal` / `-shm` sidecars are not that: WAL sidecars
+    exist for as long as a connection is open, and the metrics store's writer
+    holds one for the life of the app.
+    """
+    return sorted(
+        entry.name
+        for entry in tmp_path.iterdir()
+        if entry != settings.raw_dir and not entry.name.startswith("contracts.db")
+    )
+
+
 # --------------------------------------------------------------------------
 # The script
 # --------------------------------------------------------------------------
@@ -286,7 +300,7 @@ def test_a_traversing_filename_cannot_write_outside_raw_dir(client, settings, tm
     # The upload is rejected by the parser, or accepted -- either way the only
     # thing that matters is where the bytes went.
     assert not (tmp_path / "evil.pdf").exists()
-    assert sorted(p.name for p in tmp_path.iterdir()) == ["contracts.db", "raw"]
+    assert escaped(tmp_path, settings) == []
     written = list((settings.raw_dir).iterdir())
     assert all(p.parent == settings.raw_dir for p in written)
     assert all(".." not in p.name and "/" not in p.name for p in written)
@@ -299,7 +313,7 @@ def test_a_traversing_filename_cannot_write_outside_raw_dir(client, settings, tm
 @pytest.mark.parametrize("name", ["..%2f..%2fx.pdf", "....//x.pdf", "/etc/passwd.pdf", ".pdf"])
 def test_hostile_filenames_all_land_inside_raw_dir(client, settings, tmp_path, name):
     upload(client, PDF_HEADER + b"x", name=name)
-    assert sorted(p.name for p in tmp_path.iterdir()) == ["contracts.db", "raw"]
+    assert escaped(tmp_path, settings) == []
     assert all(p.parent == settings.raw_dir for p in settings.raw_dir.iterdir())
 
 
@@ -873,6 +887,15 @@ def test_two_subscribers_both_see_the_whole_run(client, api, searches, small_pdf
         assert events[-1][0] == "done"
 
 
+def test_the_log_stream_is_published(client):
+    """Mounted and documented. The body never closes -- that is the point --
+    so the lines themselves are asserted in `test_log_stream.py` against the
+    hub, not against a TestClient that would wait on EOF."""
+    paths = client.get("/openapi.json").json()["paths"]
+    assert "/api/logs/events" in paths
+    assert "get" in paths["/api/logs/events"]
+
+
 # --------------------------------------------------------------------------
 # Chat
 # --------------------------------------------------------------------------
@@ -1141,14 +1164,20 @@ def test_a_key_protects_everything_except_health_and_criteria(settings):
         assert client.get("/api/documents", headers={"X-API-Key": "s3cret"}).status_code == 200
 
 
-def test_metrics_are_declared_and_honestly_unavailable(client):
-    """Documented and 503 beats absent: the OpenAPI document is a deliverable
-    and the UI is written against it before the store exists."""
+def test_every_metrics_operation_answers_over_an_empty_database(client):
+    """All four, and none of them 503. `metrics_unavailable` now means one
+    thing only -- the process could not build a store -- and "nothing has run
+    yet" is a fact about the system, not a failure of the endpoint.
+
+    A run id with no spans is an empty list rather than a 404: the run may well
+    be in `/metrics/runs` beside it, from a boot before this table existed."""
     for path in ("/api/metrics/summary", "/api/metrics/timeseries", "/api/metrics/runs",
-                 "/api/metrics/runs/x/spans"):
-        response = client.get(path)
-        assert response.status_code == 503, path
-        assert response.json()["error"]["code"] == "metrics_unavailable"
+                 "/api/monitor/stages", "/api/monitor/host", "/api/monitor/upstream"):
+        assert client.get(path).status_code == 200, path
+
+    response = client.get("/api/metrics/runs/x/spans")
+    assert response.status_code == 200
+    assert response.json() == []
 
 
 # --------------------------------------------------------------------------

@@ -7,7 +7,7 @@ export function NotFoundView() {
   return (
     <EmptyState
       title="There is nothing at this address."
-      body="The four pages are upload, the library, and a document's analysis and chat."
+      body="Upload, the library, analysis, chat, operations, monitor, and the live log."
       action={
         <Button variant="primary" size="lg" onClick={() => navigate("/library")}>
           Back to library

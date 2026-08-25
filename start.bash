@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Start the whole app and follow its logs.
 #
-#   ./start.bash          the HTTP API (and the built React front end it serves),
-#                         plus the MCP connector on MCP_PORT
-#   ./start.bash --dev    plus the Vite dev server, proxying /api at the API
+#   ./start.bash          build the React bundle, then the HTTP API (which
+#                         serves it) plus the MCP connector on MCP_PORT
+#   ./start.bash --dev    skip the bundle; plus the Vite dev server, proxying
+#                         /api at the API
 #   ./start.bash --no-mcp just the API
 #   ./start.bash --detach start and return, leaving them running
 #
@@ -116,11 +117,10 @@ if ((MCP)) && ! "$PYTHON" -c 'import mcp_connector' 2>/dev/null; then
     MCP_MISSING=1
 fi
 
-if ((DEV)); then
-    command -v npm >/dev/null 2>&1 || die "npm is not on PATH. Needed for --dev."
-    [[ -f "$ROOT/ui/package.json" ]] || die "No ui/package.json. This checkout has no front end."
-    [[ -d "$ROOT/ui/node_modules" ]] || die "ui/node_modules is missing. Run 'make ui-install' first."
-fi
+# Both paths need Node: `--dev` for Vite, the default for `npm run build`.
+command -v npm >/dev/null 2>&1 || die "npm is not on PATH. Needed to build or run the front end."
+[[ -f "$ROOT/ui/package.json" ]] || die "No ui/package.json. This checkout has no front end."
+[[ -d "$ROOT/ui/node_modules" ]] || die "ui/node_modules is missing. Run 'make ui-install' first."
 
 port_owner() {
     local port=$1
@@ -160,6 +160,15 @@ spawn() {
 }
 
 bold "Starting Contract Analyzer"
+
+if ! ((DEV)); then
+    # The API serves whatever is in api/static/. Building here means a restart
+    # picks up ui/ edits without a separate `make ui-build`.
+    info "UI       building into api/static/"
+    npm --prefix "$ROOT/ui" run build \
+        || die "The front-end build failed. Fix that, then start again."
+    ok "UI       bundle ready"
+fi
 
 api_pid=$(spawn "$API_PID_FILE" "$API_LOG" \
     "$PYTHON" -m uvicorn contract_analyzer.api.main:app \

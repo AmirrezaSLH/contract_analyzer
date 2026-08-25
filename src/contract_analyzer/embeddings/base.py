@@ -63,15 +63,24 @@ class BaseEmbedder(ABC):
 
     name: str
     dim: int
+    #: Tokens the provider billed for the most recent call, when it reports
+    #: them. **Zero is the truthful answer for the local and fake embedders**,
+    #: not a missing number: they run in this process and bill nothing.
+    #: `ingest/pipeline.py` reads it to price the `ingest.embed` span, which is
+    #: how embedding cost reaches the metrics store without a tile of its own
+    #: -- see `plan_implement_docs/KPI_01/02_costs.md`.
+    last_tokens: int
 
     def __init__(self, name: str, dim: int) -> None:
         self.name = name
         self.dim = dim
+        self.last_tokens = 0
         self._verified = False
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
         if not texts:
             return []
+        self.last_tokens = 0
         vectors = self._embed(texts, query=False)
         if len(vectors) != len(texts):
             raise DimensionMismatch(
@@ -81,6 +90,7 @@ class BaseEmbedder(ABC):
         return vectors
 
     def embed_query(self, text: str) -> list[float]:
+        self.last_tokens = 0
         vector = self._embed([text], query=True)[0]
         self._verify(vector)
         return vector

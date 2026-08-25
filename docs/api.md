@@ -55,7 +55,14 @@ clicks later.
 | `GET` | `/analyses/{id}/events` | SSE: `status`, `criterion`, `tool_call`, `correction`, then `done` or `error`. `409` for an analysis this process is not running. |
 | `POST` | `/analyses/{id}/cancel` | Skip what has not started. `409` for an analysis this process is not running. |
 | `POST` | `/chat` | A cited answer over one contract, streamed or not. Model, retrieval mode and passage count are per-question. |
-| `GET` | `/metrics/*` | Declared; `503` until the metrics store lands. |
+| `GET` | `/metrics/summary` | KPI tiles and meters for one window. |
+| `GET` | `/metrics/timeseries` | The same numbers per bucket, for the trend charts. |
+| `GET` | `/metrics/runs` | The global runs table -- what `GET /analyses` deliberately does not serve. |
+| `GET` | `/metrics/runs/{id}/spans` | One run's span tree, for the waterfall. |
+| `GET` | `/monitor/stages` | Worst pipeline stage over the last five minutes, its error rate, and total error count. |
+| `GET` | `/monitor/host` | This process's memory and the disk under the database. |
+| `GET` | `/monitor/upstream` | Retries and exhausted calls through `http_client`, plus the top reason. |
+| `GET` | `/logs/events` | Live console as SSE. Same compact lines as stderr. Does not close. |
 
 ## Decisions worth defending
 
@@ -408,12 +415,10 @@ python scripts/export_openapi.py
 
 ## What is not here yet
 
-* **`/metrics/*` returns 503.** The store (`spans`, `criterion_results`, and
-  the query layer over them) is the next step; the `analyses` table it will
-  join against already exists and is populated. The endpoints are declared now because
-  the UI and the connector are written against the spec, and an endpoint that
-  is documented and honestly unavailable is a better contract than one that
-  appears later and changes the spec's shape.
+* **Per-criterion history.** `criterion_results` — the state mix per criterion
+  over time, which is the drift signal — is phase 3 of the metric store and is
+  not queryable yet. Everything else `/metrics/*` declares now answers; see
+  [metrics.md](metrics.md).
 * **Streaming and cancellation are per-process.** The record is durable; the
   stream and the cancel flag are not. See *Durable is not distributed* above.
 * **`/v1` prefix.** One caller (MCP) would have to change; deferred until there

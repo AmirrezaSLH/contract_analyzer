@@ -1,7 +1,9 @@
-import { Link, Outlet, useMatch, useNavigate } from "react-router-dom";
+import { useEffect, useRef } from "react";
+import { Link, Outlet, useLocation, useMatch, useNavigate } from "react-router-dom";
 import { Button } from "./components/Button";
 import { Icon } from "./components/Icon";
 import { Label } from "./components/Label";
+import { ModeToggle } from "./components/ModeToggle";
 import { useDocument, useDocuments } from "./hooks/useDocuments";
 import { useHealth } from "./hooks/useHealth";
 import { lastAnalysisWords } from "./views/Library/lastAnalysis";
@@ -22,6 +24,12 @@ export function App() {
   const health = useHealth();
   const navigate = useNavigate();
   const onLibrary = useMatch("/library") !== null;
+  const onMetrics = useMatch("/metrics") !== null;
+  const onMonitor = useMatch("/monitor") !== null;
+  const onLogs = useMatch("/logs") !== null;
+  const offApp = onMetrics || onMonitor || onLogs;
+  const appPath = useLastAppPath(offApp);
+  const mode = onMetrics ? "kpi" : onMonitor ? "monitor" : onLogs ? "log" : "app";
 
   const doc = active.data;
   const rows = documents.data ?? [];
@@ -34,54 +42,60 @@ export function App() {
           <span className={styles.brandSub}>Compliance review workspace</span>
         </div>
 
-        <div className={styles.group}>
-          <Label>Active document</Label>
-          <div className={styles.active} title={doc ? doc.filename : undefined}>
-            <span className={styles.activeName}>
-              {doc ? doc.filename : "No document selected"}
-            </span>
-          </div>
-          <span className={styles.meta}>
-            {doc
-              ? `id ${doc.document_id} · ${doc.pages ?? "—"} pages · ${doc.chunks} passages`
-              : "Upload a contract, or choose one from the library"}
-          </span>
-        </div>
+        <ModeToggle appPath={appPath} mode={mode} />
 
-        <Button variant="primary" size="lg" block onClick={() => navigate("/upload")}>
-          Upload a contract
-        </Button>
-
-        <div className={styles.navGroup}>
-          <button
-            type="button"
-            className={`${styles.navRow} ${onLibrary ? styles.navSelected : ""}`}
-            onClick={() => navigate("/library")}
-          >
-            <Label>Library</Label>
-            <span className={styles.navCount}>
-              {rows.length}
-              <Icon name="chevron" size={10} className={styles.navChevron} />
-            </span>
-          </button>
-
-          <div className={styles.docs}>
-            {rows.map((row) => (
-              <Link
-                key={row.document_id}
-                to={`/documents/${row.document_id}/analysis`}
-                className={`${styles.docRow} ${
-                  row.document_id === documentId ? styles.docSelected : ""
-                }`}
-              >
-                <span className={styles.docName}>{row.filename}</span>
-                <span className={styles.docSub}>
-                  {row.pages ?? "—"} pages · {lastAnalysisWords(row.last_analysis).short}
+        {offApp ? null : (
+          <>
+            <div className={styles.group}>
+              <Label>Active document</Label>
+              <div className={styles.active} title={doc ? doc.filename : undefined}>
+                <span className={styles.activeName}>
+                  {doc ? doc.filename : "No document selected"}
                 </span>
-              </Link>
-            ))}
-          </div>
-        </div>
+              </div>
+              <span className={styles.meta}>
+                {doc
+                  ? `id ${doc.document_id} · ${doc.pages ?? "—"} pages · ${doc.chunks} passages`
+                  : "Upload a contract, or choose one from the library"}
+              </span>
+            </div>
+
+            <Button variant="primary" size="lg" block onClick={() => navigate("/upload")}>
+              Upload a contract
+            </Button>
+
+            <div className={styles.navGroup}>
+              <button
+                type="button"
+                className={`${styles.navRow} ${onLibrary ? styles.navSelected : ""}`}
+                onClick={() => navigate("/library")}
+              >
+                <Label>Library</Label>
+                <span className={styles.navCount}>
+                  {rows.length}
+                  <Icon name="chevron" size={10} className={styles.navChevron} />
+                </span>
+              </button>
+
+              <div className={styles.docs}>
+                {rows.map((row) => (
+                  <Link
+                    key={row.document_id}
+                    to={`/documents/${row.document_id}/analysis`}
+                    className={`${styles.docRow} ${
+                      row.document_id === documentId ? styles.docSelected : ""
+                    }`}
+                  >
+                    <span className={styles.docName}>{row.filename}</span>
+                    <span className={styles.docSub}>
+                      {row.pages ?? "—"} pages · {lastAnalysisWords(row.last_analysis).short}
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
 
         <div className={styles.foot}>
           <div className={styles.deployment}>
@@ -104,6 +118,22 @@ export function App() {
       </main>
     </div>
   );
+}
+
+/**
+ * The app page to come back to from KPI, Monitor or the log.
+ *
+ * Those routes carry no `:id`, so the scope cannot be read off the URL
+ * while you are there. Remembering the last app path is what makes the round
+ * trip lossless: leave from a document's analysis, come back to it.
+ */
+function useLastAppPath(offApp: boolean): string {
+  const { pathname } = useLocation();
+  const last = useRef("/library");
+  useEffect(() => {
+    if (!offApp) last.current = pathname;
+  }, [offApp, pathname]);
+  return offApp ? last.current : pathname;
 }
 
 /** The scope, read from the URL. `useMatch` rather than `useParams` because

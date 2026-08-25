@@ -67,7 +67,9 @@ and on the console:
   attribute names (`filename`, `module`, `name`, `msg`, `args`) -- use
   `file`/`path` instead of `filename`.
 * **Spans are nouns with a dot**: `parse.pdf`, `ingest.file`, `retrieve`,
-  `llm.call`, `agent.router`. The later metrics store will key on these names.
+  `llm.call`, `agent.router`. The metrics store keys on these names -- a
+  renamed span is a renamed row, and `spans WHERE name = 'chat'` is where
+  chat cost lives.
 * The context filter sits on the **handlers**, not the logger: a logger's
   filters only see records logged directly to it, and every record here
   arrives by propagation from a child logger.
@@ -75,10 +77,34 @@ and on the console:
   degraded paths (fake embedder, missing outline), `ERROR` for exhausted
   retries and failed documents. `DEBUG` is for per-element parser detail.
 
+## The metrics store subscribes here
+
+`metrics/` attaches a `logging.Handler` to this root logger that turns every
+`span.end` record into a row in `spans` -- so the KPI page is fed by the same
+records `.run/app.jsonl` holds, and **no call site changed**. That is why
+`Handler` and `LogRecord` are re-exported from this module: exactly one file
+in the package may import `logging`, and the dependency runs `metrics ->
+logger`, never the other way. See [metrics.md](metrics.md).
+
+`run_id` is carried alongside `trace_id` for the same handler's benefit: one
+trace legitimately contains an upload *and* an analysis, so a waterfall needs
+to know which spans belong to the run.
+
+## The live console
+
+The API hangs a second handler off the same logger that formats each record
+the way stderr does and fans it out to `GET /api/logs/events`. Each event
+carries `source: api`. The connector is a second process, so its lines are
+followed from `.run/mcp.log` and tagged `mcp`. The Log tab draws the same
+`api │` / `mcp │` prefixes `start.bash` prints. Call sites do not change; a
+forgotten browser tab cannot stall a run, because publish drops rather than
+blocks.
+
 ## What is deliberately not here yet
 
-Metrics aggregation, OpenTelemetry export, and sampling. The `span()` seam is
-where the KPI store will subscribe; nothing in the call sites will change.
+OpenTelemetry export and sampling. Spans are stored in full: one analysis is
+about seventy rows, and a sampling knob nobody tunes is a knob set wrong during
+a demo.
 
 ## Tests
 

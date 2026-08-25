@@ -1,67 +1,101 @@
 """The KPI page's data, over the metrics store.
 
-The store does not exist yet -- `spans`, `criterion_results` and the query
-layer over them are the next step -- so these four endpoints are declared and
-answer `503 metrics_unavailable`. The `analyses` table they will join against
-is already there and already populated, by `analyses.py`; what is missing is
-the per-criterion and per-span detail, and the percentile queries.
+Four operations, and the split between them is the one from `01_findings.md`:
+the server aggregates, the browser draws. `GET /analyses` is per document on
+purpose, so a dashboard that spans every contract cannot be assembled from it
+-- pulling thirty kilobytes of report per run into React to `reduce()` is the
+wrong grain, and session state under-counts after a refresh.
 
-The endpoints are here rather than absent for one reason: the
-OpenAPI document is a deliverable, the connector and the UI are written against
-it, and an endpoint that is documented and honestly unavailable is a better
-contract than one that appears later and changes the shape of the spec.
+* `summary` -- the tiles and the meters for one window.
+* `timeseries` -- the same numbers per bucket, for the trend charts.
+* `runs` -- the global runs table, each row carrying its trace id.
+* `runs/{id}/spans` -- one run's span tree, for the waterfall.
 
-When `MetricsStore` lands, each handler becomes a call to
-`summary` / `timeseries` / `runs` / `spans` and returns what it returns,
-unchanged: the KPI selection is the KPI plan's business, not this module's.
+**The window drives the bucket.** 24 h -> `1h`, 7 d -> `6h`, 30 d -> `1d`, and
+`timeseries` applies that pairing when a caller sends only a window. Thirty
+days of one-hour bars is 720 marks on a 900-pixel axis.
+
+**Live counts are not table reads.** Active and queued come from `JobRunner`;
+they are facts about this process and a table would be describing the last one.
+`summary` merges them in, which is why it is the one handler that depends on
+the runner as well as on the store.
+
+**The four payloads are models, not `dict[str, Any]`.** `docs/openapi.json` is
+what the front end's types are generated from, and a handler that describes
+itself as `additionalProperties: true` makes the KPI page the one part of the
+UI with no type safety. The shapes live in `schemas.py`; `queries.py` remains
+the source of truth for what is in them.
 """
 
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Annotated
 
-from fastapi import APIRouter, Query, status
+from fastapi import APIRouter, Query
 
-from ..deps import Protected, RunnerDep
-from ..errors import ApiError
+from ..deps import ConnDep, MetricsDep, Protected, RunnerDep
+from ..schemas import MetricsBucket, MetricsSummary, RunRow, SpanNode
 
 router = APIRouter(prefix="/metrics", tags=["metrics"], dependencies=[Protected])
 
-_HINT = (
-    "The metrics store is not implemented yet. GET /api/health reports live counts, "
-    "GET /api/analyses?document_id=... lists one contract's runs, and "
-    "GET /api/analyses/{id} "
-    "carries the totals for one of them."
-)
-
-
-def _unavailable() -> ApiError:
-    return ApiError(
-        status.HTTP_503_SERVICE_UNAVAILABLE,
-        "metrics_unavailable",
-        "Historical metrics are not available: the metrics store has not been built yet.",
-        _HINT,
-    )
+#: `24h`, `7d`, `1h`. Validated by the router so a typo is a 422 in this API's
+#: error envelope rather than a ValueError from the query layer.
+_SPEC = r"^\d+[hd]$"
 
 
 @router.get("/summary", summary="Real-time tiles for the KPI page")
-def summary(runner: RunnerDep, window: Annotated[str, Query()] = "24h") -> dict[str, Any]:
-    raise _unavailable()
+def summary(
+    conn: ConnDep,
+    store: MetricsDep,
+    runner: RunnerDep,
+    window: Annotated[str, Query(pattern=_SPEC)] = "24h",
+) -> MetricsSummary:
+    """Failure rate, p50/p95 latency, spend, and the three quality meters.
+
+    `live` is the only part of this payload that is not a query: workers busy,
+    runs queued, and the document count `GET /health` also reports.
+    """
+    running, queued = runner.live
+    payload = store.summary(conn, window=window)
+    payload["live"] = {"running": running, "queued": queued, "active": running + queued}
+    return MetricsSummary.model_validate(payload)
 
 
 @router.get("/timeseries", summary="Historical trends, bucketed")
 def timeseries(
-    bucket: Annotated[str, Query()] = "1h",
-    window: Annotated[str, Query()] = "7d",
-) -> list[dict[str, Any]]:
-    raise _unavailable()
+    conn: ConnDep,
+    store: MetricsDep,
+    window: Annotated[str, Query(pattern=_SPEC)] = "7d",
+    bucket: Annotated[str | None, Query(pattern=_SPEC)] = None,
+) -> list[MetricsBucket]:
+    """One entry per bucket, oldest first. Buckets with no runs are present
+    and zeroed: a chart that closes its gaps draws a busy night out of a quiet
+    one. `bucket` defaults to the one the window is designed with."""
+    rows = store.timeseries(conn, window=window, bucket=bucket)
+    return [MetricsBucket.model_validate(row) for row in rows]
 
 
 @router.get("/runs", summary="The runs table")
-def runs(limit: Annotated[int, Query(ge=1, le=500)] = 50) -> list[dict[str, Any]]:
-    raise _unavailable()
+def runs(
+    conn: ConnDep,
+    store: MetricsDep,
+    limit: Annotated[int, Query(ge=1, le=500)] = 50,
+) -> list[RunRow]:
+    """Every run, newest first, whatever contract it was against. The report
+    is not included -- open the analysis for that."""
+    return [RunRow.model_validate(row) for row in store.runs(conn, limit=limit)]
 
 
 @router.get("/runs/{run_id}/spans", summary="One run's span tree, for the waterfall")
-def spans(run_id: str) -> list[dict[str, Any]]:
-    raise _unavailable()
+def spans(conn: ConnDep, store: MetricsDep, run_id: str) -> list[SpanNode]:
+    """Every span of one run, as a tree: `api.analysis` -> `analysis.document`
+    -> one `analysis.criterion` per criterion -> `agent.run` -> `agent.call` /
+    `agent.tool` -> `retrieve`.
+
+    A tree rather than a flat list, because resolving `parent_span_id` in the
+    browser would mean writing the same algorithm again in TypeScript. An
+    empty list is the honest answer for a run with no spans -- one from before
+    this table existed, or from another machine -- and not a 404: the run may
+    well be in `/metrics/runs` beside it.
+    """
+    return [SpanNode.model_validate(root) for root in store.spans(conn, run_id)]

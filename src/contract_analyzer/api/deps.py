@@ -1,9 +1,11 @@
 """What a handler is given, and what it must never take.
 
-Three shared things live on `app.state` for the life of the process -- the
-settings, the embedder and the job runner -- because building any of them per
-request is either wasteful (the embedder holds an HTTP client; the local one
-holds a model) or wrong (a second job runner would be a second pool).
+Five shared things live on `app.state` for the life of the process -- the
+settings, the embedder, the job runner, the metrics store and the log stream
+-- because building any of them per request is either wasteful (the embedder
+holds an HTTP client; the local one holds a model) or wrong (a second job
+runner would be a second pool; a second metrics store would be a second
+writer thread; a second log stream would be a second handler on the logger).
 
 Connections do not. `get_conn` opens one per request and closes it after,
 because a request is the natural unit and SQLite connections are not safely
@@ -44,8 +46,10 @@ from fastapi.security import APIKeyHeader
 from ..config import Settings
 from ..db import get_db
 from ..embeddings.base import Embedder
-from .errors import unauthorized
+from ..metrics import MetricsStore
+from .errors import logs_unavailable, metrics_unavailable, unauthorized
 from .jobs import JobRunner
+from .log_stream import LogStream
 
 
 def get_settings(request: Request) -> Settings:
@@ -70,6 +74,32 @@ def get_client(request: Request) -> Any:
     """The Anthropic client, or None when there is no key. Routes that need one
     raise `no_api_key()` rather than letting the job fail later."""
     return request.app.state.client
+
+
+def get_logs(request: Request) -> LogStream:
+    """The live console hub, or a 503 if the process has not installed one.
+
+    That is a test that built an app without entering the lifespan, not a
+    production path: the hub has no database and is started next to logging.
+    """
+    hub = getattr(request.app.state, "logs", None)
+    if hub is None:
+        raise logs_unavailable()
+    return hub
+
+
+def get_metrics(request: Request) -> MetricsStore:
+    """The metrics store, or a 503 if the process could not build one.
+
+    The KPI routes answered `metrics_unavailable` for the whole of the phase
+    before this one, and that answer is kept for the one case that still
+    deserves it -- a store that failed to start -- rather than deleted because
+    the happy path now works.
+    """
+    store = getattr(request.app.state, "metrics", None)
+    if store is None:
+        raise metrics_unavailable()
+    return store
 
 
 def get_conn(request: Request) -> Iterator[sqlite3.Connection]:
@@ -110,6 +140,8 @@ SettingsDep = Annotated[Settings, Depends(get_settings)]
 ConnDep = Annotated[sqlite3.Connection, Depends(get_conn)]
 EmbedderDep = Annotated[Embedder | None, Depends(get_embedder)]
 RunnerDep = Annotated[JobRunner, Depends(get_runner)]
+LogsDep = Annotated[LogStream, Depends(get_logs)]
+MetricsDep = Annotated[MetricsStore, Depends(get_metrics)]
 ClientDep = Annotated[Any, Depends(get_client)]
 Protected = Depends(require_key)
 
@@ -118,12 +150,16 @@ __all__ = [
     "api_key_header",
     "ConnDep",
     "EmbedderDep",
+    "LogsDep",
+    "MetricsDep",
     "Protected",
     "RunnerDep",
     "SettingsDep",
     "get_client",
     "get_conn",
     "get_embedder",
+    "get_logs",
+    "get_metrics",
     "get_runner",
     "get_settings",
     "require_key",

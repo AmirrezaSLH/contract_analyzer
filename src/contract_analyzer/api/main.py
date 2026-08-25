@@ -12,6 +12,13 @@ than raced for by the first two concurrent requests -- and closed on the way
 out. The job runner owns the thread pool, and shutting it down is what stops a
 reload from leaving analyses running against a closed database.
 
+The **metrics store** is built there too, and installing it is what starts the
+KPI recording: it attaches a handler to the project's root logger that turns
+every `span.end` into a row, so no module that emits a span had to learn that
+the store exists. It is also the one thing on `app.state` that is allowed not
+to be there -- `/metrics/*` answers `503` when it could not be built, exactly
+as it did before there was a store at all.
+
 It also **reconciles the analysis record** before the first request: a process
 that was killed mid-run left rows saying `running`, and nothing else will ever
 close them. They become `interrupted` -- not `failed`, because nothing refused
@@ -59,10 +66,12 @@ from ..embeddings.base import EmbedderUnavailable, get_embedder
 from ..generation.client import AnswerUnavailable, get_client
 from ..http_client import get_http_client
 from ..logger import configure_logging, get_logger, trace_context
+from ..metrics import MetricsStore
 from . import errors
 from .errors import ApiError
 from .jobs import JobRunner
-from .routes import analyses, chat, documents, health, metrics
+from .log_stream import MCP_LOG, LogStream
+from .routes import analyses, chat, documents, health, logs, metrics, monitor
 from .schemas import Error
 
 log = get_logger(__name__)
@@ -138,6 +147,17 @@ def create_app(
         app.state.embedder = embedder if embedder is not None else _embedder(settings)
         app.state.client = client if client is not None else _client(settings)
         app.state.runner = JobRunner(settings, app.state.embedder, app.state.client)
+        # After `configure_logging`, because installing the store's handler
+        # means adding it to the root logger this call has just re-populated.
+        app.state.metrics = _metrics(settings)
+        # Host samples are this process on this box. `install()` does not
+        # start the sampler: `make analyze` is not a deployment.
+        if app.state.metrics is not None:
+            app.state.metrics.start_sampler()
+        # After `configure_logging`, same reason as the metrics handler: a
+        # force-reconfigured logger has just dropped every handler, and this
+        # is the one that fans lines out to the Log tab.
+        app.state.logs = LogStream(mcp_log=MCP_LOG).start()
         # Before anything is served: rows a killed process left at `queued` or
         # `running` are not outcomes, and a client polling one would wait for a
         # worker that no longer exists. Its own connection, opened and closed
@@ -160,8 +180,15 @@ def create_app(
             yield
         finally:
             app.state.runner.shutdown()
+            # After the runner, so the spans of a job finishing during
+            # shutdown are still recorded; before the log line below, which is
+            # not a span and does not need it.
+            if app.state.metrics is not None:
+                app.state.metrics.close()
             get_http_client(settings).close()
             log.info("api.shutdown")
+            if getattr(app.state, "logs", None) is not None:
+                app.state.logs.close()
 
     app = FastAPI(
         title=TITLE,
@@ -174,6 +201,8 @@ def create_app(
             {"name": "analyses", "description": "The five criteria as a background job."},
             {"name": "chat", "description": "Cited question answering over one contract."},
             {"name": "metrics", "description": "KPI data over the metrics store."},
+            {"name": "monitor", "description": "Is the box healthy: pipeline stages, host, then more."},
+            {"name": "logs", "description": "The live console, as server-sent events."},
         ],
     )
     # Set before the lifespan runs so that a TestClient built without entering
@@ -202,7 +231,7 @@ def create_app(
     # Every route behind one prefix, so that everything *not* behind it can be
     # the front end. See `_serve_front_end`.
     api = APIRouter(prefix=API_PREFIX)
-    for module in (health, documents, analyses, chat, metrics):
+    for module in (health, documents, analyses, chat, metrics, monitor, logs):
         api.include_router(module.router, responses=ERROR_RESPONSES)
     # Last on the router, so it matches only what the real routes did not. An
     # unknown path under /api is a client's mistake and must answer in this
@@ -305,6 +334,23 @@ def _reconcile(settings: Settings) -> int:
         return reconcile(conn)
     finally:
         conn.close()
+
+
+def _metrics(settings: Settings) -> MetricsStore | None:
+    """The KPI store, or None if it could not be built.
+
+    None rather than a failed startup, for the same reason as the embedder and
+    the answer client: a dashboard is not what makes this service work, and an
+    API that refuses to serve an analysis because it could not build a query
+    layer has its priorities backwards. `/metrics/*` answers
+    `503 metrics_unavailable` in that case, which is what it answered for the
+    whole of the previous phase.
+    """
+    try:
+        return MetricsStore(settings).install()
+    except Exception as exc:  # noqa: BLE001 - reported, never fatal
+        log.warning("api.metrics_unavailable", extra={"error": str(exc)})
+        return None
 
 
 def _embedder(settings: Settings):

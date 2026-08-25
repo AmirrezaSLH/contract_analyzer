@@ -169,13 +169,21 @@ file:
 ingest.file
   ingest.parse    pages, elements, sections, spine_source
   ingest.chunk    chunks, plus every ChunkingReport counter
-  ingest.embed    chunks, model
+  ingest.embed    chunks, model, tokens, cost_usd
   ingest.write    chunks
 ```
 
 So `.run/app.jsonl` carries the same timings the ingest report prints, and an
-`http.retry` from the embedder appears under the file that provoked it. This
-is the seam the KPI store hangs off later; here it costs four context managers.
+`http.retry` from the embedder appears under the file that provoked it. This is
+the seam the KPI store hangs off: its handler files each of these `span.end`
+records as a row without this module knowing it exists. See
+[metrics.md](metrics.md).
+
+`ingest.embed` is the one with a dollar on it. `usage.total_tokens` off the
+embeddings response is priced through `generation/pricing.py`, and the local
+and fake embedders report zero tokens because they bill nothing. It is
+**captured but never tiled**: at about $0.0002 for the sample against a ~$0.96
+analysis, it is a sentence in the waterfall, not a number on a dashboard.
 
 ## Measured on the sample contract
 

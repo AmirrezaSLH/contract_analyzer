@@ -417,6 +417,375 @@ def answer_of(result: AnswerResult) -> Answer:
     )
 
 
+# --------------------------------------------------------------------------
+# Metrics
+# --------------------------------------------------------------------------
+# The KPI page's four payloads, transcribed from `metrics/queries.py`. They
+# are models rather than `dict[str, Any]` for one reason: `docs/openapi.json`
+# is what `openapi-typescript` reads, and a handler annotated `dict[str, Any]`
+# describes itself as `additionalProperties: true` -- which would make the
+# dashboard the one part of the front end with no type safety at all.
+#
+# **The query layer is the source of truth, not this file.** Every optional
+# field below is optional because `queries.py` can return `None` there, and
+# the two rules that produces are worth stating once:
+#
+#   * **A rate is `None` when its denominator is zero, and `None` is not 0.**
+#     A quote-verification rate of `null` with `quotes_total: 0` means no quote
+#     was produced -- a different and more alarming fact than 0% verified.
+#     Every rate here therefore travels with its denominator.
+#   * **An empty bucket is present and zeroed, but its percentiles are
+#     `None`.** A chart that coerces those to `0` draws a cliff to the axis on
+#     every quiet hour.
+
+
+class Percentiles(BaseModel):
+    """Nearest-rank p50 and p95. `None` when nothing was measured.
+
+    At n=1 both are the one value and at n=2 p50 is the lower: small windows
+    showing `p50 == p95` are correct, not a bug.
+    """
+
+    p50: float | None = None
+    p95: float | None = None
+
+
+class LatencyPercentiles(Percentiles):
+    #: Reported beside the percentiles as context and never on its own: the
+    #: tail is what breaks a demo and the mean hides it.
+    mean: float | None = None
+
+
+class LiveCounts(BaseModel):
+    """Workers busy and runs queued, from `JobRunner` -- not from a table.
+
+    Merged in by the route, because a table read would be describing the last
+    request rather than this process.
+    """
+
+    running: int = 0
+    queued: int = 0
+    active: int = 0
+
+
+class RunCounts(BaseModel):
+    total: int = 0
+    #: The denominator of every reliability rate. A queued run has not failed,
+    #: and dividing by `total` would make the failure rate fall every time
+    #: somebody submitted work.
+    settled: int = 0
+    done: int = 0
+    failed: int = 0
+    interrupted: int = 0
+    cancelled: int = 0
+    live: int = 0
+    criteria: int = 0
+
+
+class Reliability(BaseModel):
+    """`failed + interrupted` over `settled`. Three outcomes, not two:
+    done-but-`needs_review` is quality and is on its own meter."""
+
+    failure_rate: float | None = None
+    failed: int = 0
+    interrupted: int = 0
+
+
+class CostSummary(BaseModel):
+    total: float = 0.0
+    mean: float | None = None
+    p50: float | None = None
+    p95: float | None = None
+
+
+class TokenCounts(BaseModel):
+    input: int = 0
+    output: int = 0
+    tool_calls: int = 0
+
+
+class EvaluatorSlot(BaseModel):
+    """The accept-rate meter, honestly empty.
+
+    `analyses.evaluator_*` are declared and `NULL` until the evaluator lands,
+    so the slot reports what it is actually showing. A UI must label `value`
+    by `showing` and never as an accept rate while `available` is false.
+    """
+
+    available: bool = False
+    accept_rate: float | None = None
+    showing: str = "cap_rate"
+    value: float | None = None
+    note: str = ""
+
+
+class Quality(BaseModel):
+    """The three meters, each with the denominator it was computed over."""
+
+    quote_verification_rate: float | None = None
+    quotes_total: int = 0
+    quotes_verified: int = 0
+    needs_review_rate: float | None = None
+    needs_review: int = 0
+    runs_needing_review: int = 0
+    mean_confidence: float | None = None
+    cap_rate: float | None = None
+    capped: int = 0
+    runs_capped: int = 0
+    evaluator: EvaluatorSlot
+
+
+class SurfaceCost(BaseModel):
+    surface: str | None = None
+    runs: int = 0
+    cost_usd: float = 0.0
+
+
+class ModelCost(BaseModel):
+    """From `agent.call` spans, so it covers analysis and chat in one pass.
+    Empty for a window with no calls, or a database whose spans predate the
+    table; token counts are best-effort."""
+
+    model: str | None = None
+    calls: int = 0
+    cost_usd: float = 0.0
+    input_tokens: int = 0
+    output_tokens: int = 0
+
+
+class ChatSummary(BaseModel):
+    """Chat is stateless and writes no run row, so this is `spans WHERE name =
+    'chat'`. **`latency_ms` is milliseconds** while `latency_s` in the same
+    payload is seconds."""
+
+    turns: int = 0
+    cost_usd: float = 0.0
+    cost_per_turn: float | None = None
+    errors: int = 0
+    latency_ms: Percentiles
+
+
+class SpanCounts(BaseModel):
+    """Spans recorded and spans thrown away. Reported because a metrics system
+    that silently loses data is worse than one that says it lost some."""
+
+    written: int = 0
+    dropped: int = 0
+
+
+class MetricsSummary(BaseModel):
+    """`GET /metrics/summary`: every tile and meter on the KPI page."""
+
+    window: str
+    #: The lower bound of the window, spelled the way `created_at` is.
+    since: str
+    generated_at: str
+    live: LiveCounts
+    runs: RunCounts
+    reliability: Reliability
+    #: Seconds. See `chat.latency_ms`, which is not.
+    latency_s: LatencyPercentiles
+    cost_usd: CostSummary
+    tokens: TokenCounts
+    quality: Quality
+    surfaces: list[SurfaceCost]
+    cost_by_model: list[ModelCost]
+    chat: ChatSummary
+    documents: int = 0
+    spans: SpanCounts
+
+
+class BucketChat(BaseModel):
+    turns: int = 0
+    cost_usd: float = 0.0
+
+
+class MetricsBucket(BaseModel):
+    """One point on the trend charts.
+
+    **The last bucket in a series is the current one and is partial**, so its
+    bar is always short: mark it or drop it, but do not let a reader read the
+    present as a fall.
+    """
+
+    #: Epoch-aligned, not now-aligned, so the same run lands in the same bucket
+    #: however often the page refreshes.
+    bucket: str
+    runs: int = 0
+    done: int = 0
+    failed: int = 0
+    cost_usd: float = 0.0
+    latency_s: Percentiles
+    cost_percentiles: Percentiles
+    mean_confidence: float | None = None
+    quote_verification_rate: float | None = None
+    needs_review_rate: float | None = None
+    #: Compliance states to their counts, mined out of the stored reports.
+    states: dict[str, int]
+    chat: BucketChat
+
+
+class RunRow(BaseModel):
+    """One row of the global runs table.
+
+    `report_json` is deliberately absent -- a runs table wants none of thirty
+    kilobytes of report per row. **`trace_id` is why this table exists**: it is
+    the join from a number on the KPI page to the lines in `.run/app.jsonl`
+    that produced it.
+    """
+
+    analysis_id: str
+    trace_id: str | None = None
+    document_id: int
+    filename: str = ""
+    surface: str = "api"
+    status: str = "queued"
+    criteria_requested: int = 0
+    criteria_completed: int = 0
+    criteria_skipped: int = 0
+    error: str | None = None
+    created_at: str
+    started_at: str | None = None
+    completed_at: str | None = None
+    #: Seconds.
+    latency_s: float | None = None
+    cost_usd: float | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    tool_calls: int | None = None
+    needs_review: int | None = None
+    capped: int | None = None
+    mean_confidence: float | None = None
+    quotes_total: int | None = None
+    quotes_verified: int | None = None
+
+
+class SpanNode(BaseModel):
+    """One span, carrying the spans it opened.
+
+    The tree is resolved server-side so the same `parent_span_id` algorithm is
+    not written again in TypeScript. A span whose parent is missing is promoted
+    to a root rather than dropped, so a run can have more roots than the shape
+    `api.analysis -> analysis.document -> ...` suggests.
+    """
+
+    span_id: str
+    parent_span_id: str | None = None
+    trace_id: str | None = None
+    run_id: str | None = None
+    name: str
+    status: str | None = None
+    #: Milliseconds, unlike `latency_s` everywhere else on this page.
+    latency_ms: float | None = None
+    ts: str
+    surface: str | None = None
+    criterion: str | None = None
+    document_id: int | None = None
+    model: str | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    cost_usd: float | None = None
+    #: Whatever else the span bag held. `{}` when it could not be parsed -- a
+    #: span with an unreadable bag should still show its timing.
+    attrs: dict[str, Any]
+    children: list[SpanNode]
+
+
+class StageBucket(BaseModel):
+    """One bucket: worst-stage error rate, and error count across all named stages.
+
+    Rates and totals are null when that bucket had no spans, not zero.
+    """
+
+    bucket: str
+    n: int = 0
+    error_rate: float | None = None
+    errors_total: int | None = None
+
+
+class MonitorStages(BaseModel):
+    """`GET /monitor/stages`: the worst pipeline stage, and its trend.
+
+    Tiles are the last five minutes when anything ran; otherwise the chart
+    window. `n` under `min_samples` is not a rate worth paging on.
+    `errors_total` is every named stage in that tile window, not just `name`.
+    """
+
+    window: str
+    live_window: str
+    since: str
+    generated_at: str
+    name: str | None = None
+    n: int = 0
+    errors: int = 0
+    error_rate: float | None = None
+    errors_total: int | None = None
+    min_samples: int
+    series: list[StageBucket]
+
+
+class HostBucket(BaseModel):
+    """One chart bucket. Percents are null when nothing was sampled then."""
+
+    bucket: str
+    rss_pct: float | None = None
+    disk_used_pct: float | None = None
+
+
+class MonitorHost(BaseModel):
+    """`GET /monitor/host`: latest RAM and disk, and their trend.
+
+    Tiles are the newest `system_samples` row. Charts use one bar per
+    `monitor_sample_seconds` tick. HTTP columns on that table are not part of
+    this payload.
+    """
+
+    window: str
+    bucket: str
+    since: str
+    generated_at: str
+    ts: str | None = None
+    rss_mb: float | None = None
+    rss_pct: float | None = None
+    disk_used_pct: float | None = None
+    disk_used_gb: float | None = None
+    disk_total_gb: float | None = None
+    series: list[HostBucket]
+
+
+class UpstreamBucket(BaseModel):
+    """One minute of outbound calls. Rates are null when no call landed."""
+
+    bucket: str
+    calls: int = 0
+    retries: int = 0
+    failed: int = 0
+    retries_per_100: float | None = None
+    exhausted_rate: float | None = None
+
+
+class MonitorUpstream(BaseModel):
+    """`GET /monitor/upstream`: retries through http_client, not spend.
+
+    Tiles are the last five minutes when anything was called; otherwise the
+    chart window. `top_reason_share` is that reason's share of retry +
+    exhausted events, not of all calls.
+    """
+
+    window: str
+    live_window: str
+    since: str
+    generated_at: str
+    calls: int = 0
+    retries: int = 0
+    failed: int = 0
+    retries_per_100: float | None = None
+    exhausted_rate: float | None = None
+    top_reason: str | None = None
+    top_reason_share: float | None = None
+    series: list[UpstreamBucket]
+
+
 Detail = Annotated[
     Literal["full", "summary"],
     Field(description="`summary` omits quotes and rationale from the report."),
@@ -446,14 +815,21 @@ def as_dict(model: BaseModel) -> dict[str, Any]:
 
 
 DocumentDetail.model_rebuild()
+# `children: list[SpanNode]` is a forward reference to the class being
+# defined; without this the OpenAPI document would be exported from an
+# unresolved model.
+SpanNode.model_rebuild()
 
 __all__ = [
     "Analysis",
     "AnalysisSummary",
     "AnalyzeRequest",
     "Answer",
+    "BucketChat",
     "ChatRequest",
+    "ChatSummary",
     "CitationOut",
+    "CostSummary",
     "CriterionOut",
     "CriterionProgress",
     "Detail",
@@ -461,15 +837,30 @@ __all__ = [
     "DocumentOut",
     "Error",
     "ErrorBody",
+    "EvaluatorSlot",
     "Health",
     "JobStatus",
     "LastAnalysisOut",
+    "LatencyPercentiles",
+    "LiveCounts",
     "Message",
+    "MetricsBucket",
+    "MetricsSummary",
+    "ModelCost",
     "PassageOut",
+    "Percentiles",
     "Progress",
+    "Quality",
+    "Reliability",
+    "RunCounts",
+    "RunRow",
     "SearchOut",
     "SearchRequest",
     "SectionOut",
+    "SpanCounts",
+    "SpanNode",
+    "SurfaceCost",
+    "TokenCounts",
     "UploadOut",
     "answer_of",
     "as_dict",

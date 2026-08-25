@@ -85,7 +85,7 @@ from .embeddings.base import Embedder
 from .generation.agent import Event, OnEvent
 from .generation.client import get_client
 from .generation.router import cross_criterion_check, route_criterion
-from .logger import get_logger, new_id, span, trace_context
+from .logger import get_logger, new_id, run_context, span, trace_context
 
 log = get_logger(__name__)
 
@@ -214,6 +214,13 @@ def analyze_document(
 
     with (
         trace_context() as trace_id,
+        # Every span logged under this block carries `analysis_id` as its
+        # `run_id`, which is what makes the metrics store's waterfall a run
+        # rather than a guess from the trace: `make analyze path.pdf` ingests
+        # and then analyses under one trace, and the parse is not part of the
+        # analysis. Set here rather than in the API's worker so the CLI gets
+        # it too -- the invariant is that HTTP adds no logic.
+        run_context(analysis_id),
         span(
             "analysis.document",
             log,

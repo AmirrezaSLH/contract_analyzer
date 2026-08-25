@@ -32,3 +32,9 @@
   background: var(--neutral-bg);
   border-color: var(--neutral-br);
 }
+
+/* Inside a tile's label row, beside an 11px `Label`. */
+.sm {
+  font-size: 11px;
+  padding: 3px 8px;
+}

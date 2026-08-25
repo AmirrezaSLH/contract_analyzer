@@ -55,7 +55,7 @@ from ..compliance.criteria import get_criteria
 from ..config import Settings
 from ..db import get_db
 from ..embeddings.base import Embedder
-from ..logger import get_logger, new_id, span, trace_context
+from ..logger import get_logger, new_id, run_context, span, trace_context
 from ..report import AnalysisReport, AnalysisTotals, analyze_document, totals_of
 from .schemas import Analysis, AnalysisSummary, CriterionProgress, JobStatus, Progress
 from .sse import Broadcast
@@ -371,6 +371,23 @@ class JobRunner:
         with self._lock:
             return sum(1 for j in self._jobs.values() if j.status in _LIVE)
 
+    @property
+    def live(self) -> tuple[int, int]:
+        """Running and queued, counted in one pass under one lock.
+
+        The KPI page's "Active now" tile is `workers busy - queued`, and the
+        two halves have to agree: reading `active` and then a second property
+        would let a job start between them and show a queued run that is no
+        longer queued. Not stored anywhere -- a queue depth is a fact about
+        this process, and a table would be describing the last one.
+        """
+        with self._lock:
+            statuses = [j.status for j in self._jobs.values()]
+        return (
+            sum(1 for s in statuses if s == "running"),
+            sum(1 for s in statuses if s == "queued"),
+        )
+
     def find_live(self, document_id: int, criteria: tuple[str, ...]) -> JobState | None:
         """A job already doing exactly this, if there is one."""
         with self._lock:
@@ -460,7 +477,12 @@ class JobRunner:
     def _run(self, job: JobState) -> None:
         """One analysis, on a pool thread, under the trace of the request that
         asked for it. Every exit path ends the job and closes its stream."""
-        with trace_context(job.trace_id), span(
+        # `run_context` here as well as inside `analyze_document`, so that the
+        # span covering the whole job -- queued through finished -- belongs to
+        # the run too. Without it the waterfall's root would be
+        # `analysis.document` and the time the job spent waiting for a worker
+        # would be missing from the one view that should show it.
+        with trace_context(job.trace_id), run_context(job.analysis_id), span(
             "api.analysis", log, analysis_id=job.analysis_id, document_id=job.document_id
         ):
             job.running()

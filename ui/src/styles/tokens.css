@@ -27,6 +27,10 @@
   --surface-sel: #fbf8f2;
   --nav-sel: #e5dccc;
   --surface-ctl: #f7f3ec;
+  /* The App/KPI toggle's track. Measured: --muted on it is 4.52:1, which
+   * passes AA for the 13px label; it sits only 1.08:1 off --sidebar, so the
+   * control carries a --border outline rather than relying on the fill. */
+  --toggle-track: #ebe5db;
 
   /* -- lines --------------------------------------------------------------- */
   --border: #e0d9cc;
@@ -102,6 +106,29 @@
   --gap-block: 22px;
   --gap-group: 10px;
 
+  /* -- chart marks --------------------------------------------------------
+   * Chart-only, and deliberately more chromatic than the accent: --accent has
+   * chroma 0.09 and reads gray as a data mark. Same hue family, on brand, but
+   * they register as data. **These do not enter the UI palette** -- no chrome,
+   * no text, no border takes one.
+   *
+   * Two steps of one hue rather than two hues: completed-vs-failed as green
+   * and red separates at dE 4.9 for deuteranopia, the classic red-green
+   * failure and well under the dE 8 floor. Lightness differences survive every
+   * form of colour blindness, which is why p50 and p95 are these two. --chart-2
+   * is 2.94:1 on white, so a series drawn in it is direct-labelled as well as
+   * legended: it is a mark, never the only carrier of a fact. */
+  --chart-1: #9b4a33;
+  --chart-2: #d2907a;
+  /* An empty bucket's 2px stub and the gridlines: present, unread. */
+  --chart-empty: var(--divider);
+  --chart-grid: var(--divider);
+  /* The threshold tick on a quality meter. Black, because it is the one thing
+   * on the bar that must be read before the fill. */
+  --chart-tick: var(--ink);
+
+  /* The raised half of a segmented control. */
+  --shadow-raise: 0 1px 2px rgba(35, 32, 27, 0.1);
   --shadow-menu: 0 8px 22px rgba(35, 32, 27, 0.12);
   --shadow-tip: 0 10px 26px rgba(35, 32, 27, 0.22);
 }

@@ -25,8 +25,13 @@ So the run is refused, by name, up front.
 
 Every stage is wrapped in a `span()` from `logger.py`, so `.run/app.jsonl`
 carries the same parse / chunk / embed / write timings the ingest report
-prints, under one trace id per file. That is the seam the KPI page hangs off
-later; here it costs four context managers.
+prints, under one trace id per file. That is the seam the KPI page hangs off:
+the metrics store's handler turns each of those `span.end` records into a row
+without this module knowing it exists. `ingest.embed` is the one that carries
+a dollar figure -- `tokens` and `cost_usd` from the embedder's reported usage
+-- and it is captured rather than tiled, because at four orders of magnitude
+under the analysis it enables it is a sentence in the waterfall and not a
+number on a dashboard.
 """
 
 from __future__ import annotations
@@ -53,6 +58,7 @@ from ..embeddings.guard import (
     check_query_model,
     stored_embedding_models,
 )
+from ..generation.pricing import embedding_cost_usd
 from ..logger import get_logger, span, trace_context
 from ..models import Chunk
 from ..parse.figures import asset_dir
@@ -286,6 +292,15 @@ def _ingest_one(
     with span("ingest.embed", log, chunks=len(prepared.chunks)) as bag:
         vectors = embedder.embed_documents([chunk.content for chunk in prepared.chunks])
         bag["model"] = embedder.name
+        # Captured, never tiled. At $0.02/1M, embedding the 21-page sample is
+        # about $0.0002 against the ~$0.96 analysis it enables -- four orders
+        # of magnitude, so a dashboard tile would be four leading zeros. What
+        # it buys is the sentence the waterfall can then make: ingestion costs
+        # a fiftieth of a cent and the dollar is all reasoning. `getattr`
+        # because `Embedder` is a protocol and only `BaseEmbedder` promises
+        # the attribute; the local and fake embedders truthfully report zero.
+        bag["tokens"] = tokens = int(getattr(embedder, "last_tokens", 0) or 0)
+        bag["cost_usd"] = embedding_cost_usd(embedder.name, tokens)
 
     with span("ingest.write", log, chunks=len(prepared.chunks)):
         document_id = _write(

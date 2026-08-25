@@ -210,6 +210,9 @@ class Settings(BaseSettings):
     #: late gets replayed. Oldest dropped on overflow -- a stalled reader must
     #: never block a criterion thread.
     api_event_buffer: int = Field(default=256, gt=0)
+    #: How often the Monitor host sampler writes a `system_samples` row.
+    #: 30 s is enough for a disk-fill slope without a row per request.
+    monitor_sample_seconds: float = Field(default=30.0, gt=0)
 
     # HTTP -- every external call goes through http_client.py
     http_timeout_seconds: float = Field(default=60.0, gt=0)

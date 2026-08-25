@@ -12,7 +12,9 @@ model makes, with its arguments, and every verdict as it lands.
 
 This is the same `analyze_document()` the API's job worker calls, with the same
 arguments. That is the point of it: the API adds HTTP and a job id, and no
-logic the command line does not already have.
+logic the command line does not already have -- including the metrics store,
+which is built here too, so a run from the command line lands in `spans` and
+on the KPI page.
 """
 
 from __future__ import annotations
@@ -33,6 +35,7 @@ from contract_analyzer.embeddings import get_embedder  # noqa: E402
 from contract_analyzer.generation.client import AnswerUnavailable  # noqa: E402
 from contract_analyzer.ingest.pipeline import ingest_file  # noqa: E402
 from contract_analyzer.logger import configure_logging, trace_context  # noqa: E402
+from contract_analyzer.metrics import MetricsStore  # noqa: E402
 from contract_analyzer.report import AnalysisReport, analyze_document  # noqa: E402
 
 STATE_WIDTH = 22
@@ -107,7 +110,22 @@ def main(argv: list[str] | None = None) -> int:
 
     conn = get_db(settings)
     embedder = get_embedder(settings)
+    # The same store the API builds, wired the same way: installing it attaches
+    # a handler to the project's root logger that files every `span.end` as a
+    # row. That is the whole of the CLI's instrumentation -- a KPI page that
+    # only saw HTTP traffic would be measuring the surface, not the system.
+    metrics = MetricsStore(settings).install()
+    try:
+        return _run(args, settings, conn, embedder)
+    finally:
+        # Whatever happened, the spans of what did run are on disk before the
+        # process exits. The writer is a daemon thread, so skipping this would
+        # lose at most the last batch -- which is still the batch a reader is
+        # about to go looking for.
+        metrics.close()
 
+
+def _run(args, settings, conn, embedder) -> int:
     with trace_context() as trace_id:
         print(f"trace_id={trace_id}  db={settings.db_path}", flush=True)
 

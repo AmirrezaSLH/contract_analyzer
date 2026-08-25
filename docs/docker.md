@@ -13,8 +13,8 @@ image, as a second service that reaches the API over the compose network.
 | `ui-builder` | `node:22-slim`, `npm ci` and `vite build` | build only |
 | `base` | `python:3.13-slim-bookworm`, env, `/opt/venv` on PATH | both |
 | `builder` | the venv, dependencies resolved against a stub package | build only |
-| `runtime` | venv + source + the bundle, non-root `app` user, `CMD api` | `api` |
-| `dev` | runtime + `.[dev]` (pytest, ruff) | `tools` |
+| `runtime` | venv + `src/`, `MCP-Connector/`, `scripts/`, `settings.json`, the bundle; non-root `app` user; `CMD api` | `api`, `mcp` |
+| `dev` | runtime + `tests/` + `.[dev]` (pytest, ruff) | `tools` |
 
 Two details are load-bearing:
 
@@ -30,9 +30,16 @@ Two details are load-bearing:
   already points at. The bundle is copied from `ui-builder` after that, so a
   host without Node still ships a UI.
 
+The runtime stage copies those paths explicitly. A `COPY .` would pull
+`presentation/`, `design/` and whatever else is sitting in the checkout into
+every image.
+
 `sqlite-vec` needs an interpreter built with loadable-extension support; the
 official `python` images have it, which is why the base is that image and not
 Alpine (which would also mean source builds for PyMuPDF).
+
+The healthcheck lives on the `api` *service*, not in the Dockerfile: the same
+image runs `mcp`, which does not bind `BACKEND_PORT`.
 
 ## Entrypoint verbs
 
@@ -41,10 +48,10 @@ arrive empty) and then dispatches:
 
 | Verb | Runs | State |
 |---|---|---|
-| `api` | `uvicorn contract_analyzer.api.main:app` on `BACKEND_PORT` (8100); UI at `/` | works |
+| `api` | one `uvicorn` process on `BACKEND_PORT` (8100); UI at `/`. `api_workers` is a thread pool inside that process, not `uvicorn --workers` | works |
 | `mcp` | `python -m mcp_connector`; `MCP_TRANSPORT` picks stdio or HTTP on `MCP_PORT` (8102) | works |
-| `test` | `pytest -q` | works |
-| `lint` | `ruff check src tests scripts` | works |
+| `test` | `pytest -q` (`tests/` and `MCP-Connector/tests/`) | works |
+| `lint` | `ruff check src tests scripts MCP-Connector` | works |
 | `shell` | `bash` | works |
 | anything else | exec'd verbatim (`… tools python scripts/ingest.py …`) | works |
 
@@ -56,17 +63,18 @@ arrive empty) and then dispatches:
 | `mcp` | runtime | `MCP_PORT` (8102) | yes, after `api` is healthy |
 | `tools` | dev | – | no (profile `tools`) |
 
+Every service sets `init: true` so uvicorn's children are reaped.
+
 * **`MCP_TRANSPORT` and `CA_API_URL` are set on the service, not in `.env`.**
   They are defaults in the connector's own config that a launcher overrides;
   compose is one launcher and `./start.bash` (which passes flags) is the other.
   Only `MCP_PORT` is an environment field. See [mcp.md](mcp.md).
-* **The `mcp` service mounts nothing.** `x-app` gives every service the `data/`
-  and `.run/` bind mounts; the connector overrides `volumes` to `[]`, because it
-  reaches the API over `CA_API_URL` and has no database to open. An empty mount
-  list makes that structural rather than a promise in a comment. It also runs
-  the HTTP transport rather than stdio: a container's stdin is not where a
-  desktop client is. See
-  [mcp.md](mcp.md).
+* **The `mcp` service mounts `settings.json` and nothing else.** `x-app` gives
+  every service the `data/` and `.run/` bind mounts; the connector replaces
+  `volumes` with the tuning file alone, because it reaches the API over
+  `CA_API_URL` and has no database to open. It also runs the HTTP transport
+  rather than stdio: a container's stdin is not where a desktop client is.
+  See [mcp.md](mcp.md).
 * **One origin.** The API serves the bundle. There is no second UI container
   and no `FRONTEND_PORT` mapping. `api_cors_origins` stays empty because the
   browser never leaves that origin. `FRONTEND_PORT` is still in `.env` for
@@ -74,20 +82,27 @@ arrive empty) and then dispatches:
 * **`api` sets `restart: unless-stopped`** on itself rather than in the shared
   anchor, because `tools` is a one-off container and restarting a finished
   pytest run is not a policy anyone wants.
+* **A restart keeps the report.** Analyses are rows in the mounted database;
+  the next boot reconciles anything still marked `running` to `interrupted`.
+  Live progress, SSE subscribers and cancel flags are per-process and do not
+  come back. One uvicorn process, always: a second worker would split that
+  live state even though it could read the neighbour's row.
 * **Secrets** come from `.env` at run time (`env_file`, `required: false`) and
   are never baked into a layer; `.dockerignore` excludes `.env` from the build
   context entirely.
 * **State** is bind-mounted: `./data` (database, raw PDFs, extracted figures)
-  and `./.run` (`app.jsonl`). The three path settings are overridden to
-  absolute `/app/...` values so they cannot drift with the working directory.
+  and `./.run` (`app.jsonl`). The path settings are overridden to absolute
+  `/app/...` values so they cannot drift with the working directory.
+  `settings.json` is mounted read-only on every service so an edit is a
+  restart, not a rebuild. `get_settings()` is cached for the process lifetime.
 * **Ownership**: the image is built with `APP_UID`/`APP_GID` build args
   defaulting to 1000, and the Makefile passes the host's. (Not `UID`: bash
   makes that one readonly, so `UID=$(id -u) docker compose build` aborts.) On a
   host user that is not 1000, rebuild rather than `chown` afterwards.
-* `tools` additionally mounts `./src`, `./tests` and `./scripts` from the host,
-  so with the editable install an edit is live without a rebuild. That overlay
-  does not include the bundle; a tools container that needs `/` rebuilt still
-  needs an image rebuild.
+* `tools` additionally mounts `./src`, `./tests`, `./scripts`,
+  `./MCP-Connector` and `./pyproject.toml` from the host, so with the editable
+  install an edit is live without a rebuild. That overlay does not include the
+  bundle; a tools container that needs `/` rebuilt still needs an image rebuild.
 
 ## Commands
 
@@ -95,7 +110,7 @@ arrive empty) and then dispatches:
 make docker-build          # runtime + dev images
 make docker-test           # the offline suite, inside the image
 make docker-shell          # bash in the dev image, source mounted
-make docker-up             # api (and the UI it serves) in the background
+make docker-up             # api, the UI it serves, and mcp, in the background
 make docker-logs
 make docker-down           # V=1 to drop volumes too
 ```
@@ -114,6 +129,10 @@ or TLS, no non-bind-mount volume strategy, and no CI job building the image.
 
 ## Change log of this document
 
+* 2026-08-24 -- Runtime copies `src/`, `MCP-Connector/`, `scripts/` and
+  `settings.json` rather than the whole checkout. Compose mounts `settings.json`,
+  `init: true`, and `MCP-Connector/` on `tools`. Analyses persist across
+  restart; `api_workers` is not `uvicorn --workers`.
 * 2026-08-24 -- Streamlit UI service removed; one process serves API and the
   React bundle. Node `ui-builder` stage. Ports: `BACKEND_PORT` (8100) in
   compose; `FRONTEND_PORT` is host Vite only.

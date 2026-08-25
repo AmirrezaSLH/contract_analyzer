@@ -12,6 +12,9 @@
 # and every relative path in Settings -- db_path, raw_dir, assets_dir, log_file
 # -- is anchored to it. A non-editable install would put config.py inside
 # site-packages and scatter the database into the venv.
+#
+# Copy the tree by path, not `COPY .`: presentation/, design/ and the plan
+# docs are not runtime, and a catch-all would bake them into every layer.
 
 ARG PYTHON_VERSION=3.13
 ARG NODE_VERSION=22
@@ -22,7 +25,7 @@ FROM node:${NODE_VERSION}-slim AS ui-builder
 
 WORKDIR /app/ui
 COPY ui/package.json ui/package-lock.json ./
-RUN npm ci
+RUN --mount=type=cache,target=/root/.npm npm ci
 COPY ui/ ./
 # vite.config.ts writes to ../src/contract_analyzer/api/static
 RUN npm run build
@@ -76,7 +79,10 @@ RUN groupadd --gid "$APP_GID" app \
     && useradd --uid "$APP_UID" --gid "$APP_GID" --create-home --shell /bin/bash app
 
 COPY --from=builder /opt/venv /opt/venv
-COPY --chown=app:app . /app
+COPY --chown=app:app pyproject.toml settings.json ./
+COPY --chown=app:app src ./src
+COPY --chown=app:app MCP-Connector ./MCP-Connector
+COPY --chown=app:app scripts ./scripts
 COPY --from=ui-builder --chown=app:app /app/src/contract_analyzer/api/static \
      /app/src/contract_analyzer/api/static
 COPY --chown=app:app docker/entrypoint.sh /usr/local/bin/entrypoint
@@ -98,6 +104,7 @@ CMD ["api"]
 FROM runtime AS dev
 
 USER root
+COPY --chown=app:app tests ./tests
 RUN --mount=type=cache,target=/root/.cache/pip pip install -e ".[dev]"
 USER app
 

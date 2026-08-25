@@ -92,7 +92,7 @@ Two modules cut across everything and were built first:
 | `evaluator` | the critic pass over each result | [agents/](agents/README.md) | done, tested |
 | `ui/` | the React front end (repo-root Vite app): upload, library, analysis, chat -- a client of `/api` like any other | [ui.md](ui.md) | done, tested |
 | `MCP-Connector/` | the fourth surface: seven MCP tools over the HTTP API, importing nothing from this package | [mcp.md](mcp.md) | done, tested |
-| `Dockerfile`, `docker-compose.yml`, `docker/` | build and run the whole thing in a container | [docker.md](docker.md) | `api` (and the UI it serves) and `mcp` both live |
+| `Dockerfile`, `docker-compose.yml`, `docker/` | build and run the whole thing in a container | [docker.md](docker.md) | `api` (UI at `/`) and `mcp`; `tools` for the suite |
 
 ## Data flow, end to end (Phase A)
 
@@ -211,6 +211,10 @@ inside it. See [docker.md](docker.md).
 
 ## Change log of this document
 
+* 2026-08-24 -- Docker copies only the packages that run (`src/`,
+  `MCP-Connector/`, `scripts/`, `settings.json`), mounts that tuning file,
+  and bind-mounts `MCP-Connector/` into `tools` so connector tests match the
+  checkout. See [docker.md](docker.md).
 * 2026-08-24 -- KPI and Monitor share five windows (`30m`, `1h`, `24h`, `7d`,
   `30d`). The KPI page tiles total spend and p95 job cost separately, draws
   time series as lines (runs, duration p50/p95, cost p50/p95), and splits

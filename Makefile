@@ -95,7 +95,7 @@ docker-build:  ## Build the runtime and dev images
 	$(COMPOSE) build
 	$(COMPOSE) --profile tools build
 
-docker-up:  ## Start the API (and the built UI it serves) in the background
+docker-up:  ## Start the API, the UI it serves, and the MCP connector
 	$(COMPOSE) up -d
 
 docker-down:  ## Stop them. Add V=1 to drop volumes: make docker-down V=1

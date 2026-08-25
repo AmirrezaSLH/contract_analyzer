@@ -6,7 +6,7 @@
 #   mcp    MCP connector; MCP_TRANSPORT picks stdio or HTTP on MCP_PORT
 #
 #   test   the offline pytest suite                (dev image)
-#   lint   ruff
+#   lint   ruff (src, tests, scripts, MCP-Connector)
 #   shell  interactive bash
 #   *      anything else is exec'd verbatim
 set -euo pipefail

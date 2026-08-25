@@ -1,6 +1,7 @@
 # Local build-and-run. Keys come from .env (gitignored, optional here); state
 # lives in bind mounts so the database and the JSON log survive `down` and stay
-# readable from the host.
+# readable from the host. Tuning is settings.json, versioned with the code,
+# mounted so a restart without a rebuild picks up an edit.
 name: contract-analyzer
 
 # A YAML merge key replaces a whole mapping, so the shared environment lives in
@@ -26,6 +27,7 @@ x-app: &app
       APP_UID: ${APP_UID:-1000}
       APP_GID: ${APP_GID:-1000}
   image: contract-analyzer:${TAG:-dev}
+  init: true
   env_file:
     - path: .env
       required: false
@@ -33,6 +35,7 @@ x-app: &app
   volumes:
     - ./data:/app/data
     - ./.run:/app/.run
+    - ./settings.json:/app/settings.json:ro
   # `api` sets `restart: unless-stopped` on itself rather than in the
   # anchor, because `tools` is a one-off container and restarting a finished
   # pytest run is not a policy anyone wants.
@@ -44,9 +47,10 @@ services:
   api:
     <<: *app
     command: ["api"]
-    # Safe to restart: jobs in flight are marked failed on shutdown rather than
-    # left for a client to poll forever. Analyses live in memory, so a restart
-    # loses them -- GET /analyses/{id} says so in its 404 hint.
+    # One uvicorn process: `api_workers` is a thread pool inside it, not
+    # `uvicorn --workers`. In-flight jobs are reconciled to `interrupted` on
+    # the next boot; the `analyses` row and its report survive in the mounted
+    # database. Live SSE and cancel do not: those are per-process.
     restart: unless-stopped
     ports:
       - "${BACKEND_PORT:-8100}:${BACKEND_PORT:-8100}"
@@ -62,9 +66,9 @@ services:
       start_period: 20s
 
   # The MCP connector, the fourth surface. It reaches the API over HTTP like
-  # every other client -- `CA_API_URL`, not `DB_PATH` -- and the empty
-  # `volumes` is that claim made structural rather than promised in a comment:
-  # this container has no database to open even if someone tried.
+  # every other client -- `CA_API_URL`, not `DB_PATH`. volumes lists only
+  # settings.json, never data/: this container has no database to open even
+  # if someone tried. API_KEY still arrives via env_file, same as the API.
   #
   # HTTP rather than stdio, because a container's stdin is not where a desktop
   # client is. A local Claude Desktop runs `python -m mcp_connector` against a
@@ -82,7 +86,8 @@ services:
       # Not 127.0.0.1: inside a container that is the container, and the
       # published port would answer nothing.
       MCP_HOST: 0.0.0.0
-    volumes: []
+    volumes:
+      - ./settings.json:/app/settings.json:ro
     ports:
       - "${MCP_PORT:-8102}:${MCP_PORT:-8102}"
     depends_on:
@@ -92,8 +97,8 @@ services:
         condition: service_healthy
 
   # One-off container for the things that are not servers: pytest, ruff, the
-  # ingest/search/chat CLIs, a shell. Built from the dev stage, never started
-  # by `up`.
+  # ingest/search/chat/analyze CLIs, a shell. Built from the dev stage, never
+  # started by `up`.
   #   docker compose run --rm tools test
   #   docker compose run --rm tools python scripts/ingest.py data/raw/contract.pdf
   tools:
@@ -112,8 +117,12 @@ services:
     volumes:
       - ./data:/app/data
       - ./.run:/app/.run
+      - ./settings.json:/app/settings.json:ro
+      - ./pyproject.toml:/app/pyproject.toml:ro
       # Source from the host: the install is editable, so an edit is live in
-      # the container without a rebuild.
+      # the container without a rebuild. MCP-Connector/ is a second package
+      # root; omitting it left connector tests running against the image copy.
       - ./src:/app/src
       - ./tests:/app/tests
       - ./scripts:/app/scripts
+      - ./MCP-Connector:/app/MCP-Connector

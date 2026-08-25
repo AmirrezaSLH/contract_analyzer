@@ -1,5 +1,5 @@
 # The build context. Everything the image does not need, so a rebuild does not
-# ship secrets, the host virtualenv, or a 40 MB corpus of sample PDFs.
+# ship secrets, the host virtualenv, or working material.
 
 .git/
 .gitignore
@@ -21,7 +21,8 @@ venv/
 .env.*
 !.env.example
 
-# Runtime state, mounted as volumes instead of baked in.
+# Runtime state, mounted as volumes instead of baked in. Sample PDFs live on
+# the host under data/samples and arrive through the compose bind mount.
 data/
 .run/
 
@@ -29,12 +30,22 @@ data/
 assignment_details/
 plan_implement_docs/
 docs/
+presentation/
+design/
+ingest_smoke/
+none_probe/
+human/
 AGENTS.md
 
 # Host Node install; the image runs `npm ci` itself.
 ui/node_modules/
+ui/dist/
+src/contract_analyzer/api/static/
 
-# Docker's own files.
+# Accidental lockfile at the repo root; the UI's is ui/package-lock.json.
+/package-lock.json
+
+# Docker's own files (entrypoint.sh is not ignored: the runtime stage copies it).
 Dockerfile
 .dockerignore
 docker-compose*.yml

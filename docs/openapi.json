@@ -2736,6 +2736,37 @@
         "title": "StageBucket",
         "type": "object"
       },
+      "StatusAgreement": {
+        "additionalProperties": false,
+        "description": "Whether the analyst's status for one sub-requirement follows from its quotes.",
+        "properties": {
+          "agreement": {
+            "enum": [
+              "agree",
+              "too_strong",
+              "too_weak"
+            ],
+            "title": "Agreement",
+            "type": "string"
+          },
+          "note": {
+            "description": "One sentence saying why.",
+            "title": "Note",
+            "type": "string"
+          },
+          "sub_requirement_id": {
+            "title": "Sub Requirement Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sub_requirement_id",
+          "agreement",
+          "note"
+        ],
+        "title": "StatusAgreement",
+        "type": "object"
+      },
       "SubRequirementOut": {
         "properties": {
           "id": {

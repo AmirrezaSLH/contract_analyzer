@@ -1,6 +1,6 @@
 # Step 14 — the Monitor tab: is the box healthy, not just is the model good
 
-**Status: host and stages are built; upstream is still fixture. HTTP is out of scope.**
+**Status: host, stages, and upstream are built. HTTP request stats are out of scope.**
 related to `06_metrics_plan.md`
 
 **The one-sentence version.** The KPI tab (`/metrics`) answers *"is the
@@ -165,7 +165,7 @@ Reuse, do not fork:
 | Charts | `charts.ts` `lineGeometry` + the SVG in `TrendBand` (copy the card, do not import KPI types into Monitor) |
 | Window | Monitor's own selector — 30 min / 1 h. Host charts bucket at `monitor_sample_seconds`. Stages charts are 1-minute bars. KPI keeps 24h / 7d / 30d. |
 | Errors | `ErrorSurface` per section, so one failed query does not blank the page |
-| Poll | 5 s on `GET /monitor/stages` and `GET /monitor/host`, same as KPI |
+| Poll | 5 s on `GET /monitor/stages`, `/monitor/host`, and `/monitor/upstream`, same as KPI |
 
 **Chips still carry words.** Colour never travels alone (`thresholds.ts` on
 KPI). Host: used &lt; 20% → green / "plenty", &gt; 90% → red / "tight", else
@@ -182,8 +182,10 @@ line**, they are not drawn as 0. Empty buckets are allowed on the axis.
 | Stages | worst name, its error rate, total errors, n | error rate for that name, error count across the short list from `spans` |
 | Host | Memory %, disk % | those two series from `system_samples` |
 
-`GET /monitor/stages` and `GET /monitor/host` are the live payloads.
-Upstream still needs a route.
+`GET /monitor/stages`, `GET /monitor/host`, and `GET /monitor/upstream` are
+the live payloads. The top-reason tile is titled **Top HTTP status** or
+**Top error type** (ConnectError, ReadTimeout, …) and shows that reason's
+share of retry + exhausted events.
 
 ## What ties this to the existing metrics infrastructure vs. what's new
 
@@ -192,7 +194,7 @@ Upstream still needs a route.
 | Storage | same SQLite file, `spans` for upstream and stages | `system_samples` for host |
 | Capture | `span()` for upstream and stages | sampler thread writes host snapshots |
 | Query layer | percentiles in SQL, window parsing | `GROUP BY name` for stages; `system_samples` for host history |
-| API | `routes/metrics.py` pattern | `routes/monitor.py`: `GET /monitor/stages`, `GET /monitor/host` |
+| API | `routes/metrics.py` pattern | `routes/monitor.py`: `GET /monitor/stages`, `GET /monitor/host`, `GET /monitor/upstream` |
 | UI | `MetricTile`, `WindowSelector`, `lineGeometry`, `ErrorSurface`, 5s polling | `MonitorView`, fourth `ModeToggle` link |
 
 The reuse is the point: stages is a query over data that already exists,

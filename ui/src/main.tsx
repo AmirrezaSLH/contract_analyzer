@@ -9,6 +9,7 @@ import { LibraryView } from "./views/Library/LibraryView";
 import { AnalysisView } from "./views/Analysis/AnalysisView";
 import { ChatView } from "./views/Chat/ChatView";
 import { MetricsView } from "./views/Metrics/MetricsView";
+import { MonitorView } from "./views/Monitor/MonitorView";
 import { LogsView } from "./views/Logs/LogsView";
 import { NotFoundView } from "./views/NotFoundView";
 import { RootRedirect } from "./views/RootRedirect";
@@ -57,6 +58,7 @@ createRoot(document.getElementById("root")!).render(
             {/* Application-level: it spans every document, so it carries no
                 `:id` and shows no document tabs. */}
             <Route path="metrics" element={<MetricsView />} />
+            <Route path="monitor" element={<MonitorView />} />
             <Route path="logs" element={<LogsView />} />
             {/* The sample contract is all-green, so every gap state is
                 unreachable from real data. This is where they get looked at. */}

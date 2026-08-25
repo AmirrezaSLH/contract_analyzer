@@ -1381,6 +1381,42 @@
         "title": "Health",
         "type": "object"
       },
+      "HostBucket": {
+        "description": "One chart bucket. Percents are null when nothing was sampled then.",
+        "properties": {
+          "bucket": {
+            "title": "Bucket",
+            "type": "string"
+          },
+          "disk_used_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disk Used Pct"
+          },
+          "rss_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rss Pct"
+          }
+        },
+        "required": [
+          "bucket"
+        ],
+        "title": "HostBucket",
+        "type": "object"
+      },
       "LastAnalysisOut": {
         "description": "The newest analysis of a document, as a list row needs it.\n\n`states` is a count per compliance state rather than a summary sentence:\na library composes \"5 of 5 compliant\" or \"2 gaps found\" in its own words,\nand the next consumer will want different ones.",
         "properties": {
@@ -1718,6 +1754,290 @@
           }
         },
         "title": "ModelCost",
+        "type": "object"
+      },
+      "MonitorHost": {
+        "description": "`GET /monitor/host`: latest RAM and disk, and their trend.\n\nTiles are the newest `system_samples` row. Charts use one bar per\n`monitor_sample_seconds` tick. HTTP columns on that table are not part of\nthis payload.",
+        "properties": {
+          "bucket": {
+            "title": "Bucket",
+            "type": "string"
+          },
+          "disk_total_gb": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disk Total Gb"
+          },
+          "disk_used_gb": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disk Used Gb"
+          },
+          "disk_used_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disk Used Pct"
+          },
+          "generated_at": {
+            "title": "Generated At",
+            "type": "string"
+          },
+          "rss_mb": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rss Mb"
+          },
+          "rss_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rss Pct"
+          },
+          "series": {
+            "items": {
+              "$ref": "#/components/schemas/HostBucket"
+            },
+            "title": "Series",
+            "type": "array"
+          },
+          "since": {
+            "title": "Since",
+            "type": "string"
+          },
+          "ts": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ts"
+          },
+          "window": {
+            "title": "Window",
+            "type": "string"
+          }
+        },
+        "required": [
+          "window",
+          "bucket",
+          "since",
+          "generated_at",
+          "series"
+        ],
+        "title": "MonitorHost",
+        "type": "object"
+      },
+      "MonitorStages": {
+        "description": "`GET /monitor/stages`: the worst pipeline stage, and its trend.\n\nTiles are the last five minutes when anything ran; otherwise the chart\nwindow. `n` under `min_samples` is not a rate worth paging on.\n`errors_total` is every named stage in that tile window, not just `name`.",
+        "properties": {
+          "error_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Rate"
+          },
+          "errors": {
+            "default": 0,
+            "title": "Errors",
+            "type": "integer"
+          },
+          "errors_total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Errors Total"
+          },
+          "generated_at": {
+            "title": "Generated At",
+            "type": "string"
+          },
+          "live_window": {
+            "title": "Live Window",
+            "type": "string"
+          },
+          "min_samples": {
+            "title": "Min Samples",
+            "type": "integer"
+          },
+          "n": {
+            "default": 0,
+            "title": "N",
+            "type": "integer"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "series": {
+            "items": {
+              "$ref": "#/components/schemas/StageBucket"
+            },
+            "title": "Series",
+            "type": "array"
+          },
+          "since": {
+            "title": "Since",
+            "type": "string"
+          },
+          "window": {
+            "title": "Window",
+            "type": "string"
+          }
+        },
+        "required": [
+          "window",
+          "live_window",
+          "since",
+          "generated_at",
+          "min_samples",
+          "series"
+        ],
+        "title": "MonitorStages",
+        "type": "object"
+      },
+      "MonitorUpstream": {
+        "description": "`GET /monitor/upstream`: retries through http_client, not spend.\n\nTiles are the last five minutes when anything was called; otherwise the\nchart window. `top_reason_share` is that reason's share of retry +\nexhausted events, not of all calls.",
+        "properties": {
+          "calls": {
+            "default": 0,
+            "title": "Calls",
+            "type": "integer"
+          },
+          "exhausted_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exhausted Rate"
+          },
+          "failed": {
+            "default": 0,
+            "title": "Failed",
+            "type": "integer"
+          },
+          "generated_at": {
+            "title": "Generated At",
+            "type": "string"
+          },
+          "live_window": {
+            "title": "Live Window",
+            "type": "string"
+          },
+          "retries": {
+            "default": 0,
+            "title": "Retries",
+            "type": "integer"
+          },
+          "retries_per_100": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retries Per 100"
+          },
+          "series": {
+            "items": {
+              "$ref": "#/components/schemas/UpstreamBucket"
+            },
+            "title": "Series",
+            "type": "array"
+          },
+          "since": {
+            "title": "Since",
+            "type": "string"
+          },
+          "top_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Top Reason"
+          },
+          "top_reason_share": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Top Reason Share"
+          },
+          "window": {
+            "title": "Window",
+            "type": "string"
+          }
+        },
+        "required": [
+          "window",
+          "live_window",
+          "since",
+          "generated_at",
+          "series"
+        ],
+        "title": "MonitorUpstream",
         "type": "object"
       },
       "PassageOut": {
@@ -2553,6 +2873,47 @@
         "title": "SpanNode",
         "type": "object"
       },
+      "StageBucket": {
+        "description": "One bucket: worst-stage error rate, and error count across all named stages.\n\nRates and totals are null when that bucket had no spans, not zero.",
+        "properties": {
+          "bucket": {
+            "title": "Bucket",
+            "type": "string"
+          },
+          "error_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Rate"
+          },
+          "errors_total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Errors Total"
+          },
+          "n": {
+            "default": 0,
+            "title": "N",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "bucket"
+        ],
+        "title": "StageBucket",
+        "type": "object"
+      },
       "StatusAgreement": {
         "additionalProperties": false,
         "description": "Whether the analyst's status for one sub-requirement follows from its quotes.",
@@ -2748,6 +3109,57 @@
           "filename"
         ],
         "title": "UploadOut",
+        "type": "object"
+      },
+      "UpstreamBucket": {
+        "description": "One minute of outbound calls. Rates are null when no call landed.",
+        "properties": {
+          "bucket": {
+            "title": "Bucket",
+            "type": "string"
+          },
+          "calls": {
+            "default": 0,
+            "title": "Calls",
+            "type": "integer"
+          },
+          "exhausted_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exhausted Rate"
+          },
+          "failed": {
+            "default": 0,
+            "title": "Failed",
+            "type": "integer"
+          },
+          "retries": {
+            "default": 0,
+            "title": "Retries",
+            "type": "integer"
+          },
+          "retries_per_100": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retries Per 100"
+          }
+        },
+        "required": [
+          "bucket"
+        ],
+        "title": "UpstreamBucket",
         "type": "object"
       }
     },
@@ -5421,6 +5833,426 @@
           "metrics"
         ]
       }
+    },
+    "/api/monitor/host": {
+      "get": {
+        "description": "How much RAM this process is using, and how full the disk is.\n\nTiles are the latest sample. Charts are one point per sampler tick\n(`monitor_sample_seconds`). No pager: the chips say plenty / filling / tight.",
+        "operationId": "host_api_monitor_host_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "window",
+            "required": false,
+            "schema": {
+              "default": "30m",
+              "pattern": "^(30m|1h)$",
+              "title": "Window",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MonitorHost"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Malformed request."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or wrong X-API-Key."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "No such document or analysis."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The resource is busy, or already in the requested state."
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The upload is over api_max_upload_mb."
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Only PDF uploads are supported."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The request body did not validate."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unhandled server error; the X-Trace-Id is on every log line."
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "An upstream call failed after its retries."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "A key or a dependency the operation needs is not configured."
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Host memory and disk headroom",
+        "tags": [
+          "monitor"
+        ]
+      }
+    },
+    "/api/monitor/stages": {
+      "get": {
+        "description": "Where it broke, not whether a run failed.\n\nTiles are the last five minutes; the series follows `window`. `errors_total`\ncounts every named stage, not only the worst. A stage with fewer than\n`min_samples` hits is reported with its n so 1-of-1 is not a 100% error rate.",
+        "operationId": "stages_api_monitor_stages_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "window",
+            "required": false,
+            "schema": {
+              "default": "30m",
+              "pattern": "^(30m|1h)$",
+              "title": "Window",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MonitorStages"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Malformed request."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or wrong X-API-Key."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "No such document or analysis."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The resource is busy, or already in the requested state."
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The upload is over api_max_upload_mb."
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Only PDF uploads are supported."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The request body did not validate."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unhandled server error; the X-Trace-Id is on every log line."
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "An upstream call failed after its retries."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "A key or a dependency the operation needs is not configured."
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Worst pipeline stage, and its trend",
+        "tags": [
+          "monitor"
+        ]
+      }
+    },
+    "/api/monitor/upstream": {
+      "get": {
+        "description": "Is it us, or Anthropic/OpenAI.\n\nTiles are the last five minutes. Charts follow `window`. `top_reason` is\nthe most common retry/exhausted reason, with its share of those events.",
+        "operationId": "upstream_api_monitor_upstream_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "window",
+            "required": false,
+            "schema": {
+              "default": "30m",
+              "pattern": "^(30m|1h)$",
+              "title": "Window",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MonitorUpstream"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Malformed request."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or wrong X-API-Key."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "No such document or analysis."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The resource is busy, or already in the requested state."
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The upload is over api_max_upload_mb."
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Only PDF uploads are supported."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The request body did not validate."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unhandled server error; the X-Trace-Id is on every log line."
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "An upstream call failed after its retries."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "A key or a dependency the operation needs is not configured."
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Upstream retries and exhausted calls",
+        "tags": [
+          "monitor"
+        ]
+      }
     }
   },
   "tags": [
@@ -5443,6 +6275,10 @@
     {
       "description": "KPI data over the metrics store.",
       "name": "metrics"
+    },
+    {
+      "description": "Is the box healthy: pipeline stages, host, then more.",
+      "name": "monitor"
     },
     {
       "description": "The live console, as server-sent events.",

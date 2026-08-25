@@ -71,7 +71,7 @@ from . import errors
 from .errors import ApiError
 from .jobs import JobRunner
 from .log_stream import MCP_LOG, LogStream
-from .routes import analyses, chat, documents, health, logs, metrics
+from .routes import analyses, chat, documents, health, logs, metrics, monitor
 from .schemas import Error
 
 log = get_logger(__name__)
@@ -150,6 +150,10 @@ def create_app(
         # After `configure_logging`, because installing the store's handler
         # means adding it to the root logger this call has just re-populated.
         app.state.metrics = _metrics(settings)
+        # Host samples are this process on this box. `install()` does not
+        # start the sampler: `make analyze` is not a deployment.
+        if app.state.metrics is not None:
+            app.state.metrics.start_sampler()
         # After `configure_logging`, same reason as the metrics handler: a
         # force-reconfigured logger has just dropped every handler, and this
         # is the one that fans lines out to the Log tab.
@@ -197,6 +201,7 @@ def create_app(
             {"name": "analyses", "description": "The five criteria as a background job."},
             {"name": "chat", "description": "Cited question answering over one contract."},
             {"name": "metrics", "description": "KPI data over the metrics store."},
+            {"name": "monitor", "description": "Is the box healthy: pipeline stages, host, then more."},
             {"name": "logs", "description": "The live console, as server-sent events."},
         ],
     )
@@ -226,7 +231,7 @@ def create_app(
     # Every route behind one prefix, so that everything *not* behind it can be
     # the front end. See `_serve_front_end`.
     api = APIRouter(prefix=API_PREFIX)
-    for module in (health, documents, analyses, chat, metrics, logs):
+    for module in (health, documents, analyses, chat, metrics, monitor, logs):
         api.include_router(module.router, responses=ERROR_RESPONSES)
     # Last on the router, so it matches only what the real routes did not. An
     # unknown path under /api is a client's mistake and must answer in this

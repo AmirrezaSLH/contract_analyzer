@@ -691,6 +691,101 @@ class SpanNode(BaseModel):
     children: list[SpanNode]
 
 
+class StageBucket(BaseModel):
+    """One bucket: worst-stage error rate, and error count across all named stages.
+
+    Rates and totals are null when that bucket had no spans, not zero.
+    """
+
+    bucket: str
+    n: int = 0
+    error_rate: float | None = None
+    errors_total: int | None = None
+
+
+class MonitorStages(BaseModel):
+    """`GET /monitor/stages`: the worst pipeline stage, and its trend.
+
+    Tiles are the last five minutes when anything ran; otherwise the chart
+    window. `n` under `min_samples` is not a rate worth paging on.
+    `errors_total` is every named stage in that tile window, not just `name`.
+    """
+
+    window: str
+    live_window: str
+    since: str
+    generated_at: str
+    name: str | None = None
+    n: int = 0
+    errors: int = 0
+    error_rate: float | None = None
+    errors_total: int | None = None
+    min_samples: int
+    series: list[StageBucket]
+
+
+class HostBucket(BaseModel):
+    """One chart bucket. Percents are null when nothing was sampled then."""
+
+    bucket: str
+    rss_pct: float | None = None
+    disk_used_pct: float | None = None
+
+
+class MonitorHost(BaseModel):
+    """`GET /monitor/host`: latest RAM and disk, and their trend.
+
+    Tiles are the newest `system_samples` row. Charts use one bar per
+    `monitor_sample_seconds` tick. HTTP columns on that table are not part of
+    this payload.
+    """
+
+    window: str
+    bucket: str
+    since: str
+    generated_at: str
+    ts: str | None = None
+    rss_mb: float | None = None
+    rss_pct: float | None = None
+    disk_used_pct: float | None = None
+    disk_used_gb: float | None = None
+    disk_total_gb: float | None = None
+    series: list[HostBucket]
+
+
+class UpstreamBucket(BaseModel):
+    """One minute of outbound calls. Rates are null when no call landed."""
+
+    bucket: str
+    calls: int = 0
+    retries: int = 0
+    failed: int = 0
+    retries_per_100: float | None = None
+    exhausted_rate: float | None = None
+
+
+class MonitorUpstream(BaseModel):
+    """`GET /monitor/upstream`: retries through http_client, not spend.
+
+    Tiles are the last five minutes when anything was called; otherwise the
+    chart window. `top_reason_share` is that reason's share of retry +
+    exhausted events, not of all calls.
+    """
+
+    window: str
+    live_window: str
+    since: str
+    generated_at: str
+    calls: int = 0
+    retries: int = 0
+    failed: int = 0
+    retries_per_100: float | None = None
+    exhausted_rate: float | None = None
+    top_reason: str | None = None
+    top_reason_share: float | None = None
+    series: list[UpstreamBucket]
+
+
 Detail = Annotated[
     Literal["full", "summary"],
     Field(description="`summary` omits quotes and rationale from the report."),

@@ -110,3 +110,27 @@ CREATE TABLE IF NOT EXISTS criterion_results (
 
 CREATE INDEX IF NOT EXISTS idx_criterion_results_criterion
     ON criterion_results (criterion_id);
+
+-- One row per sampler tick (~30s), written by sampler.py from the API process.
+-- Not a span: this is the box, not a step. HTTP columns stay NULL until the
+-- in-memory request ring lands; host queries ignore them. Same file, no
+-- second database.
+--
+-- ts is the primary key. A tick that collides on the second replaces the
+-- previous one; 30 s apart never collides, and a test that ticks faster still
+-- has a row.
+CREATE TABLE IF NOT EXISTS system_samples (
+    ts             TEXT PRIMARY KEY,
+    -- VmRSS of this process, and that as a share of MemTotal. ru_maxrss is a
+    -- high-water mark and would only ever go up.
+    rss_mb         REAL,
+    rss_pct        REAL,
+    -- shutil.disk_usage of the database directory: used / total, plus the
+    -- sizes the tile prints so 90% on a 2 GB box is still a size.
+    disk_used_pct  REAL,
+    disk_used_gb   REAL,
+    disk_total_gb  REAL,
+    http_rpm       REAL,
+    http_5xx_rate  REAL,
+    http_p95_ms    REAL
+);

@@ -25,10 +25,11 @@ export function App() {
   const navigate = useNavigate();
   const onLibrary = useMatch("/library") !== null;
   const onMetrics = useMatch("/metrics") !== null;
+  const onMonitor = useMatch("/monitor") !== null;
   const onLogs = useMatch("/logs") !== null;
-  const offApp = onMetrics || onLogs;
+  const offApp = onMetrics || onMonitor || onLogs;
   const appPath = useLastAppPath(offApp);
-  const mode = onMetrics ? "kpi" : onLogs ? "log" : "app";
+  const mode = onMetrics ? "kpi" : onMonitor ? "monitor" : onLogs ? "log" : "app";
 
   const doc = active.data;
   const rows = documents.data ?? [];
@@ -120,7 +121,7 @@ export function App() {
 }
 
 /**
- * The app page to come back to from the dashboard or the log.
+ * The app page to come back to from KPI, Monitor or the log.
  *
  * Those routes carry no `:id`, so the scope cannot be read off the URL
  * while you are there. Remembering the last app path is what makes the round

@@ -53,6 +53,73 @@ export type EvaluatorSlot = Schemas["EvaluatorSlot"];
  *  900-pixel axis. */
 export type MetricsWindow = "24h" | "7d" | "30d";
 
+export type MonitorWindow = "30m" | "1h";
+
+export interface StageBucket {
+  bucket: string;
+  n: number;
+  error_rate: number | null;
+  errors_total: number | null;
+}
+
+export interface MonitorStages {
+  window: string;
+  live_window: string;
+  since: string;
+  generated_at: string;
+  name: string | null;
+  n: number;
+  errors: number;
+  error_rate: number | null;
+  errors_total: number | null;
+  min_samples: number;
+  series: StageBucket[];
+}
+
+export interface HostBucket {
+  bucket: string;
+  rss_pct: number | null;
+  disk_used_pct: number | null;
+}
+
+export interface MonitorHost {
+  window: string;
+  bucket: string;
+  since: string;
+  generated_at: string;
+  ts: string | null;
+  rss_mb: number | null;
+  rss_pct: number | null;
+  disk_used_pct: number | null;
+  disk_used_gb: number | null;
+  disk_total_gb: number | null;
+  series: HostBucket[];
+}
+
+export interface UpstreamBucket {
+  bucket: string;
+  calls: number;
+  retries: number;
+  failed: number;
+  retries_per_100: number | null;
+  exhausted_rate: number | null;
+}
+
+export interface MonitorUpstream {
+  window: string;
+  live_window: string;
+  since: string;
+  generated_at: string;
+  calls: number;
+  retries: number;
+  failed: number;
+  retries_per_100: number | null;
+  exhausted_rate: number | null;
+  top_reason: string | null;
+  top_reason_share: number | null;
+  series: UpstreamBucket[];
+}
+
 /** `AnalysisReport` types `results` as `ComplianceResult[] | undefined`, and
  *  `relevant_quotes` likewise. These narrow the optionality away once, here,
  *  rather than in every component that reads a report. */
@@ -187,6 +254,15 @@ export const api = {
     request<MetricsBucket[]>(`/metrics/timeseries?window=${window}`),
 
   metricsRuns: (limit = 50) => request<RunRow[]>(`/metrics/runs?limit=${limit}`),
+
+  monitorStages: (window: MonitorWindow) =>
+    request<MonitorStages>(`/monitor/stages?window=${window}`),
+
+  monitorHost: (window: MonitorWindow) =>
+    request<MonitorHost>(`/monitor/host?window=${window}`),
+
+  monitorUpstream: (window: MonitorWindow) =>
+    request<MonitorUpstream>(`/monitor/upstream?window=${window}`),
 };
 
 // --------------------------------------------------------------------------

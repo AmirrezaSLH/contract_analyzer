@@ -166,7 +166,7 @@ CREATE TABLE IF NOT EXISTS analyses (
     -- columns, and these are field reads off `report.totals` plus one
     -- comprehension over `report.results`. The metrics step inherits a
     -- populated table instead of a backfill.
-    latency_s          REAL,
+    job_duration_s     REAL,
     cost_usd           REAL,
     input_tokens       INTEGER,
     output_tokens      INTEGER,

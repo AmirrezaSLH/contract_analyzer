@@ -275,8 +275,8 @@ class ComplianceResult(BaseModel):
     #: structured finisher. Defaulted rather than required so a report written
     #: before this field existed still parses; a run that produced one always
     #: sets it. The five criteria run in parallel, so these do not sum to the
-    #: run's `totals.latency_s` and are not meant to.
-    latency_s: float = 0.0
+    #: run's `totals.job_duration_s` and are not meant to.
+    duration_s: float = 0.0
     #: What the Router decided after the Evaluator spoke. `accept`: the critic
     #: found nothing open. `fallback`: rounds ran out with findings still open.
     #: `unevaluated`: the Evaluator itself failed, and the analysis ships

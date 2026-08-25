@@ -4,7 +4,7 @@
 three phases:
 
 1. **Queries over `analyses`** -- the whole of the dashboard's first cut, with
-   no schema change: failure rate, p50/p95 latency, cost totals and trend,
+   no schema change: failure rate, p50/p95 job duration, cost totals and trend,
    quote verification, needs-review, mean confidence, cap rate, runs count and
    the `surface` split. `queries.py` and `windows.py`.
 2. **`spans`** -- one row per `span.end`, filed by a logging handler, which is

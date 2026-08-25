@@ -2,7 +2,7 @@
 
 Everything on the dashboard's first cut is already in the analysis fact table,
 so this is a query layer and not a second store. `analyses` is written by
-`analyses.py` on completion -- `latency_s`, `cost_usd`, the token and quote
+`analyses.py` on completion -- `job_duration_s`, `cost_usd`, the token and quote
 counts, `needs_review`, `capped`, `mean_confidence`, `surface` -- and nothing
 here writes anything.
 
@@ -59,7 +59,7 @@ SELECT count(*)                                          AS runs,
        sum(coalesce(criteria_completed, 0))              AS criteria,
        sum(coalesce(cost_usd, 0))                        AS cost_total,
        avg(cost_usd)                                     AS cost_mean,
-       avg(latency_s)                                    AS latency_mean,
+       avg(job_duration_s)                               AS job_duration_mean,
        sum(coalesce(input_tokens, 0))                    AS input_tokens,
        sum(coalesce(output_tokens, 0))                   AS output_tokens,
        sum(coalesce(tool_calls, 0))                      AS tool_calls,
@@ -204,7 +204,7 @@ _RUNS = """
 SELECT analysis_id, trace_id, document_id, filename, surface, status,
        criteria_requested, criteria_completed, criteria_skipped, error,
        created_at, started_at, completed_at,
-       latency_s, cost_usd, input_tokens, output_tokens, tool_calls,
+       job_duration_s, cost_usd, input_tokens, output_tokens, tool_calls,
        needs_review, capped, mean_confidence, quotes_total, quotes_verified
   FROM analyses
  ORDER BY created_at DESC, rowid DESC
@@ -223,7 +223,7 @@ def summary(
     now = now or datetime.now(UTC)
     since = windows.since(window, now=now)
     row = conn.execute(_SUMMARY, (since,)).fetchone()
-    latency = _percentiles(conn, "latency_s", since).get("", (None, None))
+    duration = _percentiles(conn, "job_duration_s", since).get("", (None, None))
     cost = _percentiles(conn, "cost_usd", since).get("", (None, None))
 
     runs = int(row["runs"] or 0)
@@ -253,10 +253,10 @@ def summary(
             "failed": int(row["failed"] or 0),
             "interrupted": int(row["interrupted"] or 0),
         },
-        "latency_s": {
-            "p50": _round(latency[0], 3),
-            "p95": _round(latency[1], 3),
-            "mean": _round(row["latency_mean"], 3),
+        "job_duration_s": {
+            "p50": _round(duration[0], 3),
+            "p95": _round(duration[1], 3),
+            "mean": _round(row["job_duration_mean"], 3),
         },
         "cost_usd": {
             "total": _round(row["cost_total"], 6) or 0.0,
@@ -322,7 +322,7 @@ def timeseries(
         row["bucket"]: row
         for row in conn.execute(_PER_BUCKET.format(bucket=expression), (since,))
     }
-    latency = _percentiles(conn, "latency_s", since, key=expression)
+    duration = _percentiles(conn, "job_duration_s", since, key=expression)
     cost = _percentiles(conn, "cost_usd", since, key=expression)
     states: dict[str, dict[str, int]] = {}
     for row in conn.execute(
@@ -350,9 +350,9 @@ def timeseries(
                 "done": int(row["done"] or 0) if row else 0,
                 "failed": int(row["failed"] or 0) if row else 0,
                 "cost_usd": _round(row["cost_usd"], 6) if row else 0.0,
-                "latency_s": {
-                    "p50": _round(latency.get(start, (None, None))[0], 3),
-                    "p95": _round(latency.get(start, (None, None))[1], 3),
+                "job_duration_s": {
+                    "p50": _round(duration.get(start, (None, None))[0], 3),
+                    "p95": _round(duration.get(start, (None, None))[1], 3),
                 },
                 "cost_percentiles": {
                     "p50": _round(cost.get(start, (None, None))[0], 6),
@@ -397,7 +397,7 @@ _BACKFILL = """
 INSERT OR IGNORE INTO criterion_results (
     run_id, criterion_id, state, confidence, raw_confidence, needs_review,
     ended_by, structure_rounds, tool_calls, cost_usd, quotes_total,
-    quotes_verified, latency_s
+    quotes_verified, duration_s
 )
 SELECT a.analysis_id,
        json_extract(r.value, '$.criterion_id'),
@@ -413,7 +413,7 @@ SELECT a.analysis_id,
        (SELECT count(*)
           FROM json_each(json_extract(r.value, '$.relevant_quotes')) q
          WHERE json_extract(q.value, '$.verified') = 1),
-       json_extract(r.value, '$.latency_s')
+       json_extract(r.value, '$.duration_s')
   FROM analyses a
   JOIN json_each(a.report_json, '$.results') r
  WHERE a.report_json IS NOT NULL

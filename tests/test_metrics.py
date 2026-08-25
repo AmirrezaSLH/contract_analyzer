@@ -79,7 +79,7 @@ def record(
     *,
     minutes_ago: int = 10,
     status: str = "done",
-    latency_s: float | None = 60.0,
+    job_duration_s: float | None = 60.0,
     cost_usd: float | None = 0.96,
     criteria: int = 5,
     needs_review: int = 0,
@@ -106,12 +106,12 @@ def record(
     conn.execute(
         "INSERT INTO analyses (analysis_id, trace_id, document_id, filename, surface, status,"
         " criteria_requested, criteria_completed, created_at, completed_at, report_json,"
-        " latency_s, cost_usd, input_tokens, output_tokens, tool_calls, needs_review, capped,"
+        " job_duration_s, cost_usd, input_tokens, output_tokens, tool_calls, needs_review, capped,"
         " mean_confidence, quotes_total, quotes_verified)"
         " VALUES (?, ?, 1, 'c.pdf', ?, ?, 5, ?, ?, ?, ?, ?, ?, 1000, 200, 4, ?, ?, ?, ?, ?)",
         (
             analysis_id, "t" * 32, surface, status, criteria, created, created, report,
-            latency_s, cost_usd, needs_review, capped, mean_confidence,
+            job_duration_s, cost_usd, needs_review, capped, mean_confidence,
             quotes_total, quotes_verified,
         ),
     )
@@ -134,11 +134,11 @@ def timeseries(conn, window="24h", bucket="1h"):
 def test_one_run_is_its_own_p50_and_p95(conn):
     """n=1: both percentiles are the single value, and neither is a mean of it
     with nothing."""
-    record(conn, "a1", latency_s=42.0, cost_usd=1.5)
+    record(conn, "a1", job_duration_s=42.0, cost_usd=1.5)
 
     got = summary(conn)
-    assert got["latency_s"]["p50"] == 42.0
-    assert got["latency_s"]["p95"] == 42.0
+    assert got["job_duration_s"]["p50"] == 42.0
+    assert got["job_duration_s"]["p95"] == 42.0
     assert got["cost_usd"]["p50"] == 1.5
     assert got["cost_usd"]["p95"] == 1.5
 
@@ -147,10 +147,10 @@ def test_two_runs_split_p50_low_and_p95_high(conn):
     """n=2 is the edge: nearest rank puts p50 on the lower value -- rank
     ceil(2 x 0.5) = 1 -- and p95 on the upper, rank ceil(2 x 0.95) = 2. An
     implementation that interpolated would answer 75.0 for both."""
-    record(conn, "a1", latency_s=50.0)
-    record(conn, "a2", latency_s=100.0)
+    record(conn, "a1", job_duration_s=50.0)
+    record(conn, "a2", job_duration_s=100.0)
 
-    got = summary(conn)["latency_s"]
+    got = summary(conn)["job_duration_s"]
     assert got["p50"] == 50.0
     assert got["p95"] == 100.0
     assert got["mean"] == 75.0
@@ -159,22 +159,22 @@ def test_two_runs_split_p50_low_and_p95_high(conn):
 def test_percentiles_over_ten_runs_are_the_nearest_rank(conn):
     """1..10 seconds: p50 is rank ceil(10 x 0.5) = 5 and p95 is rank 10."""
     for index in range(1, 11):
-        record(conn, f"a{index}", latency_s=float(index), cost_usd=index / 100)
+        record(conn, f"a{index}", job_duration_s=float(index), cost_usd=index / 100)
 
     got = summary(conn)
-    assert got["latency_s"] == {"p50": 5.0, "p95": 10.0, "mean": 5.5}
+    assert got["job_duration_s"] == {"p50": 5.0, "p95": 10.0, "mean": 5.5}
     assert got["cost_usd"]["p50"] == 0.05
     assert got["cost_usd"]["p95"] == 0.1
 
 
-def test_a_run_without_a_latency_is_not_a_zero_in_the_percentile(conn):
-    """A failed run never reached `finish_analysis`, so its `latency_s` is
+def test_a_run_without_a_duration_is_not_a_zero_in_the_percentile(conn):
+    """A failed run never reached `finish_analysis`, so its `job_duration_s` is
     NULL. Counting it as 0.0 would drag p50 down and make the tile look
     better the more often the service broke."""
-    record(conn, "a1", latency_s=60.0)
-    record(conn, "a2", status="failed", latency_s=None, cost_usd=None)
+    record(conn, "a1", job_duration_s=60.0)
+    record(conn, "a2", status="failed", job_duration_s=None, cost_usd=None)
 
-    assert summary(conn)["latency_s"]["p50"] == 60.0
+    assert summary(conn)["job_duration_s"]["p50"] == 60.0
 
 
 # --------------------------------------------------------------------------
@@ -188,8 +188,8 @@ def test_failure_rate_is_failed_plus_interrupted_and_excludes_needs_review(conn)
     and folding it in would double-count it against the wrong threshold."""
     record(conn, "a1")
     record(conn, "a2", needs_review=3)
-    record(conn, "a3", status="failed", latency_s=None, cost_usd=None)
-    record(conn, "a4", status="interrupted", latency_s=None, cost_usd=None)
+    record(conn, "a3", status="failed", job_duration_s=None, cost_usd=None)
+    record(conn, "a4", status="interrupted", job_duration_s=None, cost_usd=None)
 
     got = summary(conn)
     assert got["runs"]["total"] == 4
@@ -202,8 +202,8 @@ def test_failure_rate_is_failed_plus_interrupted_and_excludes_needs_review(conn)
 def test_a_queued_run_is_not_in_the_failure_denominator(conn):
     """Dividing by every row would make the failure rate fall every time
     somebody submitted work."""
-    record(conn, "a1", status="failed", latency_s=None, cost_usd=None)
-    record(conn, "a2", status="queued", latency_s=None, cost_usd=None, criteria=0)
+    record(conn, "a1", status="failed", job_duration_s=None, cost_usd=None)
+    record(conn, "a2", status="queued", job_duration_s=None, cost_usd=None, criteria=0)
 
     got = summary(conn)
     assert got["runs"]["live"] == 1
@@ -236,7 +236,7 @@ def test_an_empty_window_is_zeroes_and_nulls_not_a_failure(conn):
     assert got["reliability"]["failure_rate"] is None
     assert got["quality"]["quote_verification_rate"] is None
     assert got["quality"]["mean_confidence"] is None
-    assert got["latency_s"] == {"p50": None, "p95": None, "mean": None}
+    assert got["job_duration_s"] == {"p50": None, "p95": None, "mean": None}
     assert got["cost_usd"]["total"] == 0.0
     assert got["documents"] == 1
 
@@ -305,7 +305,7 @@ def test_empty_buckets_are_returned_rather_than_closed_up(conn):
     assert sum(entry["runs"] for entry in series) == 1
     quiet = next(entry for entry in series if entry["runs"] == 0)
     assert quiet["cost_usd"] == 0.0
-    assert quiet["latency_s"] == {"p50": None, "p95": None}
+    assert quiet["job_duration_s"] == {"p50": None, "p95": None}
     assert quiet["states"] == {}
 
 
@@ -323,12 +323,12 @@ def test_buckets_are_aligned_on_the_epoch_not_on_the_request(conn):
 
 
 def test_a_bucket_carries_its_own_percentiles_and_state_mix(conn):
-    record(conn, "a1", minutes_ago=15, latency_s=10.0,
+    record(conn, "a1", minutes_ago=15, job_duration_s=10.0,
            states={"Fully Compliant": 3, "Partially Compliant": 2})
-    record(conn, "a2", minutes_ago=20, latency_s=30.0, states={"Non-Compliant": 5})
+    record(conn, "a2", minutes_ago=20, job_duration_s=30.0, states={"Non-Compliant": 5})
 
     entry = next(e for e in timeseries(conn) if e["runs"])
-    assert entry["latency_s"] == {"p50": 10.0, "p95": 30.0}
+    assert entry["job_duration_s"] == {"p50": 10.0, "p95": 30.0}
     assert entry["states"] == {
         "Fully Compliant": 3, "Partially Compliant": 2, "Non-Compliant": 5,
     }
@@ -471,7 +471,7 @@ def analysed(tmp_path, monkeypatch):
 
 
 def test_the_summary_matches_the_report_the_run_produced(analysed):
-    """The acceptance check from `Metric_Store.md` §9: cost, latency, quote
+    """The acceptance check from `Metric_Store.md` §9: cost, job duration, quote
     verification and mean confidence on the page are the ones in the report,
     not numbers the query layer arrived at on its own."""
     client, report = analysed
@@ -483,7 +483,7 @@ def test_the_summary_matches_the_report_the_run_produced(analysed):
     assert got["runs"]["criteria"] == len(report.results)
     assert got["cost_usd"]["total"] == pytest.approx(report.totals.cost_usd)
     assert got["cost_usd"]["p50"] == pytest.approx(report.totals.cost_usd)
-    assert got["latency_s"]["p50"] == pytest.approx(report.totals.latency_s)
+    assert got["job_duration_s"]["p50"] == pytest.approx(report.totals.job_duration_s)
     assert got["quality"]["mean_confidence"] == pytest.approx(report.totals.mean_confidence)
     assert got["quality"]["quotes_total"] == len(quotes) > 0
     assert got["quality"]["quote_verification_rate"] == pytest.approx(

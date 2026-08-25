@@ -180,7 +180,7 @@ def test_totals_sum_the_run(settings, conn, searches):
     assert report.totals.mean_confidence == pytest.approx(0.85)
     assert report.totals.accepted == 5 and report.totals.revised == 0
     assert report.totals.evaluator_cost_usd > 0
-    assert report.totals.latency_s > 0
+    assert report.totals.job_duration_s > 0
 
 
 def test_a_subset_of_criteria_can_be_asked_for(settings, conn, searches):
@@ -410,4 +410,4 @@ def test_a_cancelled_run_still_totals_what_it_finished(settings, conn, searches)
     )
     assert report.status == "cancelled"
     assert report.results == [] and len(report.skipped) == 5
-    assert report.totals == totals_of([], latency_s=report.totals.latency_s)
+    assert report.totals == totals_of([], job_duration_s=report.totals.job_duration_s)

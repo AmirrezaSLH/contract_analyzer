@@ -216,7 +216,7 @@ def route_criterion(
 
     This is what the harness calls. It replaces the bare `analyze_criterion`
     call, and it is the frame that owns the criterion's whole timeline -- so
-    the latency and the `result` event are emitted here, where "how long did
+    the duration and the `result` event are emitted here, where "how long did
     criterion 3 take" has a truthful answer.
     """
     settings = settings or get_settings()
@@ -309,10 +309,10 @@ def route_criterion(
             evaluator_cost_usd=evaluator_cost, evaluator_usage=evaluator_usage,
             rounds=rounds_spent,
         )
-        result.latency_s = round(time.perf_counter() - started, 3)
+        result.duration_s = round(time.perf_counter() - started, 3)
         emit({"type": "result", "surface": "analysis", "criterion": criterion.id,
               "state": result.compliance_state, "confidence": result.confidence,
-              "needs_review": result.needs_review, "latency_s": result.latency_s,
+              "needs_review": result.needs_review, "duration_s": result.duration_s,
               "verdict": result.verdict, "rounds": result.rounds})
         bag.update(
             verdict=result.verdict,
@@ -320,7 +320,7 @@ def route_criterion(
             state=result.compliance_state,
             confidence=result.confidence,
             needs_review=result.needs_review,
-            latency_s=result.latency_s,
+            duration_s=result.duration_s,
             evaluator_cost_usd=round(evaluator_cost, 6),
             cost_usd=result.cost_usd,
         )

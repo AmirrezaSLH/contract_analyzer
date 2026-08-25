@@ -209,7 +209,7 @@ class AnalysisState(BaseModel):
     needs_review: int = 0
     mean_confidence: float = 0.0
     cost_usd: float = 0.0
-    latency_s: float = 0.0
+    job_duration_s: float = 0.0
     #: Present once the run has produced results. Empty while it is queued.
     verdicts: list[Verdict] = Field(default_factory=list)
     #: Criteria that never ran, because the analysis was cancelled.
@@ -380,7 +380,7 @@ def analysis_state(payload: dict[str, Any], *, poll_after: float, detail: str) -
         needs_review=totals.get("needs_review", 0),
         mean_confidence=totals.get("mean_confidence", 0.0),
         cost_usd=totals.get("cost_usd", 0.0),
-        latency_s=totals.get("latency_s", 0.0),
+        job_duration_s=totals.get("job_duration_s", 0.0),
         verdicts=[_verdict(r, detail=detail) for r in results],
         skipped=list(report.get("skipped") or []),
         error=payload.get("error"),

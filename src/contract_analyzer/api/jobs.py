@@ -139,7 +139,7 @@ class JobState:
                 entry.state = event.get("state")
                 entry.confidence = event.get("confidence")
                 entry.needs_review = event.get("needs_review")
-                entry.latency_s = event.get("latency_s")
+                entry.duration_s = event.get("duration_s")
                 entry.verdict = event.get("verdict")
                 entry.rounds = event.get("rounds")
             self.stage = f"criterion {self.done}/{len(self.progress)}"
@@ -264,7 +264,7 @@ def _totals_of(record: AnalysisRecord) -> AnalysisTotals | None:
         return None
     return AnalysisTotals(
         criteria=record.criteria_completed,
-        latency_s=record.latency_s or 0.0,
+        job_duration_s=record.job_duration_s or 0.0,
         cost_usd=record.cost_usd or 0.0,
         input_tokens=record.input_tokens or 0,
         output_tokens=record.output_tokens or 0,
@@ -293,7 +293,7 @@ def _criteria_of(report: AnalysisReport | None) -> list[CriterionProgress]:
             state=result.compliance_state,
             confidence=result.confidence,
             needs_review=result.needs_review,
-            latency_s=result.latency_s,
+            duration_s=result.duration_s,
             verdict=result.verdict,
             rounds=result.rounds,
         )

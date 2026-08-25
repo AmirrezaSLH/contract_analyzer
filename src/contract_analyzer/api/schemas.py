@@ -253,8 +253,8 @@ class CriterionProgress(BaseModel):
     confidence: float | None = None
     needs_review: bool | None = None
     #: Wall-clock seconds, once this criterion is `done`. The five run in
-    #: parallel, so these do not sum to `totals.latency_s`.
-    latency_s: float | None = None
+    #: parallel, so these do not sum to `totals.job_duration_s`.
+    duration_s: float | None = None
     #: How the Router closed this criterion out: `accept` when the critic found
     #: nothing open, `fallback` when the rounds ran out with findings still
     #: standing, `unevaluated` when the critic could not be made to answer.
@@ -450,7 +450,7 @@ class Percentiles(BaseModel):
     p95: float | None = None
 
 
-class LatencyPercentiles(Percentiles):
+class JobDurationPercentiles(Percentiles):
     #: Reported beside the percentiles as context and never on its own: the
     #: tail is what breaks a demo and the mean hides it.
     mean: float | None = None
@@ -555,7 +555,7 @@ class ModelCost(BaseModel):
 
 class ChatSummary(BaseModel):
     """Chat is stateless and writes no run row, so this is `spans WHERE name =
-    'chat'`. **`latency_ms` is milliseconds** while `latency_s` in the same
+    'chat'`. **`latency_ms` is milliseconds** while `job_duration_s` in the same
     payload is seconds."""
 
     turns: int = 0
@@ -584,7 +584,7 @@ class MetricsSummary(BaseModel):
     runs: RunCounts
     reliability: Reliability
     #: Seconds. See `chat.latency_ms`, which is not.
-    latency_s: LatencyPercentiles
+    job_duration_s: JobDurationPercentiles
     cost_usd: CostSummary
     tokens: TokenCounts
     quality: Quality
@@ -615,7 +615,7 @@ class MetricsBucket(BaseModel):
     done: int = 0
     failed: int = 0
     cost_usd: float = 0.0
-    latency_s: Percentiles
+    job_duration_s: Percentiles
     cost_percentiles: Percentiles
     mean_confidence: float | None = None
     quote_verification_rate: float | None = None
@@ -647,8 +647,8 @@ class RunRow(BaseModel):
     created_at: str
     started_at: str | None = None
     completed_at: str | None = None
-    #: Seconds.
-    latency_s: float | None = None
+    #: Seconds. Wall-clock of the analysis job, not request latency.
+    job_duration_s: float | None = None
     cost_usd: float | None = None
     input_tokens: int | None = None
     output_tokens: int | None = None
@@ -675,7 +675,7 @@ class SpanNode(BaseModel):
     run_id: str | None = None
     name: str
     status: str | None = None
-    #: Milliseconds, unlike `latency_s` everywhere else on this page.
+    #: Milliseconds, unlike `job_duration_s` everywhere else on this page.
     latency_ms: float | None = None
     ts: str
     surface: str | None = None
@@ -841,7 +841,7 @@ __all__ = [
     "Health",
     "JobStatus",
     "LastAnalysisOut",
-    "LatencyPercentiles",
+    "JobDurationPercentiles",
     "LiveCounts",
     "Message",
     "MetricsBucket",

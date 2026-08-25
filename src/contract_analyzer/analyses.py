@@ -51,7 +51,7 @@ _COLUMNS = """
 analysis_id, trace_id, document_id, filename, surface, status,
 criteria_requested, criteria_completed, criteria_skipped, error, report_json,
 created_at, started_at, completed_at,
-latency_s, cost_usd, input_tokens, output_tokens, tool_calls, needs_review,
+job_duration_s, cost_usd, input_tokens, output_tokens, tool_calls, needs_review,
 capped, mean_confidence, quotes_total, quotes_verified,
 evaluator_accepted, evaluator_revised, evaluator_fallback, evaluator_unevaluated,
 evaluator_cost_usd
@@ -84,7 +84,7 @@ class AnalysisRecord:
     created_at: str = ""
     started_at: str | None = None
     completed_at: str | None = None
-    latency_s: float | None = None
+    job_duration_s: float | None = None
     cost_usd: float | None = None
     input_tokens: int | None = None
     output_tokens: int | None = None
@@ -223,7 +223,7 @@ def finish_analysis(
     with conn:
         cursor = conn.execute(
             "UPDATE analyses SET status = ?, error = ?, report_json = ?, completed_at = ?, "
-            "criteria_completed = ?, criteria_skipped = ?, latency_s = ?, cost_usd = ?, "
+            "criteria_completed = ?, criteria_skipped = ?, job_duration_s = ?, cost_usd = ?, "
             "input_tokens = ?, output_tokens = ?, tool_calls = ?, needs_review = ?, "
             "capped = ?, mean_confidence = ?, quotes_total = ?, quotes_verified = ?, "
             "evaluator_accepted = ?, evaluator_revised = ?, evaluator_fallback = ?, "
@@ -236,7 +236,7 @@ def finish_analysis(
                 report.completed_at or _now(),
                 len(report.results),
                 len(report.skipped),
-                totals.latency_s,
+                totals.job_duration_s,
                 totals.cost_usd,
                 totals.input_tokens,
                 totals.output_tokens,
@@ -269,7 +269,7 @@ _CRITERION_RESULTS = """
 INSERT OR REPLACE INTO criterion_results (
     run_id, criterion_id, state, confidence, raw_confidence, needs_review,
     ended_by, structure_rounds, tool_calls, cost_usd, quotes_total,
-    quotes_verified, latency_s
+    quotes_verified, duration_s
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
@@ -303,7 +303,7 @@ def record_criteria(
             result.cost_usd,
             len(result.relevant_quotes),
             sum(1 for quote in result.relevant_quotes if quote.verified),
-            result.latency_s,
+            result.duration_s,
         )
         for result in report.results
     ]

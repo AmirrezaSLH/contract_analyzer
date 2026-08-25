@@ -100,7 +100,7 @@ class AnalysisTotals(BaseModel):
     """What the run cost, summed over its criteria. The KPI page's row."""
 
     criteria: int = 0
-    latency_s: float = 0.0
+    job_duration_s: float = 0.0
     cost_usd: float = 0.0
     input_tokens: int = 0
     output_tokens: int = 0
@@ -279,7 +279,7 @@ def analyze_document(
             status="cancelled" if skipped else "done",
             trace_id=trace_id,
             results=ordered,
-            totals=totals_of(ordered, latency_s=time.perf_counter() - started),
+            totals=totals_of(ordered, job_duration_s=time.perf_counter() - started),
             cross_criterion_notes=cross_criterion_check(ordered),
             skipped=skipped,
             created_at=created_at,
@@ -299,13 +299,13 @@ def analyze_document(
     return report
 
 
-def totals_of(results: Sequence[ComplianceResult], *, latency_s: float = 0.0) -> AnalysisTotals:
+def totals_of(results: Sequence[ComplianceResult], *, job_duration_s: float = 0.0) -> AnalysisTotals:
     """Sum a run. Separate from the report so the API can total a partial one."""
     if not results:
-        return AnalysisTotals(latency_s=round(latency_s, 3))
+        return AnalysisTotals(job_duration_s=round(job_duration_s, 3))
     return AnalysisTotals(
         criteria=len(results),
-        latency_s=round(latency_s, 3),
+        job_duration_s=round(job_duration_s, 3),
         cost_usd=round(sum(r.cost_usd for r in results), 6),
         input_tokens=sum(r.usage.get("input_tokens", 0) for r in results),
         output_tokens=sum(r.usage.get("output_tokens", 0) for r in results),

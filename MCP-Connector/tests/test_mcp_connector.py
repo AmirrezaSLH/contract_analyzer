@@ -125,17 +125,17 @@ RESULT = {
     "raw_confidence": 0.9, "confidence": 0.88, "confidence_components": {},
     "needs_review": False, "unresolved_errors": [], "structure_rounds": 0,
     "ended_by": "model", "tool_calls": 2, "usage": {}, "cost_usd": 0.14,
-    "model": "claude-opus-5", "latency_s": 28.6,
+    "model": "claude-opus-5", "duration_s": 28.6,
 }
 
 DONE = {
     **QUEUED, "status": "done", "stage": "done", "progress": {"done": 1, "total": 1},
     "criteria": [{
         "id": "password_management", "status": "done", "state": "Fully Compliant",
-        "confidence": 0.88, "needs_review": False, "latency_s": 28.6,
+        "confidence": 0.88, "needs_review": False, "duration_s": 28.6,
     }],
     "totals": {
-        "criteria": 1, "latency_s": 28.6, "cost_usd": 0.14, "input_tokens": 0,
+        "criteria": 1, "job_duration_s": 28.6, "cost_usd": 0.14, "input_tokens": 0,
         "output_tokens": 0, "tool_calls": 2, "needs_review": 0, "capped": 0,
         "mean_confidence": 0.88,
     },
@@ -144,7 +144,7 @@ DONE = {
         "analysis_id": "an-1", "document_id": 1, "filename": "Sample Contract.pdf",
         "status": "done", "trace_id": "t1", "results": [RESULT],
         "totals": {
-            "criteria": 1, "latency_s": 28.6, "cost_usd": 0.14, "input_tokens": 0,
+            "criteria": 1, "job_duration_s": 28.6, "cost_usd": 0.14, "input_tokens": 0,
             "output_tokens": 0, "tool_calls": 2, "needs_review": 0, "capped": 0,
             "mean_confidence": 0.88,
         },

@@ -487,7 +487,7 @@
   background: var(--chart-1);
 }
 
-/* Three charts across, at the width there is room for. Runs, latency and cost
+/* Three charts across, at the width there is room for. Runs, job duration and cost
  * each keep an axis of their own -- there is no second y-scale on this page. */
 .charts3 {
   display: grid;

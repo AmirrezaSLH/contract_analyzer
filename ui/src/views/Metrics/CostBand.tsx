@@ -130,7 +130,7 @@ export function CostBand({ summary }: { summary: MetricsSummary | undefined }) {
             ["chat turns", chat.turns === 0 ? DASH : String(chat.turns)],
             ["chat cost", chat.turns === 0 ? DASH : usd(chat.cost_usd)],
             ["per turn", usd(chat.cost_per_turn)],
-            ["chat p95", millis(chat.latency_ms.p95)],
+            ["chat p95 duration", millis(chat.latency_ms.p95)],
           ]} />
           <span className={styles.meterNote}>
             Every surface above is an analysis — chat is counted separately because it writes no run

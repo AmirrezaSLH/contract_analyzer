@@ -27,7 +27,7 @@ const bucket = (over: Partial<MetricsBucket> = {}): MetricsBucket => ({
   done: 0,
   failed: 0,
   cost_usd: 0,
-  latency_s: { p50: null, p95: null },
+  job_duration_s: { p50: null, p95: null },
   cost_percentiles: { p50: null, p95: null },
   mean_confidence: null,
   quote_verification_rate: null,
@@ -51,7 +51,7 @@ const run = (over: Partial<RunRow> = {}): RunRow => ({
   created_at: "2026-08-24T18:40:31+00:00",
   started_at: null,
   completed_at: null,
-  latency_s: 41.99,
+  job_duration_s: 41.99,
   cost_usd: 0.8,
   input_tokens: 0,
   output_tokens: 0,
@@ -66,7 +66,7 @@ const run = (over: Partial<RunRow> = {}): RunRow => ({
 
 describe("units", () => {
   it("keeps seconds and milliseconds apart", () => {
-    // Trap 6: `latency_s` and `chat.latency_ms` sit in the same payload, and
+    // Trap 6: `job_duration_s` and `chat.latency_ms` sit in the same payload, and
     // the conversion happens in exactly one place.
     expect(seconds(104.4)).toBe("104 s");
     // A chat p50 of 3120 *ms* is 3.1 s. Read as seconds it would be 52 minutes.
@@ -178,11 +178,11 @@ describe("the bar chart", () => {
   });
 });
 
-describe("the latency chart", () => {
+describe("the job duration chart", () => {
   const buckets = [
-    bucket({ bucket: "2026-08-24T10:00:00Z", runs: 2, latency_s: { p50: 60, p95: 100 } }),
+    bucket({ bucket: "2026-08-24T10:00:00Z", runs: 2, job_duration_s: { p50: 60, p95: 100 } }),
     bucket({ bucket: "2026-08-24T11:00:00Z", runs: 0 }),
-    bucket({ bucket: "2026-08-24T12:00:00Z", runs: 1, latency_s: { p50: 58, p95: 104 } }),
+    bucket({ bucket: "2026-08-24T12:00:00Z", runs: 1, job_duration_s: { p50: 58, p95: 104 } }),
   ];
 
   it("breaks the line at a bucket that measured nothing", () => {

@@ -7,7 +7,7 @@
  * design record.
  *
  * Two are measured and two are judgement calls, which the design says out
- * loud: cost is grounded (~$0.96 per run, `02_costs.md`) and latency is
+ * loud: cost is grounded (~$0.96 per run, `02_costs.md`) and job duration is
  * anchored (~60 s parallel measured); the 99% quote-verification and 10%
  * needs-review targets are defensible but unmeasured.
  *
@@ -27,7 +27,7 @@ export interface Status {
 
 export interface Threshold {
   /** The bound itself, on the metric's own scale: a rate as a fraction, a
-   *  latency in seconds, a spend in dollars. */
+   *  job duration in seconds, a spend in dollars. */
   limit: number;
   /** `max`: pass at or below the limit. `min`: pass at or above it. */
   direction: "max" | "min";
@@ -75,7 +75,7 @@ export const THRESHOLDS = {
     action: "Runs that failed or were interrupted. Needs-review is quality and is not in this.",
   },
   /** p95, never the mean. ~60 s parallel measured, with headroom on top. */
-  latencyP95: {
+  jobDurationP95: {
     limit: 120,
     direction: "max",
     label: "target ≤ 120 s",

@@ -102,7 +102,7 @@ export function CriterionRow({ index, result, criterion, open, onToggle }: Props
       </section>
 
       <footer className={styles.critFoot}>
-        <span>{result.latency_s ? `${result.latency_s.toFixed(1)} s` : "—"}</span>
+        <span>{result.duration_s ? `${result.duration_s.toFixed(1)} s` : "—"}</span>
         <span>${result.cost_usd.toFixed(3)}</span>
         <span>
           {result.tool_calls} tool call{result.tool_calls === 1 ? "" : "s"}

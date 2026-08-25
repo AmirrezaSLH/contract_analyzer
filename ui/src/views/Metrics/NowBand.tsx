@@ -19,9 +19,9 @@ interface Props {
 export function NowBand({ summary }: Props) {
   if (!summary) return <SkeletonTiles />;
 
-  const { runs, reliability, latency_s, cost_usd } = summary;
+  const { runs, reliability, job_duration_s, cost_usd } = summary;
   const failure = statusOf(reliability.failure_rate, THRESHOLDS.failureRate);
-  const latency = statusOf(latency_s.p95, THRESHOLDS.latencyP95);
+  const duration = statusOf(job_duration_s.p95, THRESHOLDS.jobDurationP95);
   // Two things can be wrong with spend, and they are different alerts. The
   // window total against the budget is the one that pauses new runs; the p95
   // against the p50 is the "one run went wild" tripwire, which fires long
@@ -48,10 +48,10 @@ export function NowBand({ summary }: Props) {
         )} settled`}
       />
       <MetricTile
-        label="p95 latency"
-        value={seconds(latency_s.p95)}
-        chip={<Chip tone={latency.tone} words={latency.words} />}
-        sub={`${THRESHOLDS.latencyP95.label} · p50 ${seconds(latency_s.p50)}`}
+        label="p95 job duration"
+        value={seconds(job_duration_s.p95)}
+        chip={<Chip tone={duration.tone} words={duration.words} />}
+        sub={`${THRESHOLDS.jobDurationP95.label} · p50 ${seconds(job_duration_s.p50)}`}
       />
       {/*
         Dollars on the tile, tokens and calls behind it: cost is the only

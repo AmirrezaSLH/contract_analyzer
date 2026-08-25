@@ -32,7 +32,7 @@ export function TrendBand({ buckets, window }: Props) {
   return (
     <div className={styles.charts3}>
       <RunsChart buckets={buckets} window={window} />
-      <LatencyChart buckets={buckets} window={window} />
+      <JobDurationChart buckets={buckets} window={window} />
       <CostChart buckets={buckets} window={window} />
     </div>
   );
@@ -126,7 +126,7 @@ function CostChart({ buckets, window }: Props) {
   );
 }
 
-function LatencyChart({ buckets, window }: Props) {
+function JobDurationChart({ buckets, window }: Props) {
   const rows = buckets ?? [];
   const { series, grid, ticks } = lineGeometry(rows, window);
   const measured = series.some((entry) => entry.points.length > 0);
@@ -135,7 +135,7 @@ function LatencyChart({ buckets, window }: Props) {
   return (
     <Card className={styles.chart}>
       <div className={styles.chartHead}>
-        <span className={styles.chartTitle}>Analysis latency</span>
+        <span className={styles.chartTitle}>Job duration</span>
         <div className={styles.legend}>
           <span className={styles.legendItem}>
             <span className={`${styles.swatch} ${styles.swatch2}`} />
@@ -155,7 +155,7 @@ function LatencyChart({ buckets, window }: Props) {
           viewBox={`0 0 ${VIEW.width} ${VIEW.height}`}
           width="100%"
           role="img"
-          aria-label="Analysis latency in seconds, p50 and p95 per bucket"
+          aria-label="Job duration in seconds, p50 and p95 per bucket"
         >
           <Axes grid={grid} ticks={ticks} />
           {series.map((entry) => {
@@ -198,7 +198,7 @@ function LatencyChart({ buckets, window }: Props) {
       ) : (
         <p className={styles.chartEmpty}>
           No run settled in this window, so there is no percentile to draw. An empty bucket has no
-          latency — {seconds(null)} rather than zero.
+          job duration — {seconds(null)} rather than zero.
         </p>
       )}
     </Card>

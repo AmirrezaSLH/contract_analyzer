@@ -9,7 +9,7 @@ import { bucketLabel, plural, seconds, usd } from "./format";
  * is. Keeping the arithmetic here is what makes the three traps below testable
  * rather than eyeballed.
  *
- * **Trap 1: an empty bucket has `runs: 0` but `latency_s.p50: null`.** They
+ * **Trap 1: an empty bucket has `runs: 0` but `job_duration_s.p50: null`.** They
  * are not the same absence. A zero run count is a fact -- the axis must show
  * the quiet hours -- so an empty bucket draws a 2px baseline stub rather than
  * nothing. A null percentile is *no measurement*, and a line chart that
@@ -155,10 +155,10 @@ export function costGeometry(buckets: MetricsBucket[], window: string) {
   });
 }
 
-/** p50 and p95 latency: two steps of one hue, one axis, lines broken at every
+/** p50 and p95 job duration: two steps of one hue, one axis, lines broken at every
  *  bucket that measured nothing. */
 export function lineGeometry(buckets: MetricsBucket[], window: string) {
-  const values = buckets.flatMap((b) => [b.latency_s.p50, b.latency_s.p95]);
+  const values = buckets.flatMap((b) => [b.job_duration_s.p50, b.job_duration_s.p95]);
   const measured = values.filter((v): v is number => v !== null && v !== undefined);
   const top = niceMax(Math.max(0, ...measured));
   const slot = buckets.length ? (RIGHT - LEFT) / buckets.length : 0;
@@ -166,7 +166,7 @@ export function lineGeometry(buckets: MetricsBucket[], window: string) {
 
   const series: Series[] = (["p50", "p95"] as const).map((key) => {
     const points: (Point | null)[] = buckets.map((bucket, index) => {
-      const value = bucket.latency_s[key];
+      const value = bucket.job_duration_s[key];
       if (value === null || value === undefined) return null;
       const partial = index === buckets.length - 1;
       return {

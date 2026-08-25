@@ -77,7 +77,7 @@ export function MetricsView() {
         <div className={styles.bandHead}>
           <span className={styles.bandTitle}>Trend</span>
           <span className={styles.bandNote}>
-            runs, latency and spend, one axis each · the last bucket is the one in progress and is
+            runs, job duration and spend, one axis each · the last bucket is the one in progress and is
             drawn lighter · a bucket that measured nothing breaks the line rather than falling to
             zero
           </span>

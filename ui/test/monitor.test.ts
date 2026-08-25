@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { lineSeries } from "../src/views/Monitor/charts";
 import { monitorFixture } from "../src/views/Monitor/fixture";
-import { exhaustedChip, fiveXxChip, stageChip, usedChip } from "../src/views/Monitor/status";
+import { exhaustedChip, stageChip, usedChip } from "../src/views/Monitor/status";
 
 describe("host used-% chips", () => {
   it("is plenty under 20%, filling in the band, tight over 90%", () => {
@@ -13,11 +13,6 @@ describe("host used-% chips", () => {
 });
 
 describe("reliability chips", () => {
-  it("stays quiet under 1% 5xx and lights failing above it", () => {
-    expect(fiveXxChip(0.003)).toBeNull();
-    expect(fiveXxChip(0.02)).toEqual({ state: "Non-Compliant", words: "failing" });
-  });
-
   it("does not call 1-of-1 a 100% stage failure", () => {
     expect(stageChip(1, 1)).toEqual({ state: "neutral", words: "not enough" });
     expect(stageChip(null, 0)).toBeNull();
@@ -33,8 +28,8 @@ describe("reliability chips", () => {
 
 describe("fixture", () => {
   it("emits one bucket per window slot so a window change redraws the chart", () => {
-    expect(monitorFixture("30m").series.httpRpm).toHaveLength(60);
-    expect(monitorFixture("1h").series.httpRpm).toHaveLength(120);
+    expect(monitorFixture("30m").series.retries).toHaveLength(60);
+    expect(monitorFixture("1h").series.retries).toHaveLength(120);
   });
 });
 

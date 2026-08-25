@@ -4,8 +4,7 @@ import type { ChipState } from "../../components/StateChip";
  * Chips for this page. Colour never travels without words.
  *
  * Host used-% is the scale the plan named: under 20% plenty, over 90% tight,
- * the band in between filling. HTTP 5xx and the two reliability rates only
- * light when they miss — a wall of green "answering" chips is not a status.
+ * the band in between filling. Reliability rates only light when they miss.
  */
 
 export interface Chip {
@@ -18,12 +17,6 @@ export function usedChip(fraction: number | null | undefined): Chip | null {
   if (fraction < 0.2) return { state: "good", words: "plenty" };
   if (fraction > 0.9) return { state: "Non-Compliant", words: "tight" };
   return { state: "warn", words: "filling" };
-}
-
-/** 5xx rate over the last five minutes. > 1% is failing. */
-export function fiveXxChip(rate: number): Chip | null {
-  if (rate > 0.01) return { state: "Non-Compliant", words: "failing" };
-  return null;
 }
 
 /** Exhausted-retry rate. > 1% of upstream calls. */

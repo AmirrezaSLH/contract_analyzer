@@ -5,19 +5,18 @@ import { PageHead } from "../../components/PageHead";
 import { StateChip } from "../../components/StateChip";
 import { useMonitorHost, useMonitorStages } from "../../hooks/useMonitor";
 import { WindowSelector, bucketWords } from "./WindowSelector";
-import { millis, percent } from "../Metrics/format";
+import { percent } from "../Metrics/format";
 import kpi from "../Metrics/MetricsView.module.css";
 import { LineChart } from "./LineChart";
 import styles from "./MonitorView.module.css";
 import { monitorFixture } from "./fixture";
-import { exhaustedChip, fiveXxChip, stageChip, usedChip } from "./status";
+import { exhaustedChip, stageChip, usedChip } from "./status";
 import type { MonitorWindow } from "./types";
 
 /**
  * The Monitor tab: is the box healthy, not is the model good.
  *
- * Route `/monitor`. Stages and host are live. HTTP and upstream are still a
- * fixture until those endpoints exist.
+ * Route `/monitor`. Stages and host are live. Upstream is still a fixture.
  */
 export function MonitorView() {
   const [window, setWindow] = useState<MonitorWindow>("30m");
@@ -26,7 +25,6 @@ export function MonitorView() {
   const host = useMonitorHost(window);
   const buckets = bucketWords(window);
 
-  const httpChip = fiveXxChip(data.http.fiveXx);
   const upChip = exhaustedChip(data.upstream.exhaustedRate);
   const live = stages.data;
   const stage = live ? stageChip(live.error_rate, live.n) : null;
@@ -43,58 +41,13 @@ export function MonitorView() {
     <div className={kpi.view}>
       <PageHead
         title="Monitor"
-        subtitle="This process · stages and host are live · HTTP and upstream are a fixture until the API lands"
+        subtitle="This process · stages and host are live · upstream is a fixture until the API lands"
       />
 
       <div className={kpi.controls}>
         <WindowSelector value={window} onChange={setWindow} />
         <span className={kpi.refreshed}>window {window}</span>
       </div>
-
-      <section className={kpi.band}>
-        <div className={kpi.bandHead}>
-          <span className={kpi.bandTitle}>HTTP</span>
-          <span className={kpi.bandNote}>
-            last 5 min on the tiles · {buckets} on the charts · static and SSE omitted
-          </span>
-        </div>
-        <div className={styles.tiles}>
-          <MetricTile label="Requests / min" value={data.http.rpm.toFixed(1)} sub="API + /health" />
-          <MetricTile
-            label="5xx rate"
-            value={percent(data.http.fiveXx)}
-            chip={httpChip ? <StateChip state={httpChip.state} label={httpChip.words} size="sm" /> : null}
-            sub="target ≤ 1%"
-          />
-          <MetricTile label="p95 latency" value={millis(data.http.p95Ms)} sub="completed API calls" />
-        </div>
-        <div className={styles.charts}>
-          <LineChart
-            title="Requests / min"
-            sub={buckets}
-            samples={data.series.httpRpm}
-            window={window}
-            words={(v) => v.toFixed(1)}
-            label="HTTP requests per minute"
-          />
-          <LineChart
-            title="5xx rate"
-            sub={buckets}
-            samples={data.series.httpFiveXx}
-            window={window}
-            words={(v) => percent(v)}
-            label="HTTP 5xx rate"
-          />
-          <LineChart
-            title="p95 latency"
-            sub={`${buckets} · milliseconds`}
-            samples={data.series.httpP95}
-            window={window}
-            words={(v) => millis(v)}
-            label="HTTP p95 latency in milliseconds"
-          />
-        </div>
-      </section>
 
       <section className={kpi.band}>
         <div className={kpi.bandHead}>

@@ -57,16 +57,6 @@ export const THRESHOLDS = {
     action:
       "Results flagged for a human. Rising means the contracts are getting harder, or retrieval is getting worse.",
   },
-  /** Results the evaluator passed without a correction round. Unreachable
-   *  today -- the evaluator's columns are NULL -- and kept here so the meter
-   *  needs no new number the day it lands. */
-  evaluatorAccept: {
-    limit: 0.85,
-    direction: "min",
-    label: "target ≥ 85%",
-    action:
-      "Results the evaluator passed without a correction round. A fall here leads a fall in every other quality number.",
-  },
   /** `failed + interrupted` over `settled`. Never done-but-needs-review. */
   failureRate: {
     limit: 0.02,
@@ -123,8 +113,7 @@ export function costTailRatio(
  * Where a value sits against its bound.
  *
  * `null` is `neutral`, not a pass: a rate with no denominator has not been
- * measured, and a green chip over an unmeasured number is the same lie as a
- * cap rate labelled an accept rate.
+ * measured, and a green chip over an unmeasured number is a lie.
  */
 export function statusOf(value: number | null | undefined, threshold: Threshold): Status {
   if (value === null || value === undefined) return { tone: "neutral", words: "not measured" };
@@ -153,10 +142,8 @@ export function meterFill(value: number | null | undefined, threshold: Threshold
   return clamp(value / meterScale(threshold));
 }
 
-/** Where the black tick goes. `null` when there is no honest threshold to
- *  draw -- the evaluator slot while it is standing in a cap rate. */
-export function meterTick(threshold: Threshold | null): number | null {
-  if (threshold === null) return null;
+/** Where the black tick goes, as a fraction of the bar. */
+export function meterTick(threshold: Threshold): number {
   return clamp(threshold.limit / meterScale(threshold));
 }
 

@@ -102,8 +102,7 @@ describe("thresholds", () => {
   });
 
   it("calls an unmeasured rate unmeasured, not healthy", () => {
-    // A green chip over a null is the same lie as a cap rate labelled an
-    // accept rate.
+    // A green chip over a null is a lie: the rate was never measured.
     expect(statusOf(null, THRESHOLDS.quoteVerification)).toEqual({
       tone: "neutral",
       words: "not measured",
@@ -117,11 +116,6 @@ describe("thresholds", () => {
     expect(meterFill(0.15, THRESHOLDS.needsReview)).toBeCloseTo(1, 5);
     // A floor threshold keeps its natural scale: 99% is 99% along the bar.
     expect(meterTick(THRESHOLDS.quoteVerification)).toBeCloseTo(0.99, 5);
-  });
-
-  it("draws no tick where there is no honest threshold", () => {
-    // The evaluator slot while it stands in a cap rate.
-    expect(meterTick(null)).toBeNull();
   });
 });
 

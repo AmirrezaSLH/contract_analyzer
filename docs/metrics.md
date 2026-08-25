@@ -65,20 +65,6 @@ the upper.
 rate of zero and no quotes at all mean opposite things, and every rate ships
 with the counts it was computed from.
 
-### The evaluator slot is honest
-
-`analyses.evaluator_accepted / _revised / _fallback` are declared and `NULL`
-until the evaluator lands. `summary` therefore reports **cap rate** in that
-slot, inside an object that says so:
-
-```json
-"evaluator": {"available": false, "accept_rate": null,
-              "showing": "cap_rate", "value": 0.1, "note": "..."}
-```
-
-A UI renders the note. When the evaluator lands, `available` flips and the
-tile keeps its place.
-
 ### Windows and buckets move together
 
 The window selector drives both: **24 h → `1h`, 7 d → `6h`, 30 d → `1d`**.

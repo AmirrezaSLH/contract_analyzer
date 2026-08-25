@@ -34,6 +34,7 @@ from ..logger import get_logger, span
 from .agent import AgentRun, AgentTask, OnEvent, call_model, run_agent
 from .blocks import Citation, answer_text, document_blocks, resolve_citations
 from .client import Usage, get_client
+from .figures import figure_blocks
 from .prompts import get_prompts
 from .tools import ContractTools, Evidence, ToolCall
 
@@ -129,6 +130,11 @@ def chat(
                     "role": "user",
                     "content": [
                         *document_blocks(run.evidence),
+                        # Beside the documents, not inside them: a document
+                        # source stays plain text so its citations come back
+                        # as `char_location`, and a figure's image rides
+                        # alongside so the model can read what it cites.
+                        *figure_blocks(run.evidence.chunks, settings=settings),
                         {"type": "text", "text": question},
                     ],
                 },

@@ -324,7 +324,7 @@ def critic_turn(criterion, **kw) -> str:
 
 def make_chunk(chunk_id: int, text: str, *, section: str = "6.6 Password Management Standard",
                page: str = "9", document_id: int = 1, element_type: str = "paragraph",
-               payload: str | None = None):
+               payload: str | None = None, asset_path: str | None = None):
     """A `RetrievedChunk` with no database behind it."""
     from contract_analyzer.retrieval.base import RetrievedChunk
 
@@ -340,5 +340,6 @@ def make_chunk(chunk_id: int, text: str, *, section: str = "6.6 Password Managem
         section_path=["6. Identity and Access Management", section],
         element_type=element_type,
         payload=payload,
+        asset_path=asset_path,
         spine_source="outline",
     )

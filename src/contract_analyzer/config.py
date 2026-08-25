@@ -155,6 +155,13 @@ class Settings(BaseSettings):
     analysis_max_tool_calls: int = Field(default=8, gt=0)
     #: The evidence ledger's total, across every tool result in one run.
     max_evidence_tokens: int = Field(default=12_000, gt=0)
+    #: Attach the image to the request when a retrieved chunk is a figure, so
+    #: the model can read the diagram and not just its caption. On by default:
+    #: the files are already on disk, only what a run retrieved is ever sent,
+    #: and a contract with no figures never notices. Off is the escape hatch
+    #: for a run that must not spend tokens on pixels -- see
+    #: `generation/figures.py`.
+    send_figure_images: bool = True
     #: Rounds of structural self-correction before a bad quote is dropped and
     #: the result flagged `needs_review`.
     structure_fix_rounds: int = Field(default=2, ge=0)

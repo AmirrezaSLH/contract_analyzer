@@ -165,6 +165,13 @@ the figure by number holds the words a reader would actually search for, so a
 sentence or two is quoted into the chunk. The sample contract has no figures;
 the machinery is kept because it costs nothing and a different contract may.
 
+That text is also all the *embedder* ever sees -- it is text-only, and pixels
+never reach it. The picture is kept on disk and cited by `asset_path`, with
+every panel in `payload.panels`, and it is attached at *query* time: a figure
+chunk that comes back from a search rides to the model as an image block
+beside its caption (`docs/agents/analyzer.md`). Writing a description into the
+indexed text at ingest is the separate, opt-in `--describe-figures`.
+
 ## The contract to the next stage
 
 1. `chunk_elements(elements, settings)` is a **pure function**: same input,

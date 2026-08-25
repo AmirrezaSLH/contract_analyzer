@@ -44,6 +44,22 @@ When errors survive every round the result is still returned: failed quotes
 are dropped, `needs_review` is set, confidence is capped. A bad quote never
 reaches the UI; a stuck loop never blocks the demo.
 
+## Retrieved figures are sent as pictures
+
+A figure chunk's text is its caption plus the prose that cites it -- that is
+what is embedded, what is rendered and what is cited, and it stays that way.
+It is not enough to *read* the diagram, so when a tool result carries a figure
+whose asset is on disk, the result is a block list -- the rendered passages,
+then the images -- instead of a string, and the chat finisher appends the same
+images beside its document blocks (`generation/figures.py`, encoder shared
+with the parser in `parse/images.py`). The document blocks themselves stay
+plain text, so citations stay `char_location`. Only what a run retrieved is
+ever encoded, at most four panels a figure and eight images a request; a
+missing or unreadable asset is logged and the caption goes alone. The
+ingest-time describer (`--describe-figures`) is a different thing and stays
+opt-in and off. `send_figure_images: false` in `settings.json` turns the whole
+path off.
+
 ## What is new: `AnalysisOutcome`
 
 `analyze_criterion` used to return the result and throw away everything that
@@ -119,4 +135,6 @@ revision cannot re-burn the index. `ended_by` reflects the *last* leg;
 `tests/test_analysis.py` (the validator rule by rule, the correction rounds,
 the confidence terms), `tests/test_revise.py` (both modes, the conversation
 continuing rather than restarting, the budget delta, the ledger identity),
-`tests/test_generation_core.py` (the loop and its counters).
+`tests/test_generation_core.py` (the loop and its counters),
+`tests/test_figures.py` (a retrieved figure's image on the tool result and
+in the chat finisher, and every way a missing asset degrades to text).

@@ -7,6 +7,7 @@
   "chat_max_tool_calls": 4,
   "analysis_max_tool_calls": 8,
   "max_evidence_tokens": 12000,
+  "send_figure_images": true,
   "structure_fix_rounds": 2,
   "research_extra_tool_calls": 3,
   "evaluator_model": "",

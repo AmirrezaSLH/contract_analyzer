@@ -17,26 +17,14 @@ decides to concatenate them into the indexed text.
 
 from __future__ import annotations
 
-import base64
-import io
-from pathlib import Path
-
 from ..config import Settings, get_settings
 from ..http_client import get_http_client
 from ..logger import get_logger
 from .elements import FigureElement
+from .images import MAX_LONG_EDGE, MAX_PANELS, encode_image
 
 log = get_logger(__name__)
 
-#: Claude downsamples images beyond roughly this edge length anyway, and our
-#: extracted assets are the publisher's originals -- often 4000px wide for a
-#: figure the page shows at 459pt. Sending them untouched wastes bandwidth and
-#: tokens for no gain in what the model can see.
-MAX_LONG_EDGE = 1568
-
-#: Panels beyond this are dropped from the request; a figure with more than a
-#: handful is better summarised from its caption anyway.
-MAX_PANELS = 4
 
 SYSTEM_PROMPT = (
     "You describe figures and diagrams from commercial contracts so they can be "
@@ -47,48 +35,9 @@ SYSTEM_PROMPT = (
     "begin with 'This figure' or 'The image'. Write plain prose, no markdown."
 )
 
-_MEDIA_TYPES = {
-    ".png": "image/png",
-    ".jpg": "image/jpeg",
-    ".jpeg": "image/jpeg",
-    ".gif": "image/gif",
-    ".webp": "image/webp",
-}
-
 
 class DescriptionUnavailable(RuntimeError):
     """No API key, or the `anthropic` package is not installed."""
-
-
-def _encode(path: Path, max_long_edge: int = MAX_LONG_EDGE) -> dict | None:
-    """One image content block, downscaled if it is larger than Claude will use."""
-    media_type = _MEDIA_TYPES.get(path.suffix.lower())
-    if media_type is None:
-        return None
-
-    data = path.read_bytes()
-    try:
-        from PIL import Image
-
-        with Image.open(io.BytesIO(data)) as image:
-            if max(image.size) > max_long_edge:
-                image.thumbnail((max_long_edge, max_long_edge))
-                buffer = io.BytesIO()
-                # Flatten to RGB: a palette or alpha image cannot be saved as
-                # JPEG, and the alpha channel carries nothing we need.
-                image.convert("RGB").save(buffer, format="JPEG", quality=85)
-                data, media_type = buffer.getvalue(), "image/jpeg"
-    except Exception as exc:  # Pillow missing, or an image it cannot open
-        log.debug("not resizing %s: %s", path.name, exc)
-
-    return {
-        "type": "image",
-        "source": {
-            "type": "base64",
-            "media_type": media_type,
-            "data": base64.standard_b64encode(data).decode("ascii"),
-        },
-    }
 
 
 def _client(settings: Settings):
@@ -107,7 +56,7 @@ def _client(settings: Settings):
 
 def describe_figure(figure: FigureElement, client, model: str) -> str | None:
     """Two or three sentences on what one figure shows, or None if it failed."""
-    blocks = [b for b in (_encode(p) for p in figure.asset_paths[:MAX_PANELS]) if b]
+    blocks = [b for b in (encode_image(p) for p in figure.asset_paths[:MAX_PANELS]) if b]
     if not blocks:
         return None
 
@@ -174,4 +123,10 @@ def describe_figures(
     return written
 
 
-__all__ = ["DescriptionUnavailable", "describe_figure", "describe_figures"]
+__all__ = [
+    "MAX_LONG_EDGE",
+    "MAX_PANELS",
+    "DescriptionUnavailable",
+    "describe_figure",
+    "describe_figures",
+]

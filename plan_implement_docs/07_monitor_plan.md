@@ -1,6 +1,6 @@
 # Step 14 — the Monitor tab: is the box healthy, not just is the model good
 
-**Status: host and stages are built; HTTP and upstream still fixture.**
+**Status: host and stages are built; upstream is still fixture. HTTP is out of scope.**
 related to `06_metrics_plan.md`
 
 **The one-sentence version.** The KPI tab (`/metrics`) answers *"is the
@@ -29,12 +29,12 @@ discipline argues for a second page here, not scope creep on the first:
 * **User's instruction for this pass**: cost is out of scope here — it is
   §3.4's KPI tab's job. This tab is §3.5's "other signals," and the honest
   reading of §3.5 for a system that is one process on one VPS behind nginx is
-  RED (rate, errors, duration of the **API** surface this process actually
-  served) and USE (host RAM and disk) — not Kubernetes-shaped metrics this
-  deployment doesn't have. Nginx pointed at the wrong port never reaches this
-  process; that stays a Logs / external `/health` story.
+  USE (host RAM and disk) plus where a pipeline span failed — not Kubernetes-
+  shaped metrics this deployment doesn't have, and not a second copy of HTTP
+  request stats. Nginx pointed at the wrong port never reaches this process;
+  that stays a Logs / external `/health` story.
 
-## The four metrics
+## The three metrics
 
 Each is scoped to the **API process only** — this tab has no CLI equivalent,
 unlike the KPI tab, because "is the deployment healthy" is not a question
@@ -43,42 +43,12 @@ narrower scope than step 13's, and is worth saying explicitly in the doc
 rather than leaving a reader to wonder why `spans.surface='cli'` never shows
 up here.
 
-### 1. API surface health — request rate, 5xx, p95, this process
+**HTTP request rate / 5xx / p95 is not on this tab.** It was sketched as
+metric #1 and then cut: nginx never-seen traffic would still be invisible,
+KPI already has run latency and failure rate, and the remaining three
+already answer "is the box dying" and "where did the pipeline break."
 
-**What it is not**: the KPI tab's p95 and failure rate are scoped to analysis
-*runs*. This tile is whether **this API process** is answering HTTP. It is
-also not the static bundle, not nginx, and not a second copy of the job
-inside `spans`.
-
-The full version (every route, five groups, `span("http.request")` into the
-KPI table) is dropped. FastAPI's existing trace middleware already wraps
-every request for `X-Trace-Id`. After `call_next`, record
-`{status, elapsed_ms}` into an in-memory ring if the path is API traffic.
-
-* **Include**: `/api/*` that returns a normal response, and `/health`.
-  `POST /api/analyses` stays in — it is supposed to be fast (enqueue); the
-  60–180 s job is the KPI tab's problem.
-* **Skip**: the static mount (`/`, `/assets/…`); SSE
-  (`/api/logs/events`, `/analyses/{id}/events`) — duration is "tab left
-  open," not latency. Optional: `POST /api/chat` while it is streaming.
-* **Live tiles**: last 5 minutes, **this process**: requests/min, 5xx rate,
-  p95 of the requests that were not skipped. One number each, not five
-  route groups. 4xx is omitted — most of it is a client sending garbage.
-* **Historical**: the same three series, bucketed over the page window. The
-  ring is only ~5 minutes of raw hits; the 30s sampler (#4) writes the
-  derived rates onto `system_samples` (`http_rpm`, `http_5xx_rate`,
-  `http_p95_ms`) so a 24 h chart does not require `http.request` spans.
-  A restart still zeros the live tiles until the next samples land.
-* **Capture**: `HttpStats` on `app.state`, a few dozen lines on the existing
-  `trace` middleware. **No HTTP spans.** Polling `GET /api/metrics/summary`
-  every 5 s must not land in the KPI `spans` table.
-* **Threshold**: no pager. Chip only, same words-and-colour rule as #4:
-  5xx rate > 1% over 5 min → red / "failing"; otherwise green / "answering."
-* **What this still cannot see**: nginx upstream on the wrong port. The app
-  never saw the request. That remains Logs and an external probe of
-  `/health`.
-
-### 2. Upstream dependency reliability — is it us or is it Anthropic/OpenAI
+### 1. Upstream dependency reliability — is it us or is it Anthropic/OpenAI
 
 **What it is not**: cost per token, cost per run — KPI tab, explicitly out of
 scope here per your instruction. This is *reliability*, not spend: retry
@@ -106,7 +76,7 @@ timeout, connection error, protocol error, 408/409/429/500/502/503/504).
   nothing on the KPI tab distinguishes "the model said something wrong" from
   "Anthropic 503'd twice and we retried our way past it."
 
-### 3. Pipeline stage failure map — *where*, not *whether*
+### 2. Pipeline stage failure map — *where*, not *whether*
 
 **What it is not**: KPI's `runs.status` failure rate is one number for an
 entire five-criterion analysis. A single `ingest.embed` failure and a single
@@ -124,8 +94,8 @@ from the dashboard, distinguishable only by opening the Logs tab and reading.
   heatmap — the page is tiles then lines, same as the other three sections.
 * **Capture**: **nothing new.** This is a pure query over the `spans` table
   step 13 already builds — `GROUP BY name` instead of `GROUP BY run_id`. It
-  is the cheapest of the four and ships the same day the spans table exists,
-  independent of the other three.
+  is the cheapest of the three and ships the same day the spans table exists,
+  independent of the other two.
 * **Threshold**: page if any single stage's error rate > 5% over the window
   with at least ~10 samples (the "at least N samples" guard matters more
   here than anywhere else on this tab — `retrieve` might see one call in a
@@ -135,7 +105,7 @@ from the dashboard, distinguishable only by opening the Logs tab and reading.
   live — which §3.6 asks for as a *capability*, and this is the dashboard
   form of it.
 
-### 4. Host resource headroom — the actual failure mode on one VPS
+### 3. Host resource headroom — the actual failure mode on one VPS
 
 **What it is not**: pod evictions, autoscaling, node pressure — none of
 which exist here. `[[demo-deployment]]` is one uvicorn process on one host
@@ -160,10 +130,10 @@ long before any model-quality metric would tell you something is wrong.**
   memory, `shutil.disk_usage(DB_PATH.parent)` for disk — both stdlib, no new
   dependency, matching this project's existing allergy to adding a library
   for something the standard library already does. Writes to one new table,
-  `system_samples(ts, rss_mb, rss_pct, disk_used_pct, http_rpm, http_5xx_rate, http_p95_ms)`,
-  in the same metrics database (still "one file"). HTTP columns are the
-  ring's derived rates at that tick, so #1's charts share the sampler
-  with #4 instead of growing `spans`.
+  `system_samples(ts, rss_mb, rss_pct, disk_used_pct, disk_used_gb,
+  disk_total_gb)`, in the same metrics database (still "one file"). Host
+  charts bucket at `monitor_sample_seconds`. Unused HTTP columns that landed
+  on an earlier draft of this table are not filled and are not shown.
 * **Threshold**: none as an alert. No pager, no `MONITOR_RSS_ALERT_MB`, no
   action that pauses runs. The tile is a **chip**, same rule as the KPI page
   (`thresholds.ts`: colour never carries a fact without words):
@@ -176,9 +146,10 @@ long before any model-quality metric would tell you something is wrong.**
 
 ## Front end
 
-Four sections on one page, same skeleton in each: **a row of labelled tiles,
+Three sections on one page, same skeleton in each: **a row of labelled tiles,
 then line charts of those numbers over the window.** No heatmap, no extra
-bands, no cost. The KPI page already has the parts; this is composition.
+bands, no cost, no HTTP RED. The KPI page already has the parts; this is
+composition.
 
 `MonitorView` at `/monitor`. Application-level, like `/metrics` and `/logs`:
 no `:id`, no document tabs, sidebar drops the library block. `ModeToggle`
@@ -192,45 +163,41 @@ Reuse, do not fork:
 |---|---|
 | Tiles | `MetricTile` — label, value, optional chip, sub-line |
 | Charts | `charts.ts` `lineGeometry` + the SVG in `TrendBand` (copy the card, do not import KPI types into Monitor) |
-| Window | Monitor's own selector — 30 min / 1 h. Host charts bucket at `monitor_sample_seconds`. Stages charts are 1-minute bars. HTTP live tiles stay ~5 min. KPI keeps 24h / 7d / 30d. |
+| Window | Monitor's own selector — 30 min / 1 h. Host charts bucket at `monitor_sample_seconds`. Stages charts are 1-minute bars. KPI keeps 24h / 7d / 30d. |
 | Errors | `ErrorSurface` per section, so one failed query does not blank the page |
-| Poll | 5 s on `GET /monitor/summary`, same as KPI |
+| Poll | 5 s on `GET /monitor/stages` and `GET /monitor/host`, same as KPI |
 
 **Chips still carry words.** Colour never travels alone (`thresholds.ts` on
-KPI). HTTP: 5xx > 1% → red / "failing", else green / "answering". Host:
-used &lt; 20% → green / "plenty", &gt; 90% → red / "tight", else warn /
-"filling". Upstream exhausted &gt; 1% and stage error &gt; 5% (n ≥ 10)
+KPI). Host: used &lt; 20% → green / "plenty", &gt; 90% → red / "tight", else
+warn / "filling". Upstream exhausted &gt; 1% and stage error &gt; 5% (n ≥ 10)
 use the same chip pattern; they are not pagers.
 
 **Chart rules, copied from `charts.ts`:** null percentiles **break the
 line**, they are not drawn as 0. Empty buckets are allowed on the axis.
-**One unit per chart** — requests/min and p95 ms are two cards, not a
-second y-axis. The last bucket is the current partial one.
+**One unit per chart.** The last bucket is the current partial one.
 
 | Section | Tiles | Charts |
 |---|---|---|
-| HTTP | req/min, 5xx rate, p95 | those three series from `system_samples` |
 | Upstream | retries/100, exhausted rate, top reason | retry rate, exhausted rate from `spans` |
 | Stages | worst name, its error rate, total errors, n | error rate for that name, error count across the short list from `spans` |
 | Host | Memory %, disk % | those two series from `system_samples` |
 
-`GET /monitor/summary?window=` is the tiles (plus whatever live 5 min the
-ring still holds for HTTP). `GET /monitor/timeseries?window=` is the
-buckets for every chart on the page, one payload, oldest first.
+`GET /monitor/stages` and `GET /monitor/host` are the live payloads.
+Upstream still needs a route.
 
 ## What ties this to the existing metrics infrastructure vs. what's new
 
 | Piece | Reused from step 13 | New |
 |---|---|---|
-| Storage | same SQLite file, `spans` for #2–#3 | `system_samples` for #4 and for #1's chart (derived HTTP rates on the same 30s tick). The HTTP ring stays in-memory for the live tiles |
-| Capture | `span()` for #2 and #3 | `trace` middleware → `HttpStats`; sampler thread writes host + HTTP snapshot |
-| Query layer | percentiles in SQL, window parsing | `GROUP BY name` for #3; ring for live HTTP; `system_samples` for HTTP/host history |
-| API | `routes/metrics.py` pattern | `routes/monitor.py`: `GET /monitor/summary`, `GET /monitor/timeseries` |
+| Storage | same SQLite file, `spans` for upstream and stages | `system_samples` for host |
+| Capture | `span()` for upstream and stages | sampler thread writes host snapshots |
+| Query layer | percentiles in SQL, window parsing | `GROUP BY name` for stages; `system_samples` for host history |
+| API | `routes/metrics.py` pattern | `routes/monitor.py`: `GET /monitor/stages`, `GET /monitor/host` |
 | UI | `MetricTile`, `WindowSelector`, `lineGeometry`, `ErrorSurface`, 5s polling | `MonitorView`, fourth `ModeToggle` link |
 
-The reuse is the point: #3 is a query over data that already exists, #2 is
-one promotion at a call site that already logs, #1 is a filter on middleware
-that already runs. Only #4 has no existing seam.
+The reuse is the point: stages is a query over data that already exists,
+upstream is one promotion at a call site that already logs. Only host had no
+existing seam. HTTP request stats were cut rather than sharing the sampler.
 
 ## Open questions
 
@@ -240,7 +207,7 @@ that already runs. Only #4 has no existing seam.
 
 ## Cut order if over budget
 
-`system_samples` sampler thread (#4) first — it is the only piece with no
+`system_samples` sampler thread (host) first — it is the only piece with no
 existing seam, so it is the most expensive relative to what it adds →
-pipeline stage map (#3) last, since it's a query over data that will already
+pipeline stage map last, since it's a query over data that will already
 exist the moment step 13 lands, regardless of anything in this plan.

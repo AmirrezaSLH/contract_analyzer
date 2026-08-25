@@ -33,8 +33,9 @@ from typing import Any
 from ..config import Settings
 from ..db import connect
 from ..logger import attach_handler, detach_handler, get_logger
-from . import queries, stages
+from . import host, queries, stages
 from .handler import SpanHandler
+from .sampler import HostSampler
 
 log = get_logger(__name__)
 
@@ -53,6 +54,11 @@ class MetricsStore:
         self._settings = settings
         self._path = settings.db_path
         self.handler = SpanHandler(self._open)
+        self.sampler = HostSampler(
+            self._open,
+            db_path=settings.db_path,
+            interval=settings.monitor_sample_seconds,
+        )
         self._installed = False
         # Applied here, on a connection of this thread's, so that `spans`
         # exists before the first request queries it -- the writer thread's
@@ -86,7 +92,13 @@ class MetricsStore:
         if self._installed:
             detach_handler(self.handler)
             self._installed = False
+        self.sampler.close()
         self.handler.close()
+
+    def start_sampler(self) -> MetricsStore:
+        """Begin writing host snapshots. API lifespan only, not `install()`."""
+        self.sampler.start()
+        return self
 
     def _open(self) -> sqlite3.Connection:
         """The writer's connection. `same_thread=False` because it is created
@@ -134,6 +146,10 @@ class MetricsStore:
     def stages(self, conn: sqlite3.Connection, *, window: str = "24h") -> dict[str, Any]:
         """Worst pipeline stage over the last five minutes, and its trend."""
         return stages.stage_map(conn, window=window)
+
+    def host(self, conn: sqlite3.Connection, *, window: str = "24h") -> dict[str, Any]:
+        """Latest RAM and disk, and their percent series over `window`."""
+        return host.host_map(conn, window=window)
 
     def criterion_mix(
         self, conn: sqlite3.Connection, *, window: str = "30d"

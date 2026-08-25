@@ -150,6 +150,10 @@ def create_app(
         # After `configure_logging`, because installing the store's handler
         # means adding it to the root logger this call has just re-populated.
         app.state.metrics = _metrics(settings)
+        # Host samples are this process on this box. `install()` does not
+        # start the sampler: `make analyze` is not a deployment.
+        if app.state.metrics is not None:
+            app.state.metrics.start_sampler()
         # After `configure_logging`, same reason as the metrics handler: a
         # force-reconfigured logger has just dropped every handler, and this
         # is the one that fans lines out to the Log tab.
@@ -197,7 +201,7 @@ def create_app(
             {"name": "analyses", "description": "The five criteria as a background job."},
             {"name": "chat", "description": "Cited question answering over one contract."},
             {"name": "metrics", "description": "KPI data over the metrics store."},
-            {"name": "monitor", "description": "Is the box healthy: pipeline stages, then more."},
+            {"name": "monitor", "description": "Is the box healthy: pipeline stages, host, then more."},
             {"name": "logs", "description": "The live console, as server-sent events."},
         ],
     )

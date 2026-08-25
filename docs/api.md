@@ -60,6 +60,7 @@ clicks later.
 | `GET` | `/metrics/runs` | The global runs table -- what `GET /analyses` deliberately does not serve. |
 | `GET` | `/metrics/runs/{id}/spans` | One run's span tree, for the waterfall. |
 | `GET` | `/monitor/stages` | Worst pipeline stage over the last five minutes, its error rate, and total error count. |
+| `GET` | `/monitor/host` | This process's memory and the disk under the database. |
 | `GET` | `/logs/events` | Live console as SSE. Same compact lines as stderr. Does not close. |
 
 ## Decisions worth defending

@@ -16,6 +16,7 @@
   "api_cors_origins": [],
   "api_keepalive_seconds": 15,
   "api_event_buffer": 256,
+  "monitor_sample_seconds": 10,
 
   "http_timeout_seconds": 60,
   "http_retries": 3,

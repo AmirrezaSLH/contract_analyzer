@@ -1243,6 +1243,42 @@
         "title": "Health",
         "type": "object"
       },
+      "HostBucket": {
+        "description": "One chart bucket. Percents are null when nothing was sampled then.",
+        "properties": {
+          "bucket": {
+            "title": "Bucket",
+            "type": "string"
+          },
+          "disk_used_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disk Used Pct"
+          },
+          "rss_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rss Pct"
+          }
+        },
+        "required": [
+          "bucket"
+        ],
+        "title": "HostBucket",
+        "type": "object"
+      },
       "LastAnalysisOut": {
         "description": "The newest analysis of a document, as a list row needs it.\n\n`states` is a count per compliance state rather than a summary sentence:\na library composes \"5 of 5 compliant\" or \"2 gaps found\" in its own words,\nand the next consumer will want different ones.",
         "properties": {
@@ -1580,6 +1616,104 @@
           }
         },
         "title": "ModelCost",
+        "type": "object"
+      },
+      "MonitorHost": {
+        "description": "`GET /monitor/host`: latest RAM and disk, and their trend.\n\nTiles are the newest `system_samples` row. Charts take the last sample in\neach bucket. HTTP columns on that table are not part of this payload.",
+        "properties": {
+          "disk_total_gb": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disk Total Gb"
+          },
+          "disk_used_gb": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disk Used Gb"
+          },
+          "disk_used_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disk Used Pct"
+          },
+          "generated_at": {
+            "title": "Generated At",
+            "type": "string"
+          },
+          "rss_mb": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rss Mb"
+          },
+          "rss_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rss Pct"
+          },
+          "series": {
+            "items": {
+              "$ref": "#/components/schemas/HostBucket"
+            },
+            "title": "Series",
+            "type": "array"
+          },
+          "since": {
+            "title": "Since",
+            "type": "string"
+          },
+          "ts": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ts"
+          },
+          "window": {
+            "title": "Window",
+            "type": "string"
+          }
+        },
+        "required": [
+          "window",
+          "since",
+          "generated_at",
+          "series"
+        ],
+        "title": "MonitorHost",
         "type": "object"
       },
       "MonitorStages": {
@@ -5339,6 +5473,146 @@
         ]
       }
     },
+    "/api/monitor/host": {
+      "get": {
+        "description": "How much RAM this process is using, and how full the disk is.\n\nTiles are the latest sample. The series follows `window`. No pager: the\nchips say plenty / filling / tight.",
+        "operationId": "host_api_monitor_host_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "window",
+            "required": false,
+            "schema": {
+              "default": "24h",
+              "pattern": "^\\d+[hd]$",
+              "title": "Window",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MonitorHost"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Malformed request."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or wrong X-API-Key."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "No such document or analysis."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The resource is busy, or already in the requested state."
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The upload is over api_max_upload_mb."
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Only PDF uploads are supported."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The request body did not validate."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unhandled server error; the X-Trace-Id is on every log line."
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "An upstream call failed after its retries."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "A key or a dependency the operation needs is not configured."
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Host memory and disk headroom",
+        "tags": [
+          "monitor"
+        ]
+      }
+    },
     "/api/monitor/stages": {
       "get": {
         "description": "Where it broke, not whether a run failed.\n\nTiles are the last five minutes; the series follows `window`. `errors_total`\ncounts every named stage, not only the worst. A stage with fewer than\n`min_samples` hits is reported with its n so 1-of-1 is not a 100% error rate.",
@@ -5502,7 +5776,7 @@
       "name": "metrics"
     },
     {
-      "description": "Is the box healthy: pipeline stages, then more.",
+      "description": "Is the box healthy: pipeline stages, host, then more.",
       "name": "monitor"
     },
     {

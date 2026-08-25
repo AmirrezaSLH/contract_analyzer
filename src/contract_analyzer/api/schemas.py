@@ -717,6 +717,33 @@ class MonitorStages(BaseModel):
     series: list[StageBucket]
 
 
+class HostBucket(BaseModel):
+    """One chart bucket. Percents are null when nothing was sampled then."""
+
+    bucket: str
+    rss_pct: float | None = None
+    disk_used_pct: float | None = None
+
+
+class MonitorHost(BaseModel):
+    """`GET /monitor/host`: latest RAM and disk, and their trend.
+
+    Tiles are the newest `system_samples` row. Charts take the last sample in
+    each bucket. HTTP columns on that table are not part of this payload.
+    """
+
+    window: str
+    since: str
+    generated_at: str
+    ts: str | None = None
+    rss_mb: float | None = None
+    rss_pct: float | None = None
+    disk_used_pct: float | None = None
+    disk_used_gb: float | None = None
+    disk_total_gb: float | None = None
+    series: list[HostBucket]
+
+
 Detail = Annotated[
     Literal["full", "summary"],
     Field(description="`summary` omits quotes and rationale from the report."),

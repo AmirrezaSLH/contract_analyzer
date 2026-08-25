@@ -1,4 +1,4 @@
-"""The Monitor tab's data. Stages first: a query over spans, no new capture."""
+"""The Monitor tab's data. Stages from spans; host from the sampler."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from typing import Annotated
 from fastapi import APIRouter, Query
 
 from ..deps import ConnDep, MetricsDep, Protected
-from ..schemas import MonitorStages
+from ..schemas import MonitorHost, MonitorStages
 
 router = APIRouter(prefix="/monitor", tags=["monitor"], dependencies=[Protected])
 
@@ -27,3 +27,17 @@ def stages(
     `min_samples` hits is reported with its n so 1-of-1 is not a 100% error rate.
     """
     return MonitorStages.model_validate(store.stages(conn, window=window))
+
+
+@router.get("/host", summary="Host memory and disk headroom")
+def host(
+    conn: ConnDep,
+    store: MetricsDep,
+    window: Annotated[str, Query(pattern=_SPEC)] = "24h",
+) -> MonitorHost:
+    """How much RAM this process is using, and how full the disk is.
+
+    Tiles are the latest sample. The series follows `window`. No pager: the
+    chips say plenty / filling / tight.
+    """
+    return MonitorHost.model_validate(store.host(conn, window=window))

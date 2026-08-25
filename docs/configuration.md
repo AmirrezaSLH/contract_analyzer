@@ -57,6 +57,7 @@ below, and `settings.json` only ever needs the fields in the second table.
 | | `retrieval_candidates` | 20 | per retriever, before fusion |
 | | `retrieval_top_k` | 6 | |
 | | `rrf_k` | 60 | |
+| Monitor | `monitor_sample_seconds` | 30 | host sampler tick; writes `system_samples` |
 | MCP | `mcp_request_timeout_seconds` | 30 | every connector call except an upload |
 | | `mcp_upload_timeout_seconds` | 300 | an upload parses, chunks and embeds before it answers |
 | | `mcp_poll_seconds` | 10 | what a host is told to wait between `get_analysis` calls |
